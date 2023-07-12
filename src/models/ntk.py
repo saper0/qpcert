@@ -78,4 +78,4 @@ class NTK(torch.nn.Module):
         Returns:
             Tensor: Resulting (soft) labeling from label propagation.
         """
-        raise NotImplementedError("So for NTK can't be used for prediction")
+        raise NotImplementedError("So far NTK can't be used for prediction")
