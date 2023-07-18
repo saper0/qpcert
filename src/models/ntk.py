@@ -39,7 +39,7 @@ class NTK(torch.nn.Module):
     def calc_ntk(self, X: Float[torch.Tensor, "n d"], 
                  S: Float[torch.Tensor, "n n"]):
         """Calculate and return ntk matrix."""
-        assert self.model_dict["model"] == "GCN"
+        assert self.model_dict["model"] == "GCN" or self.model_dict["model"] == "SoftMedoid"
         csigma = 1 
         S_norm = torch.norm(S)
         XXT = X.matmul(X.T)
