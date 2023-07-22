@@ -14,7 +14,7 @@ def create_attack(target_idx: int, X: Float[torch.Tensor, "n n"],
                   seed: int=42,
                   model: torch.nn.Module=None) -> GlobalAttack:
     if hyperparams["attack"] == "random":
-        return Random(target_idx, A, y, hyperparams)
+        return Random(target_idx, A, y, seed)
     elif hyperparams["attack"] == "noise":
         return Noise(target_idx, A, seed)
     else:
