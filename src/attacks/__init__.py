@@ -5,6 +5,7 @@ from jaxtyping import Float, Integer
 
 from src.attacks.base_attack import GlobalAttack
 from src.attacks.simple_attacks import Noise, Random
+#from src.attacks.prbcd import PRBCD
 
 
 def create_attack(target_idx: int, X: Float[torch.Tensor, "n n"], 

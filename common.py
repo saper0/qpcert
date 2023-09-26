@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import numpy as np
 import scipy.sparse as sp
@@ -12,6 +12,7 @@ from cycler import cycler
 from src.graph_models.csbm import CSBM
 from src.models.ntk import NTK
 from src.attacks import create_attack
+
 
 def configure_hardware(device, seed: int):
     torch.manual_seed(seed)
@@ -45,62 +46,6 @@ def get_graph(data_dict: Dict[str, Any], seed: int,  sort: bool=True):
         A = A[idx, :]
         A = A[:, idx]
     return X, A, y
-
-
-def row_normalize(A):
-    # Row normalize
-    S = torch.triu(A, diagonal=1) + torch.triu(A, diagonal=1).T
-    S.data[torch.arange(S.shape[0]), torch.arange(S.shape[0])] = 1
-    Deg_inv = torch.diag(torch.pow(S.sum(axis=1), - 1))
-    return Deg_inv @ S
-
-
-def tbn_normalize(A: Float[torch.Tensor, "n n"]):
-    #S = torch.triu(A, diagonal=1) + torch.triu(A, diagonal=1).T
-    #S.data[torch.arange(S.shape[0]), torch.arange(S.shape[0])] = 1
-    A_ = A + torch.eye(A.shape[0])
-    deg = A_.sum(axis=0)
-    A_x_deg = torch.einsum("ij,j -> ij", A_, deg)
-    norm = 1 / torch.sum(A_x_deg, axis=1) #torch.einsum("ij->i", A_x_deg)
-    S = torch.einsum("ij, i -> ij", A_x_deg, norm)
-    return S
-
-
-def degree_scaling(A: Float[torch.Tensor, "n n"], gamma: float=3, delta: float=0):
-    A_ = A + torch.eye(A.shape[0])
-    deg = A_.sum(axis=0).view(A.shape[0], 1)
-    deg_num = deg - delta
-    deg_den = deg + gamma
-    weight = (deg_num / deg_den).view(-1)
-    A_x_weight = torch.einsum("ij,j -> ij", A_, weight)
-    norm = 1 / torch.sum(A_x_weight, axis=1)
-    S = torch.einsum("ij, i -> ij", A_x_weight, norm)
-    return S
-
-
-def get_diffusion(X: torch.Tensor, A: torch.Tensor, model_dict):
-    if model_dict["model"] == "GCN":
-        if model_dict["normalization"] == "row_normalization":
-            return row_normalize(A)
-        elif model_dict["normalization"] == "trust_biggest_neighbor":
-            return tbn_normalize(A)
-        elif model_dict["normalization"] == "degree_scaling":
-            return degree_scaling(A, model_dict["gamma"], model_dict["delta"])
-        else:
-            raise NotImplementedError("Only row normalization for GCN implemented")
-    elif model_dict["model"] == "SoftMedoid":
-        # Row normalized implementation
-        n = X.shape[0]
-        d = X.shape[1]
-        X_view = X.view((1, n, d))
-        dist = torch.cdist(X_view, X_view, p=2).view(n, n)
-        A_self = A + torch.eye(n)
-        S = torch.exp(- (1 / model_dict["T"]) * (A_self @ dist))
-        normalization = torch.einsum("ij,ij->i", A_self, S)
-        S = (S*A_self) / normalization[:, None]
-        return S
-    else:
-        raise NotImplementedError("Only GCN architecture implemented")
     
 
 def count_edges_for_idx(A: Float[torch.Tensor, "n n"], idx: np.ndarray):
@@ -114,4 +59,73 @@ def count_edges_for_idx(A: Float[torch.Tensor, "n n"], idx: np.ndarray):
     mask_row = mapping[row] # True if row in idx
     mask_row_col = torch.logical_or(mask_col, mask_row) # True if either row or col in idx -> edges connected to idx
     return mask_row_col.sum().cpu().item()
+
+
+def calc_kernel_means(ntk: NTK, n_class0: int):
+    ntk = ntk.get_ntk()
+    n = ntk.shape[0]
+    mask_class0 = torch.zeros((n,n), dtype=torch.bool)
+    mask_class0[:n_class0, :n_class0] = True
+    mask_class0 = mask_class0.triu(diagonal=1)
+    mask_interclass = torch.zeros((n,n), dtype=torch.bool)
+    mask_interclass[:n_class0, n_class0:] = True
+    mask_class1 = torch.zeros((n,n), dtype=torch.bool)
+    mask_class1[n_class0:, n_class0:] = True
+    mask_class1 = mask_class1.triu(diagonal=1)
+    avg_class0 = ntk[mask_class0].mean().detach().cpu().item()
+    std_class0 = ntk[mask_class0].std().detach().cpu().item()
+    avg_class1 = ntk[mask_class1].mean().detach().cpu().item()
+    std_class1 = ntk[mask_class1].std().detach().cpu().item()
+    avg_interclass = ntk[mask_interclass].mean().detach().cpu().item()
+    std_interclass = ntk[mask_interclass].std().detach().cpu().item()
+    mask_inclass = mask_class0.logical_or(mask_class1)
+    avg_inclass = ntk[mask_inclass].mean().detach().cpu().item()
+    std_inclass = ntk[mask_inclass].std().detach().cpu().item()
+    m = mask_interclass.sum()
+    k = mask_inclass.sum()
+    # todo: recheck if std_diff calc correct
+    std_diff = torch.sqrt(1 / m * std_interclass**2 + 1/k * std_inclass**2) # upper bound to true std due to ignoriance of (negative) correlation term
+    std_diff = std_diff.detach().cpu().item()
+    return avg_class0, std_class0, avg_class1, std_class1, \
+        avg_interclass, std_interclass, avg_inclass, std_inclass, std_diff
+
+
+def plot_ntk_model_diff(ntk_dict: Dict[str, Any], y: Float[torch.Tensor, "n 1"],
+                        eps_l: List[float], plot_title: str="Attack"):
+    """ Plot Class Difference for attack strengths eps_l for NTKs collected
+        in ntk_dict.
+    """
+    # 1 Layer
+    n_class0 = (y==0).sum()
+    color_list = ['r', 
+                'tab:green', 
+                'b', 
+                'lime', 
+                'slategrey', 
+                'k', 
+                "lightsteelblue",
+                "antiquewhite",
+                ]
+    linestyle_list = ['-', '--', ':', '-.']
+    fig, ax = plt.subplots()
+    ax.set_prop_cycle(cycler('color', color_list))
+    x = np.arange(len(eps_l))
+    for model_label, ntk_l in ntk_dict.items():
+        y_val = []
+        y_std = []
+        for ntk in ntk_l:
+            _, _, _, _, avg_interclass, std_interclass, avg_inclass, std_inclass, \
+                diff_std = calc_kernel_means(ntk, n_class0)
+            y_val.append(avg_inclass - avg_interclass)
+            y_std.append(diff_std)
+        ax.errorbar(x, y_val, yerr=y_std, marker="o", linestyle="-",
+                    label=f"{model_label}", capsize=5, linewidth=2.5, markersize=8)
+    ax.xaxis.set_ticks(x, minor=False)
+    xticks = [f"{eps*100:.0f}%" for eps in eps_l]
+    ax.xaxis.set_ticklabels(xticks, fontsize=10, fontweight="normal")
+    ax.yaxis.grid()
+    ax.xaxis.grid()
+    ax.set_title("Attack: " + plot_title, fontweight="normal", fontsize=15)        
+    ax.legend()
+
 

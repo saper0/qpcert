@@ -30,7 +30,8 @@ class Random(GlobalAttack):
         M[self.target_idx, :] = True
         M[:, self.target_idx] = True
         # Exclude edges connecting class 0 nodes to class 1 nodes
-        M[:self.n_class0, self.n_class0:] = M[:self.n_class0, self.n_class0:].logical_and(A_mask[:self.n_class0, self.n_class0:])
+        M[:self.n_class0, self.n_class0:] = \
+            M[:self.n_class0, self.n_class0:].logical_and(A_mask[:self.n_class0, self.n_class0:])
         M[:self.n_class0, :self.n_class0] = False
         M[self.n_class0:, self.n_class0:] = False
         triu_idx = torch.triu_indices(n,n,offset=1)
