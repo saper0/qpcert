@@ -61,9 +61,13 @@ def count_edges_for_idx(A: Float[torch.Tensor, "n n"], idx: np.ndarray):
     return mask_row_col.sum().cpu().item()
 
 
-def calc_kernel_means(ntk: NTK, n_class0: int):
+def calc_kernel_means(ntk: NTK, y: Integer[torch.Tensor, "n"],
+                      idx_use: np.ndarray = None):
     ntk = ntk.get_ntk()
-    n = ntk.shape[0]
+    idx_sorted = np.sort(idx_use)
+    ntk = ntk[idx_sorted, :][:, idx_sorted]
+    n = y[idx_sorted].shape[0]
+    n_class0 = (y[idx_sorted]==0).sum()
     mask_class0 = torch.zeros((n,n), dtype=torch.bool)
     mask_class0[:n_class0, :n_class0] = True
     mask_class0 = mask_class0.triu(diagonal=1)
@@ -91,12 +95,15 @@ def calc_kernel_means(ntk: NTK, n_class0: int):
 
 
 def plot_ntk_model_diff(ntk_dict: Dict[str, Any], y: Float[torch.Tensor, "n 1"],
-                        eps_l: List[float], plot_title: str="Attack"):
+                        eps_l: List[float], idx_use: np.ndarray = None, 
+                        plot_title: str="Attack"):
     """ Plot Class Difference for attack strengths eps_l for NTKs collected
         in ntk_dict.
     """
+    if idx_use is None:
+        n = len(y)
+        idx_use = np.array([idx for idx in range(n)])
     # 1 Layer
-    n_class0 = (y==0).sum()
     color_list = ['r', 
                 'tab:green', 
                 'b', 
@@ -117,7 +124,7 @@ def plot_ntk_model_diff(ntk_dict: Dict[str, Any], y: Float[torch.Tensor, "n 1"],
         y_std = []
         for ntk in ntk_l:
             _, _, _, _, avg_interclass, std_interclass, avg_inclass, std_inclass, \
-                diff_std = calc_kernel_means(ntk, n_class0)
+                diff_std = calc_kernel_means(ntk, y, idx_use)
             y_val.append(avg_inclass - avg_interclass)
             y_std.append(diff_std)
         ax.errorbar(x, y_val, yerr=y_std, marker="o", linestyle="-",
