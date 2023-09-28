@@ -132,10 +132,11 @@ class Attack(GlobalAttack):
             number of perturbations (attack budget in terms of node additions/deletions) that constrain the atack
         """
         if n_perturbations > 0:
-            return self._attack(n_perturbations, **kwargs)
+            self._attack(n_perturbations, **kwargs)
         else:
             self.X_pert = self.X
             self.A_pert = self.A
+        return self.A_pert
 
     def get_pertubations(self):
         A_pert, X_pert = self.A_pert, self.X_pert

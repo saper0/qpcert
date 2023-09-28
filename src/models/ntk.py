@@ -18,15 +18,25 @@ class NTK(torch.nn.Module):
         Non-linearity and Depth in Graph Neural Networks using Neural Tangent 
         Kernel".
     """
-    def __init__(self, X: Float[torch.Tensor, "n d"], A: Float[torch.Tensor, "n n"], 
-                 model_dict: Dict[str, Any], dtype=torch.float64):
+    def __init__(self, model_dict: Dict[str, Any], 
+                 X: Optional[Float[torch.Tensor, "n d"]] = None, 
+                 A: Optional[Float[torch.Tensor, "n n"]] = None, 
+                 device = None,
+                 dtype=torch.float64):
         super().__init__()
         self.model_dict = model_dict
         assert self.model_dict["model"] == "GCN" \
             or self.model_dict["model"] == "SoftMedoid"
         self.dtype = dtype
-        self.device = X.device
-        self.ntk = self.calc_ntk(X, A)
+        if device is not None:
+            self.device = device
+        else:
+            assert X is not None
+            self.device = X.device
+        if X is None or A is None:
+            self.ntk = None
+        else:
+            self.ntk = self.calc_ntk(X, A)
 
     def calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
         if self.model_dict["model"] == "GCN":
@@ -45,7 +55,7 @@ class NTK(torch.nn.Module):
             d = X.shape[1]
             X_view = X.view((1, n, d))
             dist = torch.cdist(X_view, X_view, p=2).view(n, n)
-            A_self = A + torch.eye(n)
+            A_self = A + torch.eye(n).to(self.device)
             S = torch.exp(- (1 / self.model_dict["T"]) * (A_self @ dist))
             normalization = torch.einsum("ij,ij->i", A_self, S)
             S = (S*A_self) / normalization[:, None]
@@ -56,20 +66,26 @@ class NTK(torch.nn.Module):
     def kappa_0(self, u):
         z = torch.zeros((u.shape), dtype=self.dtype).to(self.device)
         pi = torch.acos(z)*2
-        r = (pi - torch.acos(u)) / pi
-        r[r!=r] = 1.0 # Always False?
+        r = (pi - torch.acos(u-1e-7)) / pi
+        #r[r!=r] = 1.0 # Always False?
         return r
 
     def kappa_1(self, u):
         z = torch.zeros((u.shape), dtype=self.dtype).to(self.device)
         pi = torch.acos(z) * 2
-        r = (u*(pi - torch.acos(u)) + torch.sqrt(1-u*u))/pi
-        r[r!=r] = 1.0 # Always False?
+        r = (u*(pi - torch.acos(u-1e-7)) + torch.sqrt(1-u*u+1e-7))/pi
+        #r[r!=r] = 1.0 # Always False?
         return r
 
     def calc_ntk(self, X: Float[torch.Tensor, "n d"], 
                  A: Float[torch.Tensor, "n n"]):
         """Calculate and return ntk matrix."""
+        if isinstance(A, SparseTensor):
+            A = A.to_dense() 
+        elif isinstance(A, tuple):
+            n, _ = X.shape
+            A = torch.sparse_coo_tensor(*A, 2 * [n]).to_dense() 
+        
         if "normalize" in self.model_dict:
             if self.model_dict["normalize"]:
                 S = self.calc_diffusion(X, A)
@@ -81,6 +97,16 @@ class NTK(torch.nn.Module):
         S_norm = torch.norm(S)
         XXT = X.matmul(X.T)
         Sig = S.matmul(XXT.matmul(S.T))
+        # Debug
+        #Diag_Sig = torch.diagonal(Sig) 
+        #p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)    
+        #Sig_i = p + Diag_Sig.reshape(1, -1)
+        #Sig_j = p + Diag_Sig.reshape(-1, 1)
+        #q = torch.sqrt(Sig_i * Sig_j)
+        #u = Sig/q # why normalization?
+        #return u
+        #E = (q * self.kappa_1(u)) * csigma
+        #return E
         kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
         # ReLu GCN
         depth = self.model_dict["depth"]
@@ -110,15 +136,15 @@ class NTK(torch.nn.Module):
         return self.ntk
 
     def forward(self, 
-                X: Float[torch.Tensor, "n d"],
+                idx_labeled: Integer[torch.Tensor, "m"],
+                idx_unlabeled: Integer[torch.Tensor, "u"],
+                y: Union[Integer[torch.Tensor, "n"],Float[torch.Tensor, "n"]],
+                X: Float[torch.Tensor, "n d"] = None,
                 A: Union[SparseTensor,
                      Tuple[Integer[torch.Tensor, "2 nnz"], Float[torch.Tensor, "nnz"]],
-                     Float[torch.Tensor, "n_nodes n_nodes"]],
-                y: Union[Integer[torch.Tensor, "n"],Float[torch.Tensor, "n"]],
-                idx_labeled: Integer[torch.Tensor, "m"],
-                idx_unlabeled: Integer[torch.Tensor, "u"]
+                     Float[torch.Tensor, "n_nodes n_nodes"]] = None,
                 ) -> Tensor:
-        """Perform kernel regression.
+        """Perform kernel regression. If X & A none, uses self.ntk
 
         Note: n = m + u
 
@@ -132,9 +158,14 @@ class NTK(torch.nn.Module):
         elif isinstance(A, tuple):
             n, _ = X.shape
             A = torch.sparse_coo_tensor(*A, 2 * [n]).to_dense() # is differentiable
-        
-        ntk = self.calc_ntk(X, A)
+        if X is None or A is None:
+            assert self.ntk is not None, "NTK not initialized, needs recalc!"
+            ntk = self.ntk
+        else:
+            ntk = self.calc_ntk(X, A)
         ntk_labeled = ntk[idx_labeled,:][:,idx_labeled]
+        # ensure non-singularity
+        ntk_labeled += (torch.rand(ntk_labeled.shape) / 1e+8).to(self.device)
         ntk_unlabeled = ntk[idx_unlabeled,:][:,idx_labeled]
         M = torch.linalg.solve(ntk_labeled, ntk_unlabeled, left=False)
         y_pred = torch.matmul(M,(y[idx_labeled] * 2 - 1).to(dtype=torch.float64))

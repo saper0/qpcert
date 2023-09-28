@@ -111,6 +111,8 @@ def plot_ntk_model_diff(ntk_dict: Dict[str, Any], y: Float[torch.Tensor, "n 1"],
     ax.set_prop_cycle(cycler('color', color_list))
     x = np.arange(len(eps_l))
     for model_label, ntk_l in ntk_dict.items():
+        if model_label.endswith("_acc"):
+            continue
         y_val = []
         y_std = []
         for ntk in ntk_l:
@@ -128,4 +130,41 @@ def plot_ntk_model_diff(ntk_dict: Dict[str, Any], y: Float[torch.Tensor, "n 1"],
     ax.set_title("Attack: " + plot_title, fontweight="normal", fontsize=15)        
     ax.legend()
 
+def plot_ntk_model_acc(ntk_dict: Dict[str, Any], y: Float[torch.Tensor, "n 1"],
+                        eps_l: List[float], plot_title: str="Attack"):
+    """ Plot Acc for attack strengths eps_l for NTKs collected
+        in ntk_dict.
+    """
+    # 1 Layer
+    n_class0 = (y==0).sum()
+    color_list = ['r', 
+                'tab:green', 
+                'b', 
+                'lime', 
+                'slategrey', 
+                'k', 
+                "lightsteelblue",
+                "antiquewhite",
+                ]
+    linestyle_list = ['-', '--', ':', '-.']
+    fig, ax = plt.subplots()
+    ax.set_prop_cycle(cycler('color', color_list))
+    x = np.arange(len(eps_l))
+    for model_label, acc_l in ntk_dict.items():
+        if not model_label.endswith("_acc"):
+            continue
+        y_val = []
+        y_std = []
+        for acc in acc_l:
+            y_val.append(acc)
+            y_std.append(0)
+        ax.errorbar(x, y_val, yerr=y_std, marker="o", linestyle="-",
+                    label=f"{model_label}", capsize=5, linewidth=2.5, markersize=8)
+    ax.xaxis.set_ticks(x, minor=False)
+    xticks = [f"{eps*100:.0f}%" for eps in eps_l]
+    ax.xaxis.set_ticklabels(xticks, fontsize=10, fontweight="normal")
+    ax.yaxis.grid()
+    ax.xaxis.grid()
+    ax.set_title("Attack: " + plot_title, fontweight="normal", fontsize=15)        
+    ax.legend()
 

@@ -114,12 +114,8 @@ class PRBCD(SparseAttack):
                 logits[self.idx_attack_in_unlabeled], 
                 self.y_float[self.idx_attack]
             )
-            print(loss)
-            print(self.perturbed_edge_weight)
             # Retreive gradient towards the current block (Algorithm 1, line 7)
             gradient = utils.grad_with_checkpoint(loss, self.perturbed_edge_weight)[0]
-            print(gradient)
-            return
             if torch.cuda.is_available() and self.do_synchronize:
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
@@ -176,12 +172,12 @@ class PRBCD(SparseAttack):
         # Sample final discrete graph (Algorithm 1, line 16)
         edge_index = self.sample_final_edges(n_perturbations)[0]
 
-        self.adj_adversary = SparseTensor.from_edge_index(
+        self.A_pert = SparseTensor.from_edge_index(
             edge_index,
-            torch.ones_like(edge_index[0], dtype=torch.float32),
+            torch.ones_like(edge_index[0], dtype=torch.float64),
             (self.n, self.n)
         ).coalesce().detach()
-        self.attr_adversary = self.X
+        self.X_pert = self.X
 
         # TODO: Don't we want to switch to returning things? <- would have been nice for readability :)
 
@@ -207,8 +203,7 @@ class PRBCD(SparseAttack):
                 sampled_edges = torch.zeros_like(perturbed_edge_weight)
                 sampled_edges[torch.topk(perturbed_edge_weight, n_perturbations).indices] = 1
             else:
-                print(perturbed_edge_weight)
-                #sampled_edges = torch.bernoulli(perturbed_edge_weight).float()
+                sampled_edges = torch.bernoulli(perturbed_edge_weight).float()
 
             if sampled_edges.sum() > n_perturbations:
                 n_samples = sampled_edges.sum()

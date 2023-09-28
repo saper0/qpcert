@@ -7,7 +7,7 @@ from torch_sparse import coalesce
 
 def accuracy(logits: Float[torch.Tensor, "m"], 
              labels: Integer[torch.Tensor, "n"], 
-             split_idx: np.ndarray) -> float:
+             split_idx: np.ndarray = None) -> float:
     """Returns the accuracy for a tensor of logits, a list of lables and and a split indices.
 
     Note: logit is defines as in 
@@ -20,7 +20,10 @@ def accuracy(logits: Float[torch.Tensor, "m"],
     """
     p_cls1 = torch.sigmoid(logits)
     y_pred = (p_cls1 > 0.5).to(dtype=torch.long)
-    return (y_pred == labels[split_idx]).sum() / len(split_idx)
+    if split_idx is not None:
+        return (y_pred == labels[split_idx]).sum() / len(split_idx)
+    else:
+        return (y_pred == labels).sum() / len(labels)
 
 
 def to_symmetric(edge_index: torch.Tensor, edge_weight: torch.Tensor,
