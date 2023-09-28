@@ -14,8 +14,8 @@ import torch_sparse
 from torch_sparse import SparseTensor
 
 # from robust_diffusion.models import MODEL_TYPE
-from robust_diffusion.helper import utils
-from robust_diffusion.attacks.base_attack import Attack, SparseAttack
+from src import utils
+from src.attacks.base_attack import Attack, SparseAttack
 
 
 class PRBCD(SparseAttack):
@@ -82,9 +82,13 @@ class PRBCD(SparseAttack):
 
         # Accuracy and attack statistics before the attach even started
         with torch.no_grad():
-            logits = self._get_logits(self.attr, self.edge_index, self.edge_weight)
-            loss = self.calculate_loss(logits[self.idx_attack], self.labels[self.idx_attack])
-            accuracy = utils.accuracy(logits, self.labels, self.idx_attack)
+            logits = self._get_logits(self.X, self.edge_index, self.edge_weight)
+            loss = self.calculate_loss(
+                logits[self.idx_attack_in_unlabeled], 
+                self.y_float[self.idx_attack]
+            )
+            accuracy = utils.accuracy(logits[self.idx_attack_in_unlabeled], 
+                                      self.y, self.idx_attack)
 
             logging.info(f'\nBefore the attack - Loss: {loss.item()} Accuracy: {100 * accuracy:.3f} %\n')
 
@@ -104,12 +108,18 @@ class PRBCD(SparseAttack):
                 torch.cuda.synchronize()
 
             # Calculate logits for each node (Algorithm 1, line 6)
-            logits = self._get_logits(self.attr, edge_index, edge_weight)
+            logits = self._get_logits(self.X, edge_index, edge_weight)
             # Calculate loss combining all each node (Algorithm 1, line 7)
-            loss = self.calculate_loss(logits[self.idx_attack], self.labels[self.idx_attack])
+            loss = self.calculate_loss(
+                logits[self.idx_attack_in_unlabeled], 
+                self.y_float[self.idx_attack]
+            )
+            print(loss)
+            print(self.perturbed_edge_weight)
             # Retreive gradient towards the current block (Algorithm 1, line 7)
             gradient = utils.grad_with_checkpoint(loss, self.perturbed_edge_weight)[0]
-
+            print(gradient)
+            return
             if torch.cuda.is_available() and self.do_synchronize:
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
@@ -127,8 +137,9 @@ class PRBCD(SparseAttack):
 
                 # Calculate accuracy after the current epoch (overhead for monitoring and early stopping)
                 edge_index, edge_weight = self.get_modified_adj()
-                logits = self.attacked_model(data=self.attr.to(self.device), adj=(edge_index, edge_weight))
-                accuracy = utils.accuracy(logits, self.labels, self.idx_attack)
+                logits = self._get_logits(self.X, self.edge_index, self.edge_weight)
+                accuracy = utils.accuracy(logits[self.idx_attack_in_unlabeled], 
+                                          self.y, self.idx_attack)
                 del edge_index, edge_weight, logits
 
                 if epoch % self.display_step == 0:
@@ -170,14 +181,17 @@ class PRBCD(SparseAttack):
             torch.ones_like(edge_index[0], dtype=torch.float32),
             (self.n, self.n)
         ).coalesce().detach()
-        self.attr_adversary = self.attr
+        self.attr_adversary = self.X
 
         # TODO: Don't we want to switch to returning things? <- would have been nice for readability :)
 
     def _get_logits(self, attr: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor):
         return self.attacked_model(
-            data=attr.to(self.device),
-            adj=(edge_index.to(self.device), edge_weight.to(self.device))
+            X=attr.to(self.device),
+            A=(edge_index.to(self.device), edge_weight.to(self.device)),
+            y=self.y_float,
+            idx_labeled=self.idx_labeled,
+            idx_unlabeled=self.idx_unlabeled
         )
 
     @torch.no_grad()
@@ -193,7 +207,8 @@ class PRBCD(SparseAttack):
                 sampled_edges = torch.zeros_like(perturbed_edge_weight)
                 sampled_edges[torch.topk(perturbed_edge_weight, n_perturbations).indices] = 1
             else:
-                sampled_edges = torch.bernoulli(perturbed_edge_weight).float()
+                print(perturbed_edge_weight)
+                #sampled_edges = torch.bernoulli(perturbed_edge_weight).float()
 
             if sampled_edges.sum() > n_perturbations:
                 n_samples = sampled_edges.sum()
@@ -202,8 +217,9 @@ class PRBCD(SparseAttack):
             self.perturbed_edge_weight = sampled_edges
 
             edge_index, edge_weight = self.get_modified_adj()
-            logits = self._get_logits(self.attr, edge_index, edge_weight)
-            accuracy = utils.accuracy(logits, self.labels, self.idx_attack)
+            logits = self._get_logits(self.X, edge_index, edge_weight)
+            accuracy = utils.accuracy(logits[self.idx_attack_in_unlabeled], 
+                                      self.y, self.idx_attack)
 
             # Save best sample
             if best_accuracy > accuracy:

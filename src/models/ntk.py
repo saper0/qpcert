@@ -114,7 +114,7 @@ class NTK(torch.nn.Module):
                 A: Union[SparseTensor,
                      Tuple[Integer[torch.Tensor, "2 nnz"], Float[torch.Tensor, "nnz"]],
                      Float[torch.Tensor, "n_nodes n_nodes"]],
-                y: Integer[torch.Tensor, "n"],
+                y: Union[Integer[torch.Tensor, "n"],Float[torch.Tensor, "n"]],
                 idx_labeled: Integer[torch.Tensor, "m"],
                 idx_unlabeled: Integer[torch.Tensor, "u"]
                 ) -> Tensor:
@@ -122,11 +122,11 @@ class NTK(torch.nn.Module):
 
         Note: n = m + u
 
-        Returns:
-            Tensor: Resulting (soft) labeling from label propagation.
+        Returns: Logits of unlabeled nodes, defines as in
+        https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         """
          # handle different adj representations
-        assert isinstance(A, tuple)
+        #assert isinstance(A, tuple)
         if isinstance(A, SparseTensor):
             A = A.to_dense() # is differentiable
         elif isinstance(A, tuple):
@@ -136,5 +136,6 @@ class NTK(torch.nn.Module):
         ntk = self.calc_ntk(X, A)
         ntk_labeled = ntk[idx_labeled,:][:,idx_labeled]
         ntk_unlabeled = ntk[idx_unlabeled,:][:,idx_labeled]
-        M = torch.linalg.solve
-        return ntk
+        M = torch.linalg.solve(ntk_labeled, ntk_unlabeled, left=False)
+        y_pred = torch.matmul(M,(y[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+        return y_pred

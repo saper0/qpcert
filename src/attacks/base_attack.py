@@ -25,7 +25,7 @@ class GlobalAttack(ABC):
         pass
 
 
-@typechecked
+#@typechecked
 class Attack(GlobalAttack):
     """
     Base class for all attacks providing a uniform interface for all attacks
@@ -45,10 +45,11 @@ class Attack(GlobalAttack):
         Model to be attacked.
     device : Union[str, int, torch.device]
         The cuda device to use for the attack
-    make_undirected: bool
-        Wether the perturbed adjacency matrix should be made undirected (symmetric degree normalization)
-    binary_attr: bool
-        If true the perturbed attributes are binarized (!=0)
+    make_undirected: bool 
+        Wether the perturbed adjacency matrix should be made undirected 
+        (symmetric degree normalization). Default: True
+    binary_attr: bool 
+        If true the perturbed attributes are binarized (!=0). Default: False.
     loss_type: str
         The loss to be used by a gradient based attack, can be one of the following loss types:
             - CW: Carlini-Wagner
@@ -66,16 +67,17 @@ class Attack(GlobalAttack):
                  X: Float[torch.Tensor, "n d"],
                  y: Integer[torch.Tensor, "n"],
                  idx_attack: np.ndarray,
+                 idx_labeled: Integer[np.ndarray, "m"],
+                 idx_unlabeled: Integer[np.ndarray, "u"],
                  model: None,
                  device: Union[str, int, torch.device],
-                 make_undirected: bool,
-                 binary_attr: bool,
+                 make_undirected: bool = True,
+                 binary_attr: bool = False,
                  loss_type: str = 'CE',  # 'CW', 'LeakyCW'  # 'CE', 'MCE', 'Margin'
                  **kwargs):
-        assert model is None 
-
         self.device = device
         self.idx_attack = idx_attack
+        self.idx_attack.sort()
         self.loss_type = loss_type
 
         self.make_undirected = make_undirected
@@ -90,9 +92,27 @@ class Attack(GlobalAttack):
             self.eval_model = self.attacked_model
 
         self.y = y.to(torch.long).to(self.device)
+        self.y_float = y.to(torch.float64)
         self.y_attack = self.y[self.idx_attack]
         self.X = X.to(self.device)
         self.A = A.to(self.device)
+        self.idx_labeled = idx_labeled
+        self.idx_unlabeled = idx_unlabeled
+        self.idx_unlabeled.sort()
+        #assert len(idx_attack) == len(idx_unlabeled) #TODO implement sparse case
+        # idx of attack nodes in unlabeled nodes, O(n) - guess is fine :)
+        self.idx_attack_in_unlabeled = []
+        idx_a_cache = 0
+        for idx_counter, idx_u in enumerate(idx_unlabeled):
+            for i in range(idx_a_cache, len(self.idx_attack)):
+                if self.idx_attack[i] == idx_u:
+                    self.idx_attack_in_unlabeled.append(idx_counter)
+                    idx_a_cache = idx_a_cache + 1
+                    break
+                if self.idx_attack[i] > idx_u:
+                    break
+
+            
 
         self.X_pert = self.X
         self.A_pert = self.A
@@ -149,10 +169,19 @@ class Attack(GlobalAttack):
 
         return pred_logits_target, acc_test_target
 
-    def calculate_loss(self, logits, labels):
+    def calculate_loss(self, logits, 
+                       labels: Union[Float[torch.Tensor, "n"], 
+                                     Integer[torch.Tensor, "n"]]):
         """
-        TODO: maybe add formal definition for all losses? or maybe don't
+        Binary Losses, logits defines as in 
+        https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html#torch.nn.BCEWithLogitsLoss
+
+        labels: 
         """
+        loss = F.binary_cross_entropy_with_logits(logits, 
+                                                  labels.to(dtype=torch.float64))
+        return loss
+        assert False
         if self.loss_type == 'CW':
             sorted = logits.argsort(-1)
             best_non_target_class = sorted[sorted != labels[:, None]].reshape(logits.size(0), -1)[:, -1]
@@ -270,7 +299,7 @@ class Attack(GlobalAttack):
         return miu
 
 
-@typechecked
+#@typechecked
 class SparseAttack(Attack):
     """
     Base class for all sparse attacks.
@@ -278,18 +307,18 @@ class SparseAttack(Attack):
     """
 
     def __init__(self,
-                 adj: Union[SparseTensor, Float[torch.Tensor, "n n"], sp.csr_matrix],
+                 A: Union[SparseTensor, Float[torch.Tensor, "n n"], sp.csr_matrix],
                  **kwargs):
 
-        if isinstance(adj, torch.Tensor):
-            adj = SparseTensor.from_dense(adj)
-        elif isinstance(adj, sp.csr_matrix):
-            adj = SparseTensor.from_scipy(adj)
+        if isinstance(A, torch.Tensor):
+            A = SparseTensor.from_dense(A)
+        elif isinstance(A, sp.csr_matrix):
+            A = SparseTensor.from_scipy(A)
 
-        super().__init__(adj, **kwargs)
+        super().__init__(A, **kwargs)
 
-        edge_index_rows, edge_index_cols, edge_weight = adj.coo()
+        edge_index_rows, edge_index_cols, edge_weight = A.coo()
         self.edge_index = torch.stack([edge_index_rows, edge_index_cols], dim=0).to(self.device)
         self.edge_weight = edge_weight.to(self.device)
-        self.n = adj.size(0)
+        self.n = A.size(0)
         self.d = self.X.shape[1]
