@@ -8,6 +8,13 @@ def row_normalize(A):
     Deg_inv = torch.diag(torch.pow(S.sum(axis=1), - 1))
     return Deg_inv @ S
 
+def sym_normalize(A):
+    # Symmetric normalize
+    S = torch.triu(A, diagonal=1) + torch.triu(A, diagonal=1).T
+    S.data[torch.arange(S.shape[0]), torch.arange(S.shape[0])] = 1
+    Deg_inv = torch.diag(torch.pow(S.sum(axis=1), - 0.5))
+    return Deg_inv @ S @ Deg_inv
+
 
 def tbn_normalize(A: Float[torch.Tensor, "n n"]):
     #S = torch.triu(A, diagonal=1) + torch.triu(A, diagonal=1).T
@@ -31,6 +38,16 @@ def degree_scaling(A: Float[torch.Tensor, "n n"], gamma: float=3, delta: float=0
     S = torch.einsum("ij, i -> ij", A_x_weight, norm)
     return S
 
+def APPNP_propogation(A: Float[torch.Tensor, "n n"], alpha: float=0.1, iteration: float=10, exact: bool=True):
+    S = sym_normalize(A)
+    I = torch.eye(A.shape[0], dtype=A.dtype)
+    if exact:
+        S_upd = alpha* torch.inverse(I- (1-alpha)*S)
+    else:
+        S_upd = I 
+        for i in range(iteration):
+            S_upd = (1-alpha)*(S@S_upd) + alpha*I
+    return S_upd
 
 def get_diffusion(X: torch.Tensor, A: torch.Tensor, model_dict):
     if model_dict["model"] == "GCN":

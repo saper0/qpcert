@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch_sparse import SparseTensor
 
-from src.models.common import row_normalize, tbn_normalize, degree_scaling
+from src.models.common import row_normalize, tbn_normalize, degree_scaling, sym_normalize, APPNP_propogation
 
 
 class NTK(torch.nn.Module):
@@ -26,7 +26,9 @@ class NTK(torch.nn.Module):
         super().__init__()
         self.model_dict = model_dict
         assert self.model_dict["model"] == "GCN" \
-            or self.model_dict["model"] == "SoftMedoid"
+            or self.model_dict["model"] == "SoftMedoid" \
+            or self.model_dict["model"] == "PPNP" \
+            or self.model_dict["model"] == "APPNP"
         self.dtype = dtype
         if device is not None:
             self.device = device
@@ -42,6 +44,8 @@ class NTK(torch.nn.Module):
         if self.model_dict["model"] == "GCN":
             if self.model_dict["normalization"] == "row_normalization":
                 return row_normalize(A)
+            elif self.model_dict["normalization"] == "sym_normalization":
+                return sym_normalize(A)
             elif self.model_dict["normalization"] == "trust_biggest_neighbor":
                 return tbn_normalize(A)
             elif self.model_dict["normalization"] == "degree_scaling":
@@ -60,8 +64,11 @@ class NTK(torch.nn.Module):
             normalization = torch.einsum("ij,ij->i", A_self, S)
             S = (S*A_self) / normalization[:, None]
             return S
+        elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
+            exact = True if self.model_dict["model"]=="PPNP" else False
+            return APPNP_propogation(A, alpha=self.model_dict["alpha"], iteration=self.model_dict["iteration"], exact=exact)
         else:
-            raise NotImplementedError("Only GCN/SoftMedoid architecture implemented")
+            raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP architecture implemented")
 
     def kappa_0(self, u):
         z = torch.zeros((u.shape), dtype=self.dtype).to(self.device)
@@ -93,43 +100,70 @@ class NTK(torch.nn.Module):
                 S = A
         else:
             S = self.calc_diffusion(X, A)
-        csigma = 1 
-        S_norm = torch.norm(S)
-        XXT = X.matmul(X.T)
-        Sig = S.matmul(XXT.matmul(S.T))
-        # Debug
-        #Diag_Sig = torch.diagonal(Sig) 
-        #p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)    
-        #Sig_i = p + Diag_Sig.reshape(1, -1)
-        #Sig_j = p + Diag_Sig.reshape(-1, 1)
-        #q = torch.sqrt(Sig_i * Sig_j)
-        #u = Sig/q # why normalization?
-        #return u
-        #E = (q * self.kappa_1(u)) * csigma
-        #return E
-        kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-        # ReLu GCN
-        depth = self.model_dict["depth"]
-        kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
-                                 dtype=self.dtype).to(self.device)
-        for i in range(depth):
+        
+        if self.model_dict["model"] == "GCN" or self.model_dict["model"] == "SoftMedoid":
+            csigma = 1 
+            S_norm = torch.norm(S)
+            XXT = X.matmul(X.T)
+            Sig = S.matmul(XXT.matmul(S.T))
+            
+            # Debug
+            #Diag_Sig = torch.diagonal(Sig) 
+            #p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)    
+            #Sig_i = p + Diag_Sig.reshape(1, -1)
+            #Sig_j = p + Diag_Sig.reshape(-1, 1)
+            #q = torch.sqrt(Sig_i * Sig_j)
+            #u = Sig/q # why normalization?
+            #return u
+            #E = (q * self.kappa_1(u)) * csigma
+            #return E
+            kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+            # ReLu GCN
+            depth = self.model_dict["depth"]
+            kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
+                                    dtype=self.dtype).to(self.device)
+            for i in range(depth):
+                p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+                Diag_Sig = torch.diagonal(Sig) 
+                Sig_i = p + Diag_Sig.reshape(1, -1)
+                Sig_j = p + Diag_Sig.reshape(-1, 1)
+                q = torch.sqrt(Sig_i * Sig_j)
+                u = Sig/q # why normalization?
+                E = (q * self.kappa_1(u)) * csigma
+                E_der = (self.kappa_0(u)) * csigma
+                E = E.double()
+                E_der = E_der.double()
+
+                kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
+            
+                Sig = S.matmul(E.matmul(S.T))
+                for j in range(i):
+                    kernel_sub[j] = S.matmul((kernel_sub[j].float() * E_der).matmul(S.T))
+
+            kernel += torch.sum(kernel_sub, dim=0)
+            kernel += Sig
+            return kernel
+        
+        elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
+            # NTK for PPNP with one hidden layer fcn for features
+            # (A)PPNP = S ( ReLU(XW_1 + b_1) W_2 + b_2)
+            kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+            XXT = X.matmul(X.T)
+            B = torch.ones((S.shape), dtype=self.dtype).to(self.device)
+            Sig = XXT+B
             p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
             Diag_Sig = torch.diagonal(Sig) 
             Sig_i = p + Diag_Sig.reshape(1, -1)
             Sig_j = p + Diag_Sig.reshape(-1, 1)
             q = torch.sqrt(Sig_i * Sig_j)
-            u = Sig/q # why normalization?
-            E = (q * self.kappa_1(u)) * csigma
-            E_der = (self.kappa_0(u)) * csigma
-            kernel_der = (S.matmul(S.T)) * E_der
-            kernel_sub[i] += Sig * kernel_der
+            u = Sig/q 
+            E = (q * self.kappa_1(u)) 
+            E_der = (self.kappa_0(u))
             E = E.double()
-            Sig = S.matmul(E.matmul(S.T))
-            for j in range(i):
-                kernel_sub[j] *= kernel_der
-        kernel += torch.sum(kernel_sub, dim=0)
-        kernel += Sig
-        return kernel
+            E_der = E_der.double()
+            kernel += S.matmul(Sig * E_der).matmul(S.T)
+            kernel += S.matmul(E+B).matmul(S.T)
+            return kernel
     
     def get_ntk(self):
         """Return (precomputed) ntk matrix."""
