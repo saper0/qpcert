@@ -7,7 +7,7 @@ from torch_sparse import coalesce
 
 def accuracy(logits: Float[torch.Tensor, "m"], 
              labels: Integer[torch.Tensor, "n"], 
-             split_idx: np.ndarray = None) -> float:
+             split_idx: np.ndarray = None) -> Float[torch.Tensor, "1"]:
     """Returns the accuracy for a tensor of logits, a list of lables and and a split indices.
 
     Note: logit is defines as in 

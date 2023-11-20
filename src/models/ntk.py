@@ -100,7 +100,6 @@ class NTK(torch.nn.Module):
                 S = A
         else:
             S = self.calc_diffusion(X, A)
-        
         if self.model_dict["model"] == "GCN" or self.model_dict["model"] == "SoftMedoid":
             csigma = 1 
             S_norm = torch.norm(S)

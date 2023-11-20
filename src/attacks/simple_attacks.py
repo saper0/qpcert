@@ -9,7 +9,7 @@ from src.attacks.base_attack import GlobalAttack
 class Random(GlobalAttack):
     """Randomly insert inter-class edges or TODO: delete intra-class edges.
     
-    Assumes two classes and A sorted after class.
+    Assumes two classes and A sorted after class without self-loops.
     """
 
     def __init__(self, target_idx: int, A: Float[torch.Tensor, "n n"], 
@@ -26,7 +26,7 @@ class Random(GlobalAttack):
         A_mask += 1
         A_mask = A_mask.to(torch.bool)
         n = self.A.shape[0]
-        M = torch.zeros((n,n), dtype=torch.bool)
+        M = torch.zeros((n,n), dtype=torch.bool, device=self.A.device)
         M[self.target_idx, :] = True
         M[:, self.target_idx] = True
         # Exclude edges connecting class 0 nodes to class 1 nodes
@@ -34,7 +34,7 @@ class Random(GlobalAttack):
             M[:self.n_class0, self.n_class0:].logical_and(A_mask[:self.n_class0, self.n_class0:])
         M[:self.n_class0, :self.n_class0] = False
         M[self.n_class0:, self.n_class0:] = False
-        triu_idx = torch.triu_indices(n,n,offset=1)
+        triu_idx = torch.triu_indices(n,n,offset=1,device=M.device)
         M_triu = M[triu_idx[0, :], triu_idx[1,:]]
         row_idx = triu_idx[0,:][M_triu]
         col_idx = triu_idx[1,:][M_triu]
@@ -45,7 +45,10 @@ class Random(GlobalAttack):
         A_pert = self.A.detach().clone()
         A_pert[row_pert, col_pert] *= -1
         A_pert[row_pert, col_pert] += 1
-        A_pert = A_pert + A_pert.T
+        # A is symmetric
+        A_pert[col_pert, row_pert] *= -1 
+        A_pert[col_pert, row_pert] += 1
+        #A_pert = A_pert + A_pert.T
         return A_pert
 
 
