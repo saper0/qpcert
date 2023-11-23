@@ -48,14 +48,15 @@ class CSBM(GraphGenerationModel):
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray]: X, A, y
         """
-        np.random.seed(seed)
+        #ToDo: Change to random number generator
+        rng = np.random.Generator(np.random.PCG64(seed))
         # Sample y
-        y = np.random.randint(0,2,size=n)
+        y = rng.integers(0,2,size=n)
         n_class1 = sum(y)
         n_class0 = len(y) - n_class1 
         # Sample X|y
-        X_0 = np.random.multivariate_normal(-self.mu, self.cov, n_class0).astype(np.float32)
-        X_1 = np.random.multivariate_normal(self.mu, self.cov, n_class1).astype(np.float32)
+        X_0 = rng.multivariate_normal(-self.mu, self.cov, n_class0).astype(np.float32)
+        X_1 = rng.multivariate_normal(self.mu, self.cov, n_class1).astype(np.float32)
         X = np.zeros((n,self.d))
         X[y == 0, :] = X_0
         X[y == 1, :] = X_1
@@ -67,7 +68,7 @@ class CSBM(GraphGenerationModel):
                     edge_prob[i,j] = self.p
                 else:
                     edge_prob[i,j] = self.q
-        A = np.random.binomial(1, edge_prob)
+        A = rng.binomial(1, edge_prob)
         A += A.T
         return X, A, y
 

@@ -41,6 +41,14 @@ class Attack(GlobalAttack):
         Labels vector of shape [n].
     idx_attack : np.ndarray
         Indices of the nodes which are to be attacked.
+    idx_labeled : np.ndarray
+        Indices of the labeled (train) nodes in the graph. Only relevant if
+        underlying model is a NTK.
+    idx_unlabeled : np.ndarray
+        Indices of the unlabeled (train + test) nodes in the graph. In a fully
+        supervised setting, this represents only the test nodes and thus, likely
+        overlapps with idx_attack. Only relevant if the underlying model is a
+        NTK.
     model : 
         Model to be attacked.
     device : Union[str, int, torch.device]

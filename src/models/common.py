@@ -1,5 +1,42 @@
-from jaxtyping import Float
+from typing import Tuple, Union
+
+from jaxtyping import Float, Num, Integer
 import torch
+from torch_sparse import SparseTensor
+
+
+def process_adj(adj: Union[SparseTensor, 
+                           Tuple[Integer[torch.Tensor, "2 nnz"], 
+                                 Float[torch.Tensor, "nnz"]],
+                           Float[torch.Tensor, "n n"]]) \
+                        -> Union[Integer[torch.Tensor, "2 nnz"],
+                                 Float[torch.Tensor, "nnz"]]:
+    """Process (divers) adjacency matrix formats into sparse format.
+
+    Returns:
+        edge_index ... edge indices (2, |E|)
+        edge_weights ... edge weights, tensor with |E| elements.
+    """
+    edge_weight = None
+
+    if isinstance(adj, tuple):
+        edge_index, edge_weight = adj[0], adj[1]
+    elif isinstance(adj, SparseTensor):
+        edge_idx_rows, edge_idx_cols, edge_weight = adj.coo()
+        edge_index = torch.stack([edge_idx_rows, edge_idx_cols], dim=0)
+    else:
+        if not adj.is_sparse:
+            adj = adj.to_sparse()
+        edge_index, edge_weight = adj.indices(), adj.values()
+
+    if edge_weight is None:
+        edge_weight = torch.ones_like(edge_index[0], dtype=torch.float32)
+
+    if edge_weight.dtype != torch.float32:
+        edge_weight = edge_weight.float()
+
+    return edge_index, edge_weight
+
 
 def row_normalize(A):
     # Row normalize
@@ -7,6 +44,7 @@ def row_normalize(A):
     S.data[torch.arange(S.shape[0]), torch.arange(S.shape[0])] = 1
     Deg_inv = torch.diag(torch.pow(S.sum(axis=1), - 1))
     return Deg_inv @ S
+
 
 def sym_normalize(A):
     # Symmetric normalize
@@ -38,6 +76,7 @@ def degree_scaling(A: Float[torch.Tensor, "n n"], gamma: float=3, delta: float=0
     S = torch.einsum("ij, i -> ij", A_x_weight, norm)
     return S
 
+
 def APPNP_propogation(A: Float[torch.Tensor, "n n"], alpha: float=0.1, iteration: float=10, exact: bool=True):
     S = sym_normalize(A)
     I = torch.eye(A.shape[0], dtype=A.dtype)
@@ -48,6 +87,7 @@ def APPNP_propogation(A: Float[torch.Tensor, "n n"], alpha: float=0.1, iteration
         for i in range(iteration):
             S_upd = (1-alpha)*(S@S_upd) + alpha*I
     return S_upd
+
 
 def get_diffusion(X: torch.Tensor, A: torch.Tensor, model_dict):
     if model_dict["model"] == "GCN":

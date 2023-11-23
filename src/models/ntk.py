@@ -105,17 +105,6 @@ class NTK(torch.nn.Module):
             S_norm = torch.norm(S)
             XXT = X.matmul(X.T)
             Sig = S.matmul(XXT.matmul(S.T))
-            
-            # Debug
-            #Diag_Sig = torch.diagonal(Sig) 
-            #p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)    
-            #Sig_i = p + Diag_Sig.reshape(1, -1)
-            #Sig_j = p + Diag_Sig.reshape(-1, 1)
-            #q = torch.sqrt(Sig_i * Sig_j)
-            #u = Sig/q # why normalization?
-            #return u
-            #E = (q * self.kappa_1(u)) * csigma
-            #return E
             kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
             # ReLu GCN
             depth = self.model_dict["depth"]
