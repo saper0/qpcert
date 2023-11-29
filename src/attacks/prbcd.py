@@ -182,10 +182,11 @@ class PRBCD(SparseAttack):
         # TODO: Don't we want to switch to returning things? <- would have been nice for readability :)
 
     def _get_logits(self, attr: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor):
+        # Could do if type(self.attacked_model) == NTK: use this interface, other this interface
         return self.attacked_model(
-            X=attr.to(self.device),
-            A=(edge_index.to(self.device), edge_weight.to(self.device)),
-            y=self.y_float,
+            X_test=attr.to(self.device),
+            A_test=(edge_index.to(self.device), edge_weight.to(self.device)),
+            y_test=self.y_float,
             idx_labeled=self.idx_labeled,
             idx_unlabeled=self.idx_unlabeled
         )

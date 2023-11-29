@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch_geometric.nn import GCNConv
 from torch_sparse import SparseTensor
 
-from common import process_adj
+from src.models.common import process_adj
 
 class GCN(torch.nn.Module):
     """ Two layer GCN for sparse computation.

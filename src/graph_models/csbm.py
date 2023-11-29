@@ -30,7 +30,9 @@ class CSBM(GraphGenerationModel):
         """
         assert kwargs["classes"] == 2, "Only two-community CSBM implemented"
         self.p = avg_within_class_degree * 2 / (n - 1)
+        print(self.p)
         self.q = avg_between_class_degree * 2 / (n - 1)
+        print(self.q)
         self.d = round(n / math.log(n)**2)
         self.mu = np.array([K*sigma / (2 * self.d**0.5) for i in range(self.d)], 
                            dtype=np.float32)

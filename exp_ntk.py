@@ -8,8 +8,11 @@ from sacred.run import Run
 import seml
 import torch
 
+from src import utils
+from src.attacks import create_attack
 from src.data import get_graph, split
 from src.models.ntk import NTK
+from common import count_edges_for_idx
 
 
 ex = Experiment()
@@ -34,7 +37,7 @@ def config():
     seed = 0
 
     data_params = dict(
-        learning_setting = "inductive"
+        learning_setting = "inductive", # or "transdructive"
         classes = 2,
         n_trn_labeled = 600,
         n_trn_unlabeled = 0,
@@ -54,26 +57,20 @@ def config():
         depth = 1,
     )
 
-    train_params = dict(
-        lr=1e-2,
-        weight_decay=1e-3,
-        patience=300,
-        max_epochs=3000,
-        inductive=True
-    )
-
     attack_params = dict(
-        attack = "random"
+        attack = "random",
+        epsilon_list = [0, 0.01, 0.025, 0.05, 0.10, 0.25, 0.50, 1, 2.5, 5, 10],
+        attack_setting = "evasion" # or "poisioning"
     )
 
     verbosity_params = dict(
-        display_steps = 100,
         debug_lvl = "info"
     )  
 
     other_params = dict(
-        device = "0",
-        dtype = torch.float32
+        device = "gpu",
+        dtype = torch.float64,
+        allow_tf32 = False
     )
 
 
@@ -84,6 +81,8 @@ def set_debug_lvl(debug_lvl: str):
             logger.setLevel(logging.INFO)
         if debug_lvl.lower() == "debug":
             logger.setLevel(logging.DEBUG)
+        if debug_lvl.lower() == "warning":
+            logger.setLevel(logging.WARNING)
         if debug_lvl.lower() == "critical":
             logger.setLevel(logging.CRITICAL)
         if debug_lvl.lower() == "error":
@@ -91,14 +90,14 @@ def set_debug_lvl(debug_lvl: str):
 
 
 def log_configuration(data_params: Dict[str, Any], model_params: Dict[str, Any], 
-                      train_params: Dict[str, Any],
+                      attack_params: Dict[str, Any],
                       verbosity_params: Dict[str, Any], 
                       other_params: Dict[str, Any], seed: int) -> None:
     """Log (print) experiment configuration."""
     logging.info(f"Starting experiment {ex.path} with configuration:")
     logging.info(f"data_params: {data_params}")
     logging.info(f"model_params: {model_params}")
-    logging.info(f"train_params: {train_params}")
+    logging.info(f"attack_params: {attack_params}")
     logging.info(f"verbosity_params: {verbosity_params}")
     logging.info(f"other_params: {other_params}")
     logging.info(f"seed: {seed}")
@@ -146,12 +145,12 @@ def setup_experiment(data_params: Dict[str, Any], model_params: Dict[str, Any],
 @ex.automain
 def run(data_params: Dict[str, Any], 
         model_params: Dict[str, Any], 
-        train_params: Dict[str, Any], 
+        attack_params : Dict[str, Any],
         verbosity_params: Dict[str, Any], 
         other_params: Dict[str, Any],
         seed: int, 
         _run: Run):
-    device = setup_experiment(data_params, model_params, train_params, 
+    device = setup_experiment(data_params, model_params, attack_params, 
                               verbosity_params, other_params, seed)
 
     X, A, y = get_graph(data_params, sort=True)
@@ -160,5 +159,80 @@ def run(data_params: Dict[str, Any],
     A = torch.tensor(A, dtype=other_params["dtype"], device=device)
     y = torch.tensor(y, device=device)
 
-    ntk = NTK(model_params, X, A)
-    with torch.no_grad():
+    idx_labeled = np.concatenate((idx_trn, idx_val)) 
+    if data_params["learning_setting"] == "transductive":
+        ntk = NTK(model_params, X_trn=X, A_trn=A, 
+                  learning_setting=data_params["learning_setting"],
+                  dtype=other_params["dtype"])
+    else:
+        A_trn = A[idx_labeled, :]
+        A_trn = A_trn[:, idx_labeled]
+        ntk = NTK(model_params, X_trn=X[idx_labeled, :], A_trn=A_trn, 
+                  learning_setting=data_params["learning_setting"],
+                  dtype=other_params["dtype"])
+
+    if attack_params["attack_setting"] == "poisioning":
+        assert data_params["learning_setting"] == "transductive", "Currently "\
+             + "only considering poisioing for the transductive setting, need"\
+             + " to think more about how to set idx_target otherwise."
+        # Thought: Should be idx_val and/or idx_test in idx_target set? What if we even do inductive poisioning? 
+        idx_target = np.concatenate((idx_trn, idx_val, idx_test)) 
+    else:
+        idx_target = idx_test
+    attack = create_attack(idx_target, X, A, y, 
+                           idx_labeled=idx_labeled, 
+                           idx_unlabeled=idx_test, 
+                           attack_params=attack_params, 
+                           seed = seed)
+    if data_params["learning_setting"] == "inductive":
+        ntk_clean = NTK(model_params, X_trn=X, A_trn=A, 
+                        dtype=other_params["dtype"])
+    else:
+        ntk_clean = ntk
+    acc_l = []
+    min_ypred = []
+    max_ypred = []
+    min_M = []
+    max_M = []
+    min_ntklabeled = []
+    max_ntklabeled = []
+    min_ntkunlabeled = []
+    max_ntkunlabeled = []
+    for eps in attack_params["epsilon_list"]:
+        n_pert = int(round(eps * count_edges_for_idx(A.cpu(), idx_test)))
+        A_pert = attack.attack(n_pert).detach().clone()
+        y_pred, ntk_test, cond, M, ntk_labeled, ntk_unlabeled = ntk(
+            idx_labeled=idx_labeled, idx_unlabeled=idx_test,
+                                y_test=y, X_test=X, A_test=A_pert, 
+                                return_ntk=True
+        )
+        acc = utils.accuracy(y_pred, y[idx_target]).cpu().item()
+        acc_l.append(acc)
+        min_ypred.append(torch.min(y_pred).cpu().item())
+        max_ypred.append(torch.max(y_pred).cpu().item())
+        min_M.append(torch.min(M).cpu().item())
+        max_M.append(torch.max(M).cpu().item())
+        min_ntklabeled.append(torch.min(ntk_labeled).cpu().item())
+        max_ntklabeled.append(torch.max(ntk_labeled).cpu().item())
+        min_ntkunlabeled.append(torch.min(ntk_unlabeled).cpu().item())
+        max_ntkunlabeled.append(torch.max(ntk_unlabeled).cpu().item())
+        logging.info(f'Accuracy {acc} for epsilon {eps}')
+
+        if torch.cuda.is_available() and other_params["device"] != "cpu":
+                torch.cuda.empty_cache()
+                #torch.cuda.synchronize() # Maybe necessary for custom cuda kernel
+    assert len(acc_l) > 0
+
+    return dict(
+        accuracy_l = acc_l,
+        epsilon_l = attack_params["epsilon_list"],
+        min_ypred = min_ypred,
+        max_ypred = max_ypred,
+        min_M = min_M,
+        max_M = max_M,
+        min_ntklabeled = min_ntklabeled,
+        max_ntklabeled = max_ntklabeled,
+        min_ntkunlabeled = min_ntkunlabeled,
+        max_ntkunlabeled = max_ntkunlabeled,
+        cond = cond.cpu().item()
+    )

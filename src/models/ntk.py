@@ -19,10 +19,31 @@ class NTK(torch.nn.Module):
         Kernel".
     """
     def __init__(self, model_dict: Dict[str, Any], 
-                 X: Optional[Float[torch.Tensor, "n d"]] = None, 
-                 A: Optional[Float[torch.Tensor, "n n"]] = None, 
-                 device = None,
-                 dtype=torch.float64):
+                 X_trn: Float[torch.Tensor, "n d"], 
+                 A_trn: Float[torch.Tensor, "n n"],
+                 learning_setting: str = "inductive", 
+                 device: Union[torch.device, str] = None,
+                 dtype: torch.dtype = torch.float64):
+        """ In the forward pass, the here calculated NTK will be considered
+            as calculated from the training graph. 
+
+        Parameters
+        ----------
+        X_trn : Float[torch.Tensor, "n d"]
+            Node features available during training (i.e., of the training
+            graph)-
+        A_trn : Float[torch.Tensor, "n n"]
+            Graph adjacency matrix available during training (i.e., of the
+            training graph).
+        learning_setting : str 
+            Considered learning setting for inference. Can be "inductive" 
+            (default) or "transductive".
+        device : Union[torch.device, str]
+            Device to use for calculating the kernel and doing inference
+            with it. If not set, will be set to device of X_trn.
+        dtype : torch.dtype
+            Precision of the kernel matrix. Default: torch.float64
+        """
         super().__init__()
         self.model_dict = model_dict
         assert self.model_dict["model"] == "GCN" \
@@ -33,12 +54,9 @@ class NTK(torch.nn.Module):
         if device is not None:
             self.device = device
         else:
-            assert X is not None
-            self.device = X.device
-        if X is None or A is None:
-            self.ntk = None
-        else:
-            self.ntk = self.calc_ntk(X, A)
+            self.device = X_trn.device
+        self.ntk = self.calc_ntk(X_trn, A_trn)
+        self.learning_setting = learning_setting
 
     def calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
         if self.model_dict["model"] == "GCN":
@@ -66,7 +84,9 @@ class NTK(torch.nn.Module):
             return S
         elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
             exact = True if self.model_dict["model"]=="PPNP" else False
-            return APPNP_propogation(A, alpha=self.model_dict["alpha"], iteration=self.model_dict["iteration"], exact=exact)
+            return APPNP_propogation(A, alpha=self.model_dict["alpha"], 
+                                     iteration=self.model_dict["iteration"], 
+                                     exact=exact)
         else:
             raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP architecture implemented")
 
@@ -158,37 +178,89 @@ class NTK(torch.nn.Module):
         return self.ntk
 
     def forward(self, 
-                idx_labeled: Integer[torch.Tensor, "m"],
-                idx_unlabeled: Integer[torch.Tensor, "u"],
-                y: Union[Integer[torch.Tensor, "n"],Float[torch.Tensor, "n"]],
-                X: Float[torch.Tensor, "n d"] = None,
-                A: Union[SparseTensor,
+                idx_labeled: Integer[np.ndarray, "m"],
+                idx_unlabeled: Integer[np.ndarray, "u"],
+                y_test: Integer[torch.Tensor, "n"],
+                X_test: Float[torch.Tensor, "n d"] = None,
+                A_test: Union[SparseTensor,
                      Tuple[Integer[torch.Tensor, "2 nnz"], Float[torch.Tensor, "nnz"]],
                      Float[torch.Tensor, "n_nodes n_nodes"]] = None,
-                ) -> Tensor:
-        """Perform kernel regression. If X & A none, uses self.ntk
+                learning_setting: Optional[str] = None,
+                return_ntk: bool = False,
+                solution_method: str = "LU",
+                ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
+        """Perform kernel regression using the NTK.
 
-        Note: n = m + u
+        The NTK of the test-graph is calculated using X_test & A_test, except
+        if they are None and the learning setting set to transductive. Then,
+        uses initialized A & X (corresponding to training graph) for prediction.
+        
+        Parameters
+        ----------
+        idx_labeled : Integer[np.ndarray, "m"]
+            Indices of labeled nodes in X_test / A_test.
+            Note: Assumes training graph is fully labeled!
+        idx_unlabeled : Integer[np.ndarray, "u"]
+            Indices of unlabeled nodes in X_test / A_test.
+        y_test : Integer[torch.Tensor, "n"]
+            Labels of the test graph.
+        X_test : Float[torch.Tensor, "n d"]
+            Node features available during testing (i.e., of the test graph). 
+        A_test : Float[torch.Tensor, "n n"]
+            Graph adjacency matrix available during testing (i.e., of the test
+            graph).
+        learning_setting : Optional[str] 
+            Optional, per default uses the learning setting set when initializing
+            the NTK object. However, if set, inference will be done with the
+            here set learning_setting instead. Options: "inductive" (default) 
+            or "transductive".
+        return_ntk : Optional[bool]
+            If true, return the NTK of the test-graph calculated using X_test
+            and A_test. Defaul: False
 
-        Returns: Logits of unlabeled nodes, defines as in
-        https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+        Note: n = m + u 
+
+        Returns: 
+            Logits of unlabeled nodes, defines as in
+            https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         """
          # handle different adj representations
         #assert isinstance(A, tuple)
-        if isinstance(A, SparseTensor):
-            A = A.to_dense() # is differentiable
-        elif isinstance(A, tuple):
-            n, _ = X.shape
-            A = torch.sparse_coo_tensor(*A, 2 * [n]).to_dense() # is differentiable
-        if X is None or A is None:
-            assert self.ntk is not None, "NTK not initialized, needs recalc!"
-            ntk = self.ntk
+        if learning_setting is None:
+            learning_setting = self.learning_setting
+
+        if X_test is None or A_test is None:
+            assert X_test is None and A_test is None
+            assert learning_setting == "transductive", "No test graph given, " \
+                + " thus learning setting must be transductive for inference."
+            ntk_test = self.ntk
         else:
-            ntk = self.calc_ntk(X, A)
-        ntk_labeled = ntk[idx_labeled,:][:,idx_labeled]
+            if isinstance(A_test, SparseTensor):
+                A_test = A_test.to_dense() # is differentiable
+            elif isinstance(A_test, tuple):
+                n, _ = X_test.shape
+                A_test = torch.sparse_coo_tensor(*A_test, 2 * [n]).to_dense() # is differentiable
+            ntk_test = self.calc_ntk(X_test, A_test)
+        
+        if learning_setting == "inductive":
+            ntk_labeled = self.ntk # given fully labeled
+            assert self.ntk.shape[0] == len(idx_labeled), "Semi-supervised " \
+                + "setting not implemented by NTK class for inductive inference" \
+                + "so far."
+            ntk_unlabeled = ntk_test[idx_unlabeled,:][:,idx_labeled]
+        if learning_setting == "transductive": 
+            ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
+            ntk_unlabeled = ntk_test[idx_unlabeled,:][:,idx_labeled]
         # ensure non-singularity
-        ntk_labeled += (torch.rand(ntk_labeled.shape) / 1e+8).to(self.device)
-        ntk_unlabeled = ntk[idx_unlabeled,:][:,idx_labeled]
-        M = torch.linalg.solve(ntk_labeled, ntk_unlabeled, left=False)
-        y_pred = torch.matmul(M,(y[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+        ntk_labeled += (torch.rand(ntk_labeled.shape) / 1e+4).to(self.device)
+        cond = torch.linalg.cond(ntk_labeled)
+
+        # Previous
+        M = torch.linalg.solve(ntk_labeled, ntk_unlabeled, left=False) # ntk_unlabeled * ntk_labeled^-1
+        y_pred = torch.matmul(M,(y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+
+        #M = 
+
+        if return_ntk:
+            return y_pred, ntk_test, cond, M, ntk_labeled, ntk_unlabeled
         return y_pred

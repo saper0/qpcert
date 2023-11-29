@@ -54,8 +54,8 @@ def split(
     assert data_params["n_trn_labeled"] % n_cls == 0 \
            and data_params["n_val"] % n_cls == 0, \
            "Unable to create class balanced training and validation split."
-    n_labeled = data_params["n_trn_labeled"] / n_cls
-    n_val = data_params["n_val"] / n_cls
+    n_labeled = int(data_params["n_trn_labeled"] / n_cls)
+    n_val = int(data_params["n_val"] / n_cls)
     idx_trn = np.concatenate((idx_cls0[:n_labeled], idx_cls1[:n_labeled]))
     start_test_id = n_labeled + n_val
     idx_val = np.concatenate((idx_cls0[n_labeled:start_test_id], 
