@@ -208,7 +208,32 @@ def sym_norm_kernel(S):
     D^{-0.5} S D^{-0.5} where D is similar to the degree matrix 
 
     Returns:
-        Scalar value : symmetric normalized matrix of S
+        Matrix value : symmetric normalized matrix of S
     """
     Deg_inv = torch.diag(torch.pow(S.sum(axis=1), - 0.5))
     return Deg_inv @ S @ Deg_inv
+
+def centered_kernel_alignment(K, L):
+    """ CKA as per eq 4 in Similarity of Neural Network Representations Revisited -- https://arxiv.org/pdf/1905.00414.pdf
+    implements HSIC(K,L)/sqrt(HSIC(K,K)*HSIC(L,L)) where
+    HSIC(K,L) = tr(KHLH)/(n-1)^2 in which H is the centering matrix 
+    H = I - 11^T/n -- this makes the measure invariant to scaling
+    
+    Assumes K and L to be of same size
+
+    Returns:
+        Scalar value : CKA(K,L)
+    """
+
+    def center_kernel(k):
+        n = k.shape[0]
+        H = torch.eye(n) - torch.ones((n,n), dtype=torch.float64)/n
+        return k@H
+    
+    def HSIC(k,l):
+        n = k.shape[0]
+        k_c = center_kernel(k)
+        l_c = center_kernel(l)
+        return torch.trace(k_c @ l_c)/((n-1)*(n-1))
+
+    return HSIC(K,L)/torch.sqrt(HSIC(K,K)*HSIC(L,L)) 
