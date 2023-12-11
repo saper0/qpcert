@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, Tuple
 
 from jaxtyping import Float, Integer
@@ -19,6 +20,7 @@ def get_graph(
     n = data_params["n_trn_labeled"] + data_params["n_trn_unlabeled"] \
         + data_params["n_val"] + data_params["n_test"]
     csbm = CSBM(n=n, **data_params)
+    logging.info(f"CSBM(p={csbm.p}, q={csbm.q})")
 
     X, A, y = csbm.sample(n, data_params["seed"])
     if sort:

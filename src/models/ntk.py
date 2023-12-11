@@ -23,6 +23,7 @@ class NTK(torch.nn.Module):
                  A_trn: Float[torch.Tensor, "n n"],
                  learning_setting: str = "inductive", 
                  device: Union[torch.device, str] = None,
+                 regularizer: float = 1e-8,
                  dtype: torch.dtype = torch.float64):
         """ In the forward pass, the here calculated NTK will be considered
             as calculated from the training graph. 
@@ -38,6 +39,9 @@ class NTK(torch.nn.Module):
         learning_setting : str 
             Considered learning setting for inference. Can be "inductive" 
             (default) or "transductive".
+        regularizer : float
+            Conditioner to add to the diagonal of the NTK to invert. 
+            (Regularizer for kernel ridge regression.) Default: 1e-8 
         device : Union[torch.device, str]
             Device to use for calculating the kernel and doing inference
             with it. If not set, will be set to device of X_trn.
@@ -57,6 +61,7 @@ class NTK(torch.nn.Module):
             self.device = X_trn.device
         self.ntk = self.calc_ntk(X_trn, A_trn)
         self.learning_setting = learning_setting
+        self.regularizer = regularizer
 
     def calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
         if self.model_dict["model"] == "GCN":
@@ -252,15 +257,28 @@ class NTK(torch.nn.Module):
             ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
             ntk_unlabeled = ntk_test[idx_unlabeled,:][:,idx_labeled]
         # ensure non-singularity
-        ntk_labeled += (torch.rand(ntk_labeled.shape) / 1e+4).to(self.device)
+        ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=self.dtype).to(self.device) \
+                       * self.regularizer
+        #ntk_labeled += (torch.rand(ntk_labeled.shape) / 1e+4).to(self.device)
         cond = torch.linalg.cond(ntk_labeled)
 
         # Previous
-        M = torch.linalg.solve(ntk_labeled, ntk_unlabeled, left=False) # ntk_unlabeled * ntk_labeled^-1
-        y_pred = torch.matmul(M,(y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
-
-        #M = 
+        if solution_method == "old":
+            M = torch.linalg.solve(ntk_labeled, ntk_unlabeled, left=False) # ntk_unlabeled * ntk_labeled^-1
+            y_pred = torch.matmul(M,(y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+        elif solution_method == "LU":
+            v = torch.linalg.solve(ntk_labeled, 
+                                   (y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+            y_pred = torch.matmul(ntk_unlabeled, v)
+            M = torch.eye(1, device=self.device)
+        elif solution_method == "QR":
+            Q, R = torch.linalg.qr(ntk_labeled)
+            Qy = torch.matmul(Q.T, (y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+            v = torch.linalg.solve_triangular(R, Qy.view(-1, 1), upper=True)
+            v = v.view(-1)
+            y_pred = torch.matmul(ntk_unlabeled, v)
+            M = torch.eye(1, device=self.device)
 
         if return_ntk:
-            return y_pred, ntk_test, cond, M, ntk_labeled, ntk_unlabeled
+            return y_pred, ntk_test, cond, M, ntk_labeled, ntk_unlabeled # only for debugging, otherwise only y_pred & ntk_test
         return y_pred

@@ -55,6 +55,8 @@ def config():
         model = "GCN",
         normalization = "row_normalization",
         depth = 1,
+        regularizer = 1e-8,
+        solver = "LU"
     )
 
     attack_params = dict(
@@ -163,13 +165,15 @@ def run(data_params: Dict[str, Any],
     if data_params["learning_setting"] == "transductive":
         ntk = NTK(model_params, X_trn=X, A_trn=A, 
                   learning_setting=data_params["learning_setting"],
-                  dtype=other_params["dtype"])
+                  dtype=other_params["dtype"],
+                  regularizer=model_params["regularizer"])
     else:
         A_trn = A[idx_labeled, :]
         A_trn = A_trn[:, idx_labeled]
         ntk = NTK(model_params, X_trn=X[idx_labeled, :], A_trn=A_trn, 
                   learning_setting=data_params["learning_setting"],
-                  dtype=other_params["dtype"])
+                  dtype=other_params["dtype"],
+                  regularizer=model_params["regularizer"])
 
     if attack_params["attack_setting"] == "poisioning":
         assert data_params["learning_setting"] == "transductive", "Currently "\
@@ -186,7 +190,9 @@ def run(data_params: Dict[str, Any],
                            seed = seed)
     if data_params["learning_setting"] == "inductive":
         ntk_clean = NTK(model_params, X_trn=X, A_trn=A, 
-                        dtype=other_params["dtype"])
+                        dtype=other_params["dtype"],
+                        learning_setting=data_params["learning_setting"],
+                        regularizer=model_params["regularizer"])
     else:
         ntk_clean = ntk
     acc_l = []
@@ -204,7 +210,7 @@ def run(data_params: Dict[str, Any],
         y_pred, ntk_test, cond, M, ntk_labeled, ntk_unlabeled = ntk(
             idx_labeled=idx_labeled, idx_unlabeled=idx_test,
                                 y_test=y, X_test=X, A_test=A_pert, 
-                                return_ntk=True
+                                return_ntk=True, solution_method=model_params["solver"]
         )
         acc = utils.accuracy(y_pred, y[idx_target]).cpu().item()
         acc_l.append(acc)
