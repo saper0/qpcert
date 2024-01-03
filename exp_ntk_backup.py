@@ -37,28 +37,17 @@ def config():
     seed = 0
 
     data_params = dict(
-        dataset = "csbm",
         learning_setting = "inductive", # or "transdructive"
-        specification = dict(
-            classes = 2,
-            n_trn_labeled = 600,
-            n_trn_unlabeled = 0,
-            n_val = 200,
-            n_test = 200,
-            sigma = 1,
-            avg_within_class_degree = 1.58 * 2,
-            avg_between_class_degree = 0.37 * 2,
-            K = 1.5,
-            seed = 0 # used to generate the dataset & data split
-        ),
-        #specification = dict(
-        #    n_per_class = 20,
-        #    fraction_test = 0.1,
-        #    data_dir = "./data",
-        #    make_undirected = True,
-        #    binary_attr = False,
-        #    balance_test = True,
-        #)
+        classes = 2,
+        n_trn_labeled = 600,
+        n_trn_unlabeled = 0,
+        n_val = 200,
+        n_test = 200,
+        sigma = 1,
+        avg_within_class_degree = 1.58 * 2,
+        avg_between_class_degree = 0.37 * 2,
+        K = 1.5,
+        seed = 0 # used to generate the dataset & data split
     )
     
     model_params = dict(
@@ -168,27 +157,22 @@ def run(data_params: Dict[str, Any],
                               verbosity_params, other_params, seed)
 
     X, A, y = get_graph(data_params, sort=True)
-    idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
+    idx_trn, idx_val, idx_test = split(data_params, y)
     X = torch.tensor(X, dtype=other_params["dtype"], device=device)
     A = torch.tensor(A, dtype=other_params["dtype"], device=device)
     y = torch.tensor(y, device=device)
-    n_classes = int(y.max() + 1)
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
-    idx_known = np.concatenate((idx_labeled, idx_unlabeled))
-    idx_known_labeled = np.nonzero(np.isin(idx_known, idx_labeled))[0] #actually is just 0 to len(idx_labeled)
     if data_params["learning_setting"] == "transductive":
-        ntk = NTK(model_params, X_trn=X, A_trn=A, n_classes=n_classes, 
-                  idx_labeled=idx_known_labeled, y_trn=y[idx_labeled],
+        ntk = NTK(model_params, X_trn=X, A_trn=A, y_trn=y[idx_labeled],
                   learning_setting=data_params["learning_setting"],
                   pred_method=model_params["pred_method"],
                   regularizer=model_params["regularizer"],
                   dtype=other_params["dtype"])
     else:
-        A_trn = A[idx_known, :]
-        A_trn = A_trn[:, idx_known]
-        ntk = NTK(model_params, X_trn=X[idx_known, :], A_trn=A_trn, 
-                  n_classes=n_classes, idx_labeled=idx_known_labeled, 
+        A_trn = A[idx_labeled, :]
+        A_trn = A_trn[:, idx_labeled]
+        ntk = NTK(model_params, X_trn=X[idx_labeled, :], A_trn=A_trn, 
                   y_trn=y[idx_labeled],
                   learning_setting=data_params["learning_setting"],
                   pred_method=model_params["pred_method"],
@@ -205,12 +189,11 @@ def run(data_params: Dict[str, Any],
         idx_target = idx_test
     attack = create_attack(idx_target, X, A, y, 
                            idx_labeled=idx_labeled, 
-                           idx_unlabeled=idx_test, #TODO
+                           idx_unlabeled=idx_test, 
                            attack_params=attack_params, 
                            seed=seed)
     if data_params["learning_setting"] == "inductive":
-        ntk_clean = NTK(model_params, X_trn=X[idx_known, :], A_trn=A_trn, 
-                        n_classes=n_classes, idx_labeled=idx_known_labeled, 
+        ntk_clean = NTK(model_params, X_trn=X[idx_labeled, :], A_trn=A_trn, 
                         y_trn=y[idx_labeled],
                         dtype=other_params["dtype"],
                         learning_setting=data_params["learning_setting"],
@@ -235,10 +218,7 @@ def run(data_params: Dict[str, Any],
                                 y_test=y, X_test=X, A_test=A_pert, 
                                 return_ntk=True, solution_method=model_params["solver"]
         )
-        if n_classes == 2:
-            acc = utils.accuracy(y_pred, y[idx_target]).cpu().item()
-        else:
-            acc = (y_pred.argmax(1) == y[idx_test]).float().mean().item()
+        acc = utils.accuracy(y_pred, y[idx_target]).cpu().item()
         acc_l.append(acc)
         min_ypred.append(torch.min(y_pred).cpu().item())
         max_ypred.append(torch.max(y_pred).cpu().item())

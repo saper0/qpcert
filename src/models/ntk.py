@@ -5,6 +5,8 @@ from typing import Any, Dict, Optional, Union, Tuple
 
 from jaxtyping import Float, Integer
 import numpy as np
+from sklearn import svm
+from sklearn.multiclass import OneVsRestClassifier
 import torch
 import torch.nn.functional as F
 from torch import Tensor
@@ -21,9 +23,13 @@ class NTK(torch.nn.Module):
     def __init__(self, model_dict: Dict[str, Any], 
                  X_trn: Float[torch.Tensor, "n d"], 
                  A_trn: Float[torch.Tensor, "n n"],
+                 n_classes: float,
+                 idx_labeled: Optional[Integer[torch.Tensor, "l"]] = None,
+                 y_trn: Optional[Integer[torch.Tensor, "l"]] = None,
                  learning_setting: str = "inductive", 
-                 device: Union[torch.device, str] = None,
+                 pred_method: str = "svm",
                  regularizer: float = 1e-8,
+                 device: Union[torch.device, str] = None,
                  dtype: torch.dtype = torch.float64):
         """ In the forward pass, the here calculated NTK will be considered
             as calculated from the training graph. 
@@ -36,9 +42,21 @@ class NTK(torch.nn.Module):
         A_trn : Float[torch.Tensor, "n n"]
             Graph adjacency matrix available during training (i.e., of the
             training graph).
+        n_classes : float
+            Number of classes in given training graph. Used to decide if
+            binary or multi-class classification setting.
+        y_trn : Integer[torch.Tensor, "n"]
+            Only necessary for pred_method="svm", ignored for KRR. The training
+            labels to fit the SVM dual variables. 
+        idx_labeled: Integer[torch.Tensor, "l"]
+            Used if semi-supervised learning setting. Indices of labeled nodes
+            in X_trn, A_trn.
         learning_setting : str 
             Considered learning setting for inference. Can be "inductive" 
             (default) or "transductive".
+        pred_method : str
+            If "svm" uses SVM for predictions. If "krr" uses kernel ridge
+            regression instead. Default: "svm".
         regularizer : float
             Conditioner to add to the diagonal of the NTK to invert. 
             (Regularizer for kernel ridge regression.) Default: 1e-8 
@@ -62,6 +80,33 @@ class NTK(torch.nn.Module):
         self.ntk = self.calc_ntk(X_trn, A_trn)
         self.learning_setting = learning_setting
         self.regularizer = regularizer
+        self.pred_method = pred_method
+        self.idx_labeled = idx_labeled
+        self.n_classes = n_classes
+        if pred_method == "svm":
+            self.svm = self.fit_svm(X_trn, A_trn, y_trn, idx_labeled)
+        else:
+            assert pred_method == "krr"
+
+    def fit_svm(self,
+                X: Float[torch.Tensor, "n d"], 
+                A: Float[torch.Tensor, "n n"],
+                y: Integer[torch.Tensor, "l"],
+                idx_labeled: Integer[torch.Tensor, "l"]):    
+        cache_size = 1000
+        if "cache_size" in self.model_dict:
+            cache_size = self.model_dict["cache_size"]
+        f = svm.SVC(C=self.regularizer, kernel="precomputed", 
+                    cache_size=cache_size)
+        gram_matrix = self.ntk.detach().cpu().numpy()
+        if idx_labeled is not None:
+            gram_matrix = gram_matrix[idx_labeled, :]
+            gram_matrix = gram_matrix[:, idx_labeled]
+        if self.n_classes == 2:
+            f.fit(gram_matrix, y.detach().cpu().numpy())
+        else:
+            f = OneVsRestClassifier(f, n_jobs=-1).fit(gram_matrix, y.detach().cpu().numpy())
+        return f
 
     def calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
         if self.model_dict["model"] == "GCN":
@@ -130,6 +175,7 @@ class NTK(torch.nn.Module):
             S_norm = torch.norm(S)
             XXT = X.matmul(X.T)
             Sig = S.matmul(XXT.matmul(S.T))
+
             kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
             # ReLu GCN
             depth = self.model_dict["depth"]
@@ -141,14 +187,16 @@ class NTK(torch.nn.Module):
                 Sig_i = p + Diag_Sig.reshape(1, -1)
                 Sig_j = p + Diag_Sig.reshape(-1, 1)
                 q = torch.sqrt(Sig_i * Sig_j)
+                #print("q")
+                #print(torch.isnan(q).sum())
+                #print((q==0).sum())
+                #print(q.shape)
                 u = Sig/q # why normalization?
                 E = (q * self.kappa_1(u)) * csigma
                 E_der = (self.kappa_0(u)) * csigma
                 E = E.double()
                 E_der = E_der.double()
-
                 kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
-            
                 Sig = S.matmul(E.matmul(S.T))
                 for j in range(i):
                     kernel_sub[j] = S.matmul((kernel_sub[j].float() * E_der).matmul(S.T))
@@ -206,7 +254,7 @@ class NTK(torch.nn.Module):
             Indices of labeled nodes in X_test / A_test.
             Note: Assumes training graph is fully labeled!
         idx_unlabeled : Integer[np.ndarray, "u"]
-            Indices of unlabeled nodes in X_test / A_test.
+            Indices of unlabeled test nodes in X_test / A_test.
         y_test : Integer[torch.Tensor, "n"]
             Labels of the test graph.
         X_test : Float[torch.Tensor, "n d"]
@@ -249,16 +297,18 @@ class NTK(torch.nn.Module):
         
         if learning_setting == "inductive":
             ntk_labeled = self.ntk # given fully labeled
-            assert self.ntk.shape[0] == len(idx_labeled), "Semi-supervised " \
-                + "setting not implemented by NTK class for inductive inference" \
-                + "so far."
+            if self.idx_labeled is not None:
+                ntk_labeled = ntk_labeled[self.idx_labeled, :]
+                ntk_labeled = ntk_labeled[:, self.idx_labeled]
             ntk_unlabeled = ntk_test[idx_unlabeled,:][:,idx_labeled]
         if learning_setting == "transductive": 
             ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
             ntk_unlabeled = ntk_test[idx_unlabeled,:][:,idx_labeled]
+
+        
         # ensure non-singularity
         ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=self.dtype).to(self.device) \
-                       * self.regularizer
+                    * self.regularizer
         #ntk_labeled += (torch.rand(ntk_labeled.shape) / 1e+4).to(self.device)
         cond = torch.linalg.cond(ntk_labeled)
 
@@ -268,7 +318,7 @@ class NTK(torch.nn.Module):
             y_pred = torch.matmul(M,(y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
         elif solution_method == "LU":
             v = torch.linalg.solve(ntk_labeled, 
-                                   (y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+                                (y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
             y_pred = torch.matmul(ntk_unlabeled, v)
             M = torch.eye(1, device=self.device)
         elif solution_method == "QR":
@@ -278,6 +328,18 @@ class NTK(torch.nn.Module):
             v = v.view(-1)
             y_pred = torch.matmul(ntk_unlabeled, v)
             M = torch.eye(1, device=self.device)
+
+        
+        ##test
+        if self.pred_method == "svm":
+            if self.n_classes == 2:
+                y_pred = self.svm.predict(ntk_unlabeled.detach().cpu().numpy())
+                y_pred = torch.Tensor(y_pred).to(self.device)
+            else:
+                y_pred = self.svm.predict(ntk_unlabeled.detach().cpu().numpy())
+                y_pred = torch.tensor(y_pred, dtype=torch.long).to(self.device)
+                y_pred = torch.nn.functional.one_hot(y_pred)
+        ##test out
 
         if return_ntk:
             return y_pred, ntk_test, cond, M, ntk_labeled, ntk_unlabeled # only for debugging, otherwise only y_pred & ntk_test
