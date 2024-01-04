@@ -418,7 +418,7 @@ def get_planetoid(dataset: str, specification: Dict[str, Any]):
     make_undirected = specification["make_undirected"]
     dataset_root = specification["data_dir"]
     assert make_undirected == True , "undirected not implemented for cora"
-    cora = Planetoid(root = dataset_root, name=dataset, transform=)
+    cora = Planetoid(root = dataset_root, name=dataset)
     X = cora.data.x.numpy()
     y = cora.data.y.numpy()
     edge_index = cora.data.edge_index
