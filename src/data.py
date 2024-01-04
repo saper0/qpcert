@@ -8,6 +8,7 @@ import numpy as np
 from numpy import ndarray
 import torch
 from torch_geometric.datasets.planetoid import Planetoid
+import torch_geometric.transforms as T
 from torch_sparse import SparseTensor
 import scipy.sparse as sp
 
@@ -418,10 +419,11 @@ def get_planetoid(dataset: str, specification: Dict[str, Any]):
     make_undirected = specification["make_undirected"]
     dataset_root = specification["data_dir"]
     assert make_undirected == True , "undirected not implemented for cora"
-    cora = Planetoid(root = dataset_root, name=dataset)
-    X = cora.data.x.numpy()
-    y = cora.data.y.numpy()
-    edge_index = cora.data.edge_index
+    data = Planetoid(root = dataset_root, name=dataset)
+    #transforms = T.Compose([T.LargestConnectedComponents()])
+    X = data.x.numpy()
+    y = data.y.numpy()
+    edge_index = data.edge_index
     edge_weight = torch.ones(edge_index.shape[1])
     A = SparseTensor(row=edge_index[0], col=edge_index[1], value=edge_weight, sparse_sizes=(edge_index.max()+1, edge_index.max()+1))
     A = A.to_dense().numpy()
@@ -510,11 +512,11 @@ def get_graph(
         X, A, y = get_csbm(data_params["specification"])
     elif data_params["dataset"] in ["cora"]:
         X, A, y = get_planetoid(data_params["dataset"], data_params["specification"])
-        #if data_params["dataset"] == "citeseer":
-        #    G = nx.from_numpy_array(A.detach().cpu().numpy())
-        #    print(G.adj)
-        #    G = max(nx.connected_components(G), key=len)
-        #    #A = 
+        if data_params["dataset"] == "citeseer":
+            G = nx.from_numpy_array(A.detach().cpu().numpy())
+            print(G.adj)
+            G = max(nx.connected_components(G), key=len)
+            #A = 
         #print("nodes without connections")
         #print((A.sum(dim=1)==0).sum())
     elif data_params["dataset"] in ['cora_ml', "citeseer", "pubmed"]:
