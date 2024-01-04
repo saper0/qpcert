@@ -418,12 +418,13 @@ def get_planetoid(dataset: str, specification: Dict[str, Any]):
     make_undirected = specification["make_undirected"]
     dataset_root = specification["data_dir"]
     assert make_undirected == True , "undirected not implemented for cora"
-    cora = Planetoid(root = dataset_root, name=dataset)
-    X = cora.data.x
+    cora = Planetoid(root = dataset_root, name=dataset, transform=)
+    X = cora.data.x.numpy()
     y = cora.data.y.numpy()
     edge_index = cora.data.edge_index
     edge_weight = torch.ones(edge_index.shape[1])
     A = SparseTensor(row=edge_index[0], col=edge_index[1], value=edge_weight, sparse_sizes=(edge_index.max()+1, edge_index.max()+1))
+    A = A.to_dense().numpy()
     return X, A, y
 
 
@@ -457,9 +458,9 @@ def get_cora_citeseer_pubmed(name: str,
     A = graph.adj_matrix.tocoo()
     A = SparseTensor.from_scipy(A).coalesce().to_dense()
     y = torch.LongTensor(graph.labels)
-    print(A.shape)
-    print(y.shape)
-    print(A)
+    print(graph.attr_matrix.toarray())
+    print(type(graph.attr_matrix.toarray()))
+    print(graph.labels)
     return X, A, y
 
 
@@ -509,7 +510,6 @@ def get_graph(
         X, A, y = get_csbm(data_params["specification"])
     elif data_params["dataset"] in ["cora"]:
         X, A, y = get_planetoid(data_params["dataset"], data_params["specification"])
-        A = A.to_dense()
         #if data_params["dataset"] == "citeseer":
         #    G = nx.from_numpy_array(A.detach().cpu().numpy())
         #    print(G.adj)
@@ -518,7 +518,7 @@ def get_graph(
         #print("nodes without connections")
         #print((A.sum(dim=1)==0).sum())
     elif data_params["dataset"] in ['cora_ml', "citeseer", "pubmed"]:
-        assert False, "Datasets currently not supported."
+        assert False, "Datasets not supported yet."
         X, A, y = get_cora_citeseer_pubmed(data_params["dataset"],
                                            data_params["specification"]["data_dir"],
                                            data_params["specification"]["make_undirected"])
