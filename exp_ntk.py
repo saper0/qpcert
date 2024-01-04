@@ -1,3 +1,5 @@
+# Experiment file to perform classification using the NTK.
+
 import logging
 from typing import Any, Dict, Union
 
@@ -71,12 +73,6 @@ def config():
         solver = "LU"
     )
 
-    attack_params = dict(
-        attack = "random",
-        epsilon_list = [0, 0.01, 0.025, 0.05, 0.10, 0.25, 0.50, 1, 2.5, 5, 10],
-        attack_setting = "evasion" # or "poisioning"
-    )
-
     verbosity_params = dict(
         debug_lvl = "info"
     )  
@@ -104,14 +100,12 @@ def set_debug_lvl(debug_lvl: str):
 
 
 def log_configuration(data_params: Dict[str, Any], model_params: Dict[str, Any], 
-                      attack_params: Dict[str, Any],
                       verbosity_params: Dict[str, Any], 
                       other_params: Dict[str, Any], seed: int) -> None:
     """Log (print) experiment configuration."""
     logging.info(f"Starting experiment {ex.path} with configuration:")
     logging.info(f"data_params: {data_params}")
     logging.info(f"model_params: {model_params}")
-    logging.info(f"attack_params: {attack_params}")
     logging.info(f"verbosity_params: {verbosity_params}")
     logging.info(f"other_params: {other_params}")
     logging.info(f"seed: {seed}")
@@ -142,7 +136,6 @@ def configure_hardware(
 
 
 def setup_experiment(data_params: Dict[str, Any], model_params: Dict[str, Any], 
-                     train_params: Dict[str, Any],
                      verbosity_params: Dict[str, Any], 
                      other_params: Dict[str, Any], seed: int
 ) -> Union[torch.device, str]:
@@ -151,7 +144,7 @@ def setup_experiment(data_params: Dict[str, Any], model_params: Dict[str, Any],
     Returns the device.
     """
     set_debug_lvl(verbosity_params["debug_lvl"])
-    log_configuration(data_params, model_params, train_params, verbosity_params,
+    log_configuration(data_params, model_params, verbosity_params,
                       other_params, seed)
     return configure_hardware(other_params, seed)
 
@@ -159,13 +152,12 @@ def setup_experiment(data_params: Dict[str, Any], model_params: Dict[str, Any],
 @ex.automain
 def run(data_params: Dict[str, Any], 
         model_params: Dict[str, Any], 
-        attack_params : Dict[str, Any],
         verbosity_params: Dict[str, Any], 
         other_params: Dict[str, Any],
         seed: int, 
         _run: Run):
-    device = setup_experiment(data_params, model_params, attack_params, 
-                              verbosity_params, other_params, seed)
+    device = setup_experiment(data_params, model_params, verbosity_params, 
+                              other_params, seed)
 
     X, A, y = get_graph(data_params, sort=True)
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
@@ -176,92 +168,46 @@ def run(data_params: Dict[str, Any],
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
     idx_known = np.concatenate((idx_labeled, idx_unlabeled))
+    # idx of labeled nodes in nodes known during training (for semi-supervised)
     idx_known_labeled = np.nonzero(np.isin(idx_known, idx_labeled))[0] #actually is just 0 to len(idx_labeled)
     if data_params["learning_setting"] == "transductive":
-        ntk = NTK(model_params, X_trn=X, A_trn=A, n_classes=n_classes, 
-                  idx_labeled=idx_known_labeled, y_trn=y[idx_labeled],
-                  learning_setting=data_params["learning_setting"],
-                  pred_method=model_params["pred_method"],
-                  regularizer=model_params["regularizer"],
-                  dtype=other_params["dtype"])
+        A_trn = A
+        X_trn = X
     else:
         A_trn = A[idx_known, :]
         A_trn = A_trn[:, idx_known]
-        ntk = NTK(model_params, X_trn=X[idx_known, :], A_trn=A_trn, 
-                  n_classes=n_classes, idx_labeled=idx_known_labeled, 
-                  y_trn=y[idx_labeled],
-                  learning_setting=data_params["learning_setting"],
-                  pred_method=model_params["pred_method"],
-                  regularizer=model_params["regularizer"],
-                  dtype=other_params["dtype"])
+        X_trn = X[idx_known, :]
+    ntk = NTK(model_params, X_trn=X_trn, A_trn=A_trn, n_classes=n_classes, 
+              idx_trn_labeled=idx_known_labeled, y_trn=y[idx_labeled],
+              learning_setting=data_params["learning_setting"],
+              pred_method=model_params["pred_method"],
+              regularizer=model_params["regularizer"],
+              dtype=other_params["dtype"])
+    
+    y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
+                            y_test=y, X_test=X, A_test=A, 
+                            return_ntk=True)
+    acc = utils.accuracy(y_pred, y[idx_test])
+    logging.info(f'Accuracy {acc}')
 
-    if attack_params["attack_setting"] == "poisioning":
-        assert data_params["learning_setting"] == "transductive", "Currently "\
-             + "only considering poisioing for the transductive setting, need"\
-             + " to think more about how to set idx_target otherwise."
-        # Thought: Should be idx_val and/or idx_test in idx_target set? What if we even do inductive poisioning? 
-        idx_target = np.concatenate((idx_trn, idx_val, idx_test)) 
-    else:
-        idx_target = idx_test
-    attack = create_attack(idx_target, X, A, y, 
-                           idx_labeled=idx_labeled, 
-                           idx_unlabeled=idx_test, #TODO
-                           attack_params=attack_params, 
-                           seed=seed)
-    if data_params["learning_setting"] == "inductive":
-        ntk_clean = NTK(model_params, X_trn=X[idx_known, :], A_trn=A_trn, 
-                        n_classes=n_classes, idx_labeled=idx_known_labeled, 
-                        y_trn=y[idx_labeled],
-                        dtype=other_params["dtype"],
-                        learning_setting=data_params["learning_setting"],
-                        pred_method=model_params["pred_method"],
-                        regularizer=model_params["regularizer"])
-    else:
-        ntk_clean = ntk
-    acc_l = []
-    min_ypred = []
-    max_ypred = []
-    min_M = []
-    max_M = []
-    min_ntklabeled = []
-    max_ntklabeled = []
-    min_ntkunlabeled = []
-    max_ntkunlabeled = []
-    for eps in attack_params["epsilon_list"]:
-        n_pert = int(round(eps * count_edges_for_idx(A.cpu(), idx_test)))
-        A_pert = attack.attack(n_pert).detach().clone()
-        y_pred, ntk_test, cond, M, ntk_labeled, ntk_unlabeled = ntk(
-            idx_labeled=idx_labeled, idx_unlabeled=idx_test,
-                                y_test=y, X_test=X, A_test=A_pert, 
-                                return_ntk=True, solution_method=model_params["solver"]
-        )
-        if n_classes == 2:
-            acc = utils.accuracy(y_pred, y[idx_target]).cpu().item()
-        else:
-            acc = (y_pred.argmax(1) == y[idx_test]).float().mean().item()
-        acc_l.append(acc)
-        min_ypred.append(torch.min(y_pred).cpu().item())
-        max_ypred.append(torch.max(y_pred).cpu().item())
-        min_M.append(torch.min(M).cpu().item())
-        max_M.append(torch.max(M).cpu().item())
-        min_ntklabeled.append(torch.min(ntk_labeled).cpu().item())
-        max_ntklabeled.append(torch.max(ntk_labeled).cpu().item())
-        min_ntkunlabeled.append(torch.min(ntk_unlabeled).cpu().item())
-        max_ntkunlabeled.append(torch.max(ntk_unlabeled).cpu().item())
-        logging.info(f'Accuracy {acc} for epsilon {eps}')
-
-        if torch.cuda.is_available() and other_params["device"] != "cpu":
-                torch.cuda.empty_cache()
-                #torch.cuda.synchronize() # Maybe necessary for custom cuda kernel
-    assert len(acc_l) > 0
+    # Some Debugging Info
+    ntk_labeled = ntk.ntk[idx_known_labeled, :]
+    ntk_labeled = ntk_labeled[:, idx_known_labeled]
+    ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=torch.float64).to(device) \
+                    * model_params["regularizer"]
+    ntk_unlabeled = ntk_test[idx_test,:][:,idx_labeled]
+    cond = torch.linalg.cond(ntk_labeled)
+    min_ypred = torch.min(y_pred).cpu().item()
+    max_ypred = torch.max(y_pred).cpu().item()
+    min_ntklabeled = torch.min(ntk_labeled).cpu().item()
+    max_ntklabeled = torch.max(ntk_labeled).cpu().item()
+    min_ntkunlabeled = torch.min(ntk_unlabeled).cpu().item()
+    max_ntkunlabeled = torch.max(ntk_unlabeled).cpu().item()
 
     return dict(
-        accuracy_l = acc_l,
-        epsilon_l = attack_params["epsilon_list"],
+        accuracy = acc,
         min_ypred = min_ypred,
         max_ypred = max_ypred,
-        min_M = min_M,
-        max_M = max_M,
         min_ntklabeled = min_ntklabeled,
         max_ntklabeled = max_ntklabeled,
         min_ntkunlabeled = min_ntkunlabeled,

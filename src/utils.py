@@ -5,25 +5,30 @@ import numpy as np
 import torch
 from torch_sparse import coalesce
 
-def accuracy(logits: Float[torch.Tensor, "m"], 
+def accuracy(logits: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
              labels: Integer[torch.Tensor, "n"], 
-             split_idx: np.ndarray = None) -> Float[torch.Tensor, "1"]:
+             idx_labels: np.ndarray = None) -> float:
     """Returns the accuracy for a tensor of logits, a list of lables and and a split indices.
 
-    Note: logit is defines as in 
-    https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+    Works for binary and multi-class classification.
 
     Returns
     -------
     float
         the Accuracy
     """
-    p_cls1 = torch.sigmoid(logits)
-    y_pred = (p_cls1 > 0.5).to(dtype=torch.long)
-    if split_idx is not None:
-        return (y_pred == labels[split_idx]).sum() / len(split_idx)
+    if len(logits.shape) > 1:
+        if idx_labels is not None:
+            return (logits.argmax(1) == labels[idx_labels]).float().mean().cpu().item()
+        else:
+            return (logits.argmax(1) == labels).float().mean().cpu().item()
     else:
-        return (y_pred == labels).sum() / len(labels)
+        p_cls1 = torch.sigmoid(logits)
+        y_pred = (p_cls1 > 0.5).to(dtype=torch.long)
+        if idx_labels is not None:
+            return ((y_pred == labels[idx_labels]).sum() / len(idx_labels)).cpu().item()
+        else:
+            return ((y_pred == labels).sum() / len(labels)).cpu().item()
 
 
 def to_symmetric(edge_index: torch.Tensor, edge_weight: torch.Tensor,

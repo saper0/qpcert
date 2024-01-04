@@ -507,7 +507,7 @@ def get_graph(
 
     if data_params["dataset"] == "csbm":
         X, A, y = get_csbm(data_params["specification"])
-    elif data_params["dataset"] in ["cora", "citeseer"]:
+    elif data_params["dataset"] in ["cora"]:
         X, A, y = get_planetoid(data_params["dataset"], data_params["specification"])
         A = A.to_dense()
         #if data_params["dataset"] == "citeseer":
@@ -516,7 +516,8 @@ def get_graph(
         #    #A = 
         #print("nodes without connections")
         #print((A.sum(dim=1)==0).sum())
-    elif data_params["dataset"] in ['cora_ml', "pubmed"]:
+    elif data_params["dataset"] in ['cora_ml', "citeseer", "pubmed"]:
+        assert False, "Datasets not working currently"
         X, A, y = get_cora_citeseer_pubmed(data_params["dataset"],
                                            data_params["specification"]["data_dir"],
                                            data_params["specification"]["make_undirected"])
