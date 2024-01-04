@@ -512,12 +512,13 @@ def get_graph(
         A = A.to_dense()
         #if data_params["dataset"] == "citeseer":
         #    G = nx.from_numpy_array(A.detach().cpu().numpy())
+        #    print(G.adj)
         #    G = max(nx.connected_components(G), key=len)
         #    #A = 
         #print("nodes without connections")
         #print((A.sum(dim=1)==0).sum())
     elif data_params["dataset"] in ['cora_ml', "citeseer", "pubmed"]:
-        assert False, "Datasets not working currently"
+        assert False, "Datasets currently not supported."
         X, A, y = get_cora_citeseer_pubmed(data_params["dataset"],
                                            data_params["specification"]["data_dir"],
                                            data_params["specification"]["make_undirected"])
