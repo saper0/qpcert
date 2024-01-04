@@ -80,7 +80,8 @@ def config():
     other_params = dict(
         device = "gpu",
         dtype = torch.float64,
-        allow_tf32 = False
+        allow_tf32 = False,
+        enable_gradient = False
     )
 
 
@@ -158,7 +159,7 @@ def run(data_params: Dict[str, Any],
         _run: Run):
     device = setup_experiment(data_params, model_params, verbosity_params, 
                               other_params, seed)
-
+    
     X, A, y = get_graph(data_params, sort=True)
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
     X = torch.tensor(X, dtype=other_params["dtype"], device=device)
@@ -177,16 +178,17 @@ def run(data_params: Dict[str, Any],
         A_trn = A[idx_known, :]
         A_trn = A_trn[:, idx_known]
         X_trn = X[idx_known, :]
-    ntk = NTK(model_params, X_trn=X_trn, A_trn=A_trn, n_classes=n_classes, 
-              idx_trn_labeled=idx_known_labeled, y_trn=y[idx_labeled],
-              learning_setting=data_params["learning_setting"],
-              pred_method=model_params["pred_method"],
-              regularizer=model_params["regularizer"],
-              dtype=other_params["dtype"])
-    
-    y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
-                            y_test=y, X_test=X, A_test=A, 
-                            return_ntk=True)
+    with torch.no_grad():
+        ntk = NTK(model_params, X_trn=X_trn, A_trn=A_trn, n_classes=n_classes, 
+                idx_trn_labeled=idx_known_labeled, y_trn=y[idx_labeled],
+                learning_setting=data_params["learning_setting"],
+                pred_method=model_params["pred_method"],
+                regularizer=model_params["regularizer"],
+                dtype=other_params["dtype"])
+        
+        y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
+                                y_test=y, X_test=X, A_test=A, 
+                                return_ntk=True)
     acc = utils.accuracy(y_pred, y[idx_test])
     logging.info(f'Accuracy {acc}')
 
@@ -203,6 +205,9 @@ def run(data_params: Dict[str, Any],
     max_ntklabeled = torch.max(ntk_labeled).cpu().item()
     min_ntkunlabeled = torch.min(ntk_unlabeled).cpu().item()
     max_ntkunlabeled = torch.max(ntk_unlabeled).cpu().item()
+
+    if torch.cuda.is_available() and other_params["device"] != "cpu":
+        torch.cuda.empty_cache()
 
     return dict(
         accuracy = acc,

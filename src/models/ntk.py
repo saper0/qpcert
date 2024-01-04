@@ -193,15 +193,9 @@ class NTK(torch.nn.Module):
                 Sig_i = p + Diag_Sig.reshape(1, -1)
                 Sig_j = p + Diag_Sig.reshape(-1, 1)
                 q = torch.sqrt(Sig_i * Sig_j)
-                #print("q")
-                #print(torch.isnan(q).sum())
-                #print((q==0).sum())
-                #print(q.shape)
                 u = Sig/q # why normalization?
                 E = (q * self.kappa_1(u)) * csigma
                 E_der = (self.kappa_0(u)) * csigma
-                E = E.double()
-                E_der = E_der.double()
                 kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
                 Sig = S.matmul(E.matmul(S.T))
                 for j in range(i):

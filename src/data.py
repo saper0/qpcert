@@ -420,7 +420,6 @@ def get_planetoid(dataset: str, specification: Dict[str, Any]):
     dataset_root = specification["data_dir"]
     assert make_undirected == True , "undirected not implemented for cora"
     data = Planetoid(root = dataset_root, name=dataset)
-    #transforms = T.Compose([T.LargestConnectedComponents()])
     X = data.x.numpy()
     y = data.y.numpy()
     edge_index = data.edge_index
@@ -510,16 +509,16 @@ def get_graph(
 
     if data_params["dataset"] == "csbm":
         X, A, y = get_csbm(data_params["specification"])
-    elif data_params["dataset"] in ["cora"]:
+    elif data_params["dataset"] in ["cora", "citeseer", "pubmed"]:
         X, A, y = get_planetoid(data_params["dataset"], data_params["specification"])
         if data_params["dataset"] == "citeseer":
-            G = nx.from_numpy_array(A.detach().cpu().numpy())
-            print(G.adj)
-            G = max(nx.connected_components(G), key=len)
-            #A = 
-        #print("nodes without connections")
-        #print((A.sum(dim=1)==0).sum())
-    elif data_params["dataset"] in ['cora_ml', "citeseer", "pubmed"]:
+            G = nx.from_numpy_array(A)
+            idx_lcc = list(max(nx.connected_components(G), key=len))
+            X = X[idx_lcc, :]
+            A = A[idx_lcc, :]
+            A = A[:, idx_lcc]
+            y = y[idx_lcc]
+    elif data_params["dataset"] in ['cora_ml']:
         assert False, "Datasets not supported yet."
         X, A, y = get_cora_citeseer_pubmed(data_params["dataset"],
                                            data_params["specification"]["data_dir"],
