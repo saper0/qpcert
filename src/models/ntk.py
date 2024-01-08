@@ -80,6 +80,8 @@ class NTK(torch.nn.Module):
         else:
             self.device = X_trn.device
         self.ntk = self.calc_ntk(X_trn, A_trn)
+        if torch.cuda.is_available() and self.device != "cpu":
+            torch.cuda.empty_cache()
         self.learning_setting = learning_setting
         self.regularizer = regularizer
         self.pred_method = pred_method
@@ -92,7 +94,6 @@ class NTK(torch.nn.Module):
             self.solution_method = "LU"
             if "solution_method" in model_dict:
                 self.solution_method = model_dict["solution_method"]
-
 
     def fit_svm(self,
                 X: Float[torch.Tensor, "n d"], 
@@ -177,6 +178,8 @@ class NTK(torch.nn.Module):
         else:
             S = self.calc_diffusion(X, A)
         if self.model_dict["model"] == "GCN" or self.model_dict["model"] == "SoftMedoid":
+            if torch.cuda.is_available() and self.device != "cpu":
+                torch.cuda.empty_cache()
             csigma = 1 
             S_norm = torch.norm(S)
             XXT = X.matmul(X.T)
@@ -195,11 +198,17 @@ class NTK(torch.nn.Module):
                 q = torch.sqrt(Sig_i * Sig_j)
                 u = Sig/q # why normalization?
                 E = (q * self.kappa_1(u)) * csigma
+                if torch.cuda.is_available() and self.device != "cpu":
+                    torch.cuda.empty_cache()
                 E_der = (self.kappa_0(u)) * csigma
+                if torch.cuda.is_available() and self.device != "cpu":
+                    torch.cuda.empty_cache()
                 kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
                 Sig = S.matmul(E.matmul(S.T))
                 for j in range(i):
                     kernel_sub[j] = S.matmul((kernel_sub[j].float() * E_der).matmul(S.T))
+                if torch.cuda.is_available() and self.device != "cpu":
+                    torch.cuda.empty_cache()
 
             kernel += torch.sum(kernel_sub, dim=0)
             kernel += Sig
@@ -241,7 +250,7 @@ class NTK(torch.nn.Module):
                 learning_setting: Optional[str] = None,
                 return_ntk: bool = False,
                 ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
-        """Perform kernel regression using the NTK.
+        """Perform kernel regression or SVM prediction using the NTK.
 
         The NTK of the test-graph is calculated using X_test & A_test, except
         if they are None and the learning setting set to transductive. Then,
@@ -294,6 +303,8 @@ class NTK(torch.nn.Module):
                 n, _ = X_test.shape
                 A_test = torch.sparse_coo_tensor(*A_test, 2 * [n]).to_dense() # is differentiable
             ntk_test = self.calc_ntk(X_test, A_test)
+            if torch.cuda.is_available() and self.device != "cpu":
+                torch.cuda.empty_cache()
         
         if learning_setting == "inductive":
             ntk_labeled = self.ntk 
@@ -328,12 +339,21 @@ class NTK(torch.nn.Module):
                 y_pred = torch.matmul(ntk_unlabeled, v)
         else:
             if self.n_classes == 2:
-                y_pred = self.svm.predict(ntk_unlabeled.detach().cpu().numpy())
-                y_pred = torch.Tensor(y_pred).to(self.device)
+                # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
+                alpha = torch.tensor(self.svm.dual_coef_, dtype=self.dtype, device=self.device)
+                b = torch.tensor(self.svm.intercept_, dtype=self.dtype, device=self.device)
+                idx_sup = self.svm.support_
+                y_pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
             else:
-                y_pred = self.svm.predict(ntk_unlabeled.detach().cpu().numpy())
-                y_pred = torch.tensor(y_pred, dtype=torch.long).to(self.device)
-                y_pred = torch.nn.functional.one_hot(y_pred)
+                y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                for i, svm in enumerate(self.svm.estimators_):
+                    # Implementation of the following scikit-learn function in PyTorch:
+                    # - pred = svm.decision_function(ntk_u_cpu) 
+                    alpha = torch.tensor(svm.dual_coef_, dtype=self.dtype, device=self.device)
+                    b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
+                    idx_sup = svm.support_
+                    pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+                    y_pred[:, i] = pred
 
         if return_ntk:
             return y_pred, ntk_test 

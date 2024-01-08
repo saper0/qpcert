@@ -223,7 +223,7 @@ def split_inductive(labels, n_per_class=20, fraction_test=0.1, seed=None,
 
     split_unlabeled = np.setdiff1d(np.arange(len(labels)), np.concatenate((split_labeled, split_val, split_test)))
 
-    print(f'number of samples\n - labeled: {n_per_class * nc} \n - val: {n_per_class * nc} \n - test: {split_test.shape[0]} \n - unlabeled: {split_unlabeled.shape[0]}')
+    logging.info(f'number of samples\n - labeled: {n_per_class * nc} \n - val: {n_per_class * nc} \n - test: {split_test.shape[0]} \n - unlabeled: {split_unlabeled.shape[0]}')
 
     return split_labeled, split_unlabeled, split_val, split_test
 

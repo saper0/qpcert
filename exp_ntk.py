@@ -161,6 +161,8 @@ def run(data_params: Dict[str, Any],
                               other_params, seed)
     
     X, A, y = get_graph(data_params, sort=True)
+    if torch.cuda.is_available() and other_params["device"] != "cpu":
+        torch.cuda.empty_cache()
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
     X = torch.tensor(X, dtype=other_params["dtype"], device=device)
     A = torch.tensor(A, dtype=other_params["dtype"], device=device)
