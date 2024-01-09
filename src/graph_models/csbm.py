@@ -48,7 +48,6 @@ class CSBM(GraphGenerationModel):
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray]: X, A, y
         """
-        #ToDo: Change to random number generator
         rng = np.random.Generator(np.random.PCG64(seed))
         # Sample y
         y = rng.integers(0,2,size=n)

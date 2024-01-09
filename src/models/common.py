@@ -38,6 +38,20 @@ def process_adj(adj: Union[SparseTensor,
     return edge_index, edge_weight
 
 
+def make_dense(A: Union[Float[torch.Tensor, "n n"],
+                        SparseTensor,
+                        Tuple[Integer[torch.Tensor, "2 nnz"], 
+                                 Float[torch.Tensor, "nnz"]]]
+               ) -> Float[torch.Tensor, "n n"]:
+    """Return a dense version of a potentially sparse adjacency matrix."""
+    if isinstance(A, SparseTensor):
+            A = A.to_dense() 
+    elif isinstance(A, tuple):
+        n, _ = A.shape
+        A = torch.sparse_coo_tensor(*A, 2 * [n]).to_dense() 
+    return A
+
+
 def row_normalize(A):
     # Row normalize
     S = torch.triu(A, diagonal=1) + torch.triu(A, diagonal=1).T

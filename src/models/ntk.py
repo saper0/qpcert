@@ -12,7 +12,8 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch_sparse import SparseTensor
 
-from src.models.common import row_normalize, tbn_normalize, degree_scaling, sym_normalize, APPNP_propogation
+from src.models.common import row_normalize, tbn_normalize, degree_scaling, \
+                              sym_normalize, APPNP_propogation, make_dense
 
 
 class NTK(torch.nn.Module):
@@ -80,6 +81,7 @@ class NTK(torch.nn.Module):
         else:
             self.device = X_trn.device
         self.ntk = self.calc_ntk(X_trn, A_trn)
+        self.calculated_lb_ub = False
         if torch.cuda.is_available() and self.device != "cpu":
             torch.cuda.empty_cache()
         self.learning_setting = learning_setting
@@ -94,6 +96,10 @@ class NTK(torch.nn.Module):
             self.solution_method = "LU"
             if "solution_method" in model_dict:
                 self.solution_method = model_dict["solution_method"]
+
+    def empty_gpu_memory(self):
+        if torch.cuda.is_available() and self.device != "cpu":
+            torch.cuda.empty_cache()
 
     def fit_svm(self,
                 X: Float[torch.Tensor, "n d"], 
@@ -115,7 +121,7 @@ class NTK(torch.nn.Module):
             f = OneVsRestClassifier(f, n_jobs=-1).fit(gram_matrix, y.detach().cpu().numpy())
         return f
 
-    def calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
+    def _calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
         if self.model_dict["model"] == "GCN":
             if self.model_dict["normalization"] == "row_normalization":
                 return row_normalize(A)
@@ -147,94 +153,232 @@ class NTK(torch.nn.Module):
         else:
             raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP architecture implemented")
 
+    def calc_diffusion(self, X: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
+        if "normalize" in self.model_dict:
+            if self.model_dict["normalize"]:
+                return self._calc_diffusion(X, A)
+            else:
+                return A
+        else:
+            return self._calc_diffusion(X, A)
+
     def kappa_0(self, u):
-        z = torch.zeros((u.shape), dtype=self.dtype).to(self.device)
-        pi = torch.acos(z)*2
-        r = (pi - torch.acos(u-1e-7)) / pi
-        #r[r!=r] = 1.0 # Always False?
-        return r
+        pi = torch.acos(torch.tensor(0, dtype=self.dtype).to(self.device)) * 2
+        return (pi - torch.acos(u-1e-7)) / pi
 
     def kappa_1(self, u):
-        z = torch.zeros((u.shape), dtype=self.dtype).to(self.device)
-        pi = torch.acos(z) * 2
-        r = (u*(pi - torch.acos(u-1e-7)) + torch.sqrt(1-u*u+1e-7))/pi
-        #r[r!=r] = 1.0 # Always False?
-        return r
+        pi = torch.acos(torch.tensor(0, dtype=self.dtype).to(self.device)) * 2
+        return (u*(pi - torch.acos(u-1e-7)) + torch.sqrt(1-u*u+1e-7))/pi
+
+    def kappa_0_lb(self, u_lb):
+        t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
+        pi = torch.acos(t_zero) * 2
+        t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
+        u_lb_ = torch.maximum(u_lb-1e-7, -t_one)
+        return (pi - torch.acos(u_lb_)) / pi
+    
+    def kappa_0_ub(self, u_ub):
+        t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
+        t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
+        pi = torch.acos(t_zero) * 2
+        u_ub_ = torch.minimum(u_ub-1e-7, t_one)
+        return (pi - torch.acos(u_ub_)) / pi
+
+    def kappa_1_lb(self, u_lb, u_ub):
+        t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
+        t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
+        pi = torch.acos(t_zero) * 2
+        a = torch.minimum(1-u_ub*u_ub+1e-7, t_zero)
+        u_lb_ = torch.maximum(u_lb-1e-7, -t_one)
+        return (u_lb*(pi - torch.acos(u_lb_)) + torch.sqrt(a))/pi
+    
+    def kappa_1_ub(self, u_lb, u_ub):
+        t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
+        t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
+        pi = torch.acos(t_zero) * 2
+        u_ub_ = torch.minimum(u_ub-1e-7, t_one)
+        a = torch.minimum(1-u_lb*u_lb, t_zero)
+        return (u_ub*(pi - torch.acos(u_ub_)) + torch.sqrt(a))/pi
+    
+
+    def _calc_ntk_gcn(self, X: Float[torch.Tensor, "n d"], 
+                      S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
+        csigma = 1 
+        XXT = X.matmul(X.T)
+        Sig = S.matmul(XXT.matmul(S.T))
+        del XXT
+        self.empty_gpu_memory()
+        kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        # ReLu GCN
+        depth = self.model_dict["depth"]
+        kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
+                                dtype=self.dtype).to(self.device)
+        for i in range(depth):
+            p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+            Diag_Sig = torch.diagonal(Sig) 
+            Sig_i = p + Diag_Sig.reshape(1, -1)
+            Sig_j = p + Diag_Sig.reshape(-1, 1)
+            del p
+            del Diag_Sig
+            self.empty_gpu_memory()
+            q = torch.sqrt(Sig_i * Sig_j)
+            u = Sig/q 
+            E = (q * self.kappa_1(u)) * csigma
+            del q
+            self.empty_gpu_memory()
+            E_der = (self.kappa_0(u)) * csigma
+            self.empty_gpu_memory()
+            kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
+            Sig = S.matmul(E.matmul(S.T))
+            for j in range(i):
+                kernel_sub[j] = S.matmul((kernel_sub[j].float() * E_der).matmul(S.T))
+            del E_der
+            del E
+            self.empty_gpu_memory()
+        kernel += torch.sum(kernel_sub, dim=0)
+        kernel += Sig
+        return kernel
+
+    def _calc_ntk_appnp(self, X: Float[torch.Tensor, "n d"], 
+                        S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
+        kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        XXT = X.matmul(X.T)
+        B = torch.ones((S.shape), dtype=self.dtype).to(self.device)
+        Sig = XXT+B
+        p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        Diag_Sig = torch.diagonal(Sig) 
+        Sig_i = p + Diag_Sig.reshape(1, -1)
+        Sig_j = p + Diag_Sig.reshape(-1, 1)
+        q = torch.sqrt(Sig_i * Sig_j)
+        u = Sig/q 
+        E = (q * self.kappa_1(u)) 
+        E_der = (self.kappa_0(u))
+        E = E.double()
+        E_der = E_der.double()
+        kernel += S.matmul(Sig * E_der).matmul(S.T)
+        kernel += S.matmul(E+B).matmul(S.T)
+        return kernel
 
     def calc_ntk(self, X: Float[torch.Tensor, "n d"], 
                  A: Float[torch.Tensor, "n n"]):
         """Calculate and return ntk matrix."""
-        if isinstance(A, SparseTensor):
-            A = A.to_dense() 
-        elif isinstance(A, tuple):
-            n, _ = X.shape
-            A = torch.sparse_coo_tensor(*A, 2 * [n]).to_dense() 
+        A = make_dense(A)
+        S = self.calc_diffusion(X, A)
+        self.empty_gpu_memory()
         
-        if "normalize" in self.model_dict:
-            if self.model_dict["normalize"]:
-                S = self.calc_diffusion(X, A)
-            else:
-                S = A
-        else:
-            S = self.calc_diffusion(X, A)
         if self.model_dict["model"] == "GCN" or self.model_dict["model"] == "SoftMedoid":
-            if torch.cuda.is_available() and self.device != "cpu":
-                torch.cuda.empty_cache()
-            csigma = 1 
-            S_norm = torch.norm(S)
-            XXT = X.matmul(X.T)
-            Sig = S.matmul(XXT.matmul(S.T))
-
-            kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-            # ReLu GCN
-            depth = self.model_dict["depth"]
-            kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
-                                    dtype=self.dtype).to(self.device)
-            for i in range(depth):
-                p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-                Diag_Sig = torch.diagonal(Sig) 
-                Sig_i = p + Diag_Sig.reshape(1, -1)
-                Sig_j = p + Diag_Sig.reshape(-1, 1)
-                q = torch.sqrt(Sig_i * Sig_j)
-                u = Sig/q # why normalization?
-                E = (q * self.kappa_1(u)) * csigma
-                if torch.cuda.is_available() and self.device != "cpu":
-                    torch.cuda.empty_cache()
-                E_der = (self.kappa_0(u)) * csigma
-                if torch.cuda.is_available() and self.device != "cpu":
-                    torch.cuda.empty_cache()
-                kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
-                Sig = S.matmul(E.matmul(S.T))
-                for j in range(i):
-                    kernel_sub[j] = S.matmul((kernel_sub[j].float() * E_der).matmul(S.T))
-                if torch.cuda.is_available() and self.device != "cpu":
-                    torch.cuda.empty_cache()
-
-            kernel += torch.sum(kernel_sub, dim=0)
-            kernel += Sig
+            kernel = self._calc_ntk_gcn(X, S)
+            self.empty_gpu_memory()
             return kernel
         
         elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
             # NTK for PPNP with one hidden layer fcn for features
             # (A)PPNP = S ( ReLU(XW_1 + b_1) W_2 + b_2)
-            kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-            XXT = X.matmul(X.T)
-            B = torch.ones((S.shape), dtype=self.dtype).to(self.device)
-            Sig = XXT+B
-            p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-            Diag_Sig = torch.diagonal(Sig) 
-            Sig_i = p + Diag_Sig.reshape(1, -1)
-            Sig_j = p + Diag_Sig.reshape(-1, 1)
-            q = torch.sqrt(Sig_i * Sig_j)
-            u = Sig/q 
-            E = (q * self.kappa_1(u)) 
-            E_der = (self.kappa_0(u))
-            E = E.double()
-            E_der = E_der.double()
-            kernel += S.matmul(Sig * E_der).matmul(S.T)
-            kernel += S.matmul(E+B).matmul(S.T)
+            kernel = self._calc_ntk_appnp(X, S)
+            self.empty_gpu_memory()
             return kernel
     
+    def calc_XXT_lb_ub(self, X: Float[torch.Tensor, "n d"],
+                       idx_adv: Integer[np.ndarray, "r"],
+                       delta: float,
+                       perturbation_model: str
+    ) -> Tuple[Float[torch.Tensor, "n n"], Float[torch.Tensor, "n n"]]:
+        """Return XXT_lb and XXT_ub in that order."""
+        if perturbation_model == "l0":
+            """TODO: Implement Sparse Computation."""
+            delta = int(delta * X.shape[1])
+            XXT = X.matmul(X.T)
+            Delta_lb = torch.zeros(XXT.shape, dtype=self.dtype, device=self.device)
+            Delta_ub = torch.zeros(XXT.shape, dtype=self.dtype, device=self.device)
+            # Delta^T@Delta Terms
+            DD_lb = Delta_lb[idx_adv, :]
+            DD_lb[:, idx_adv] = -delta
+            Delta_lb[idx_adv, :] = DD_lb
+            DD_ub = Delta_ub[idx_adv, :]
+            DD_ub[:, idx_adv] = delta
+            Delta_ub[idx_adv, :] = DD_ub
+            # Delta@X^T Terms
+            Delta_lb[idx_adv, :] -= delta
+            Delta_ub[idx_adv, :] += delta
+            # X@Delta^T Terms
+            Delta_lb[:, idx_adv] -= delta
+            Delta_ub[:, idx_adv] += delta
+            XXT_lb = torch.maximum(XXT+Delta_lb, 
+                                   torch.tensor(0, dtype=self.dtype).to(self.device))
+            return XXT_lb, XXT+Delta_ub
+        else:
+            assert False, f"Perturbation model {perturbation_model} not supported"
+
+    def calc_ntk_lb_ub(self, X: Float[torch.Tensor, "n d"], 
+                       A: Float[torch.Tensor, "n n"],
+                       idx_adv: Integer[np.ndarray, "r"],
+                       delta: float,
+                       perturbation_model: str):
+        if self.calculated_lb_ub:
+            return self.ntk_lb, self.ntk_ub
+        csigma = 1 
+        A = make_dense(A)
+        S = self.calc_diffusion(X, A)
+        XXT_lb, XXT_ub = self.calc_XXT_lb_ub(X, idx_adv, delta, perturbation_model)
+        self.empty_gpu_memory()
+
+        if self.model_dict["model"] == "GCN":
+            Sig_lb = S.matmul(XXT_lb.matmul(S.T))
+            Sig_ub = S.matmul(XXT_ub.matmul(S.T))
+
+            ntk_lb = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+            ntk_ub = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+            # ReLu GCN
+            depth = self.model_dict["depth"]
+            ntk_lb_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
+                                    dtype=self.dtype).to(self.device)
+            ntk_ub_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
+                                    dtype=self.dtype).to(self.device)
+            for i in range(depth):
+                p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+                Diag_Sig_lb = torch.diagonal(Sig_lb) 
+                Diag_Sig_ub = torch.diagonal(Sig_ub) 
+                Sig_i_lb = p + Diag_Sig_lb.reshape(1, -1)
+                Sig_j_lb = p + Diag_Sig_lb.reshape(-1, 1)
+                Sig_i_ub = p + Diag_Sig_ub.reshape(1, -1)
+                Sig_j_ub = p + Diag_Sig_ub.reshape(-1, 1)
+                q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb)
+                print((q_lb == 0).sum())
+                q_ub = torch.sqrt(Sig_i_ub * Sig_j_ub)
+                u_lb = Sig_lb/q_ub 
+                u_ub = Sig_ub/q_lb
+                E_lb = (q_lb * self.kappa_1_lb(u_lb, u_ub)) * csigma
+                E_ub = (q_ub * self.kappa_1_ub(u_lb, u_ub)) * csigma
+                print(E_lb)
+                print(E_ub)
+                self.empty_gpu_memory()
+                E_der_lb = (self.kappa_0_lb(u_lb)) * csigma
+                E_der_ub = (self.kappa_0_ub(u_ub)) * csigma
+                print(E_der_lb)
+                print(E_der_ub)
+                self.empty_gpu_memory()
+                ntk_lb_sub[i] = S.matmul((Sig_lb * E_der_lb).matmul(S.T))
+                ntk_ub_sub[i] = S.matmul((Sig_ub * E_der_ub).matmul(S.T))
+                Sig_lb = S.matmul(E_lb.matmul(S.T))
+                Sig_ub = S.matmul(E_ub.matmul(S.T))
+                for j in range(i):
+                    ntk_lb_sub[j] = S.matmul((ntk_lb_sub[j].float() * E_der_lb).matmul(S.T))
+                    ntk_ub_sub[j] = S.matmul((ntk_ub_sub[j].float() * E_der_ub).matmul(S.T))
+            self.empty_gpu_memory()
+            ntk_lb += torch.sum(ntk_lb_sub, dim=0)
+            ntk_ub += torch.sum(ntk_ub_sub, dim=0)
+            ntk_lb += Sig_lb
+            ntk_ub += Sig_ub
+            print(ntk_lb)
+            print(ntk_ub)
+            self.calculated_lb_ub = True
+            self.ntk_lb = ntk_lb
+            self.ntk_ub = ntk_ub
+            return self.ntk_lb, self.ntk_ub
+        else:
+            assert False, "Other models than GCN not implemented so far."
+
+
     def get_ntk(self):
         """Return (precomputed) ntk matrix."""
         return self.ntk
@@ -255,9 +399,6 @@ class NTK(torch.nn.Module):
         The NTK of the test-graph is calculated using X_test & A_test, except
         if they are None and the learning setting set to transductive. Then,
         uses initialized A & X (corresponding to training graph) for prediction.
-
-        Note: KRR predictions are differentiable w.r.t. the graph, SVM
-              predictions due to using scikit-learn implementation are not (yet).
         
         Parameters
         ----------
@@ -297,11 +438,7 @@ class NTK(torch.nn.Module):
             ntk_test = self.ntk
         else:
             # handle different adj representations
-            if isinstance(A_test, SparseTensor):
-                A_test = A_test.to_dense() # is differentiable
-            elif isinstance(A_test, tuple):
-                n, _ = X_test.shape
-                A_test = torch.sparse_coo_tensor(*A_test, 2 * [n]).to_dense() # is differentiable
+            A_test = make_dense(A_test) # is differentiable
             ntk_test = self.calc_ntk(X_test, A_test)
             if torch.cuda.is_available() and self.device != "cpu":
                 torch.cuda.empty_cache()
@@ -357,4 +494,237 @@ class NTK(torch.nn.Module):
 
         if return_ntk:
             return y_pred, ntk_test 
+        return y_pred
+
+    def forward_upperbound(self, 
+                           idx_labeled: Integer[np.ndarray, "m"],
+                           idx_test: Integer[np.ndarray, "u"],
+                           idx_adv: Integer[np.ndarray, "r"],
+                           y_test: Integer[torch.Tensor, "n"],
+                           X_test: Float[torch.Tensor, "n d"],
+                           A_test: Union[SparseTensor,
+                                         Tuple[Integer[torch.Tensor, "2 nnz"], 
+                                         Float[torch.Tensor, "nnz"]],
+                                         Float[torch.Tensor, "n_nodes n_nodes"]],
+                           delta: float = 0.01,
+                           perturbation_model: str = "l0",
+                           learning_setting: Optional[str] = None,
+                           return_ntk: bool = False,
+                        ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
+        """Perform kernel regression or SVM prediction using the upper-bounded
+        NTK matrix.
+
+        The NTK of the test-graph is calculated using X_test & A_test, except
+        if they are None and the learning setting set to transductive. Then,
+        uses initialized A & X (corresponding to training graph) for prediction.
+        
+        Parameters
+        ----------
+        idx_labeled : Integer[np.ndarray, "m"]
+            Indices of labeled nodes in X_test / A_test.
+        idx_test : Integer[np.ndarray, "u"]
+            Indices of unlabeled test nodes in X_test / A_test.
+        idx_adv : Integer[np.ndarray, "r"]
+            Indices of adversarily controlled nodes in X_test / A_test.
+        y_test : Integer[torch.Tensor, "n"]
+            Labels of the test graph.
+        X_test : Float[torch.Tensor, "n d"]
+            Node features available during testing (i.e., of the test graph). 
+        A_test : Float[torch.Tensor, "n n"]
+            Graph adjacency matrix available during testing (i.e., of the test
+            graph).
+        learning_setting : Optional[str] 
+            Optional, per default uses the learning setting set when initializing
+            the NTK object. However, if set, inference will be done with the
+            here set learning_setting instead. Options: "inductive" (default) 
+            or "transductive".
+        delta : float
+            Local budget, interpretation depending on chosen perurbation model:
+            - l0: local budget = delta * feature dimension
+        perturbation_model : str
+            Currently, only l0 (default) supported.
+        return_ntk : Optional[bool]
+            If true, return the NTK of the test-graph calculated using X_test
+            and A_test. Defaul: False
+
+        Returns: 
+            Logits of unlabeled nodes, defines as in
+            https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+        """
+        if learning_setting is None:
+            learning_setting = self.learning_setting
+        # handle different adj representations
+        A_test = make_dense(A_test)
+
+        ntk_test_lb, ntk_test_ub = self.calc_ntk_lb_ub(X_test, A_test, idx_adv,
+                                                       delta, perturbation_model)
+        self.empty_gpu_memory()
+        if learning_setting == "inductive":
+            ntk_labeled = self.ntk 
+            if self.idx_trn_labeled is not None: # semi-supervised setting
+                ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
+                ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
+            ntk_unlabeled = ntk_test_ub[idx_test,:][:,idx_labeled]
+        if learning_setting == "transductive": 
+            ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
+            ntk_unlabeled = ntk_test_ub[idx_test,:][:,idx_labeled]
+
+        if self.pred_method == "krr":
+            # ensure non-singularity
+            ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=self.dtype).to(self.device) \
+                        * self.regularizer
+            if self.solution_method == "QR":
+                assert self.n_classes == 2, "Legacy QR-Method - no multiclass support"
+                # Fascinatingly has the exact same behaviour/result as (P)LU
+                Q, R = torch.linalg.qr(ntk_labeled)
+                Qy = torch.matmul(Q.T, (y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+                v = torch.linalg.solve_triangular(R, Qy.view(-1, 1), upper=True)
+                v = v.view(-1)
+                y_pred = torch.matmul(ntk_unlabeled, v)
+            else:
+                # Uses (P)LU factorization
+                if self.n_classes == 2:
+                    v = torch.linalg.solve(ntk_labeled, 
+                                        (y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+                else:
+                    y_onehot = torch.nn.functional.one_hot(y_test[idx_labeled]).to(dtype=torch.float64)
+                    v = torch.linalg.solve(ntk_labeled, y_onehot)
+                y_pred = torch.matmul(ntk_unlabeled, v)
+        else:
+            if self.n_classes == 2:
+                # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
+                alpha = torch.tensor(self.svm.dual_coef_, dtype=self.dtype, device=self.device)
+                b = torch.tensor(self.svm.intercept_, dtype=self.dtype, device=self.device)
+                idx_sup = self.svm.support_
+                y_pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+            else:
+                y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                for i, svm in enumerate(self.svm.estimators_):
+                    # Implementation of the following scikit-learn function in PyTorch:
+                    # - pred = svm.decision_function(ntk_u_cpu) 
+                    alpha = torch.tensor(svm.dual_coef_, dtype=self.dtype, device=self.device)
+                    b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
+                    idx_sup = svm.support_
+                    pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+                    y_pred[:, i] = pred
+
+        if return_ntk:
+            return y_pred, ntk_test_ub 
+        return y_pred
+    
+
+    def forward_lowerbound(self, 
+                           idx_labeled: Integer[np.ndarray, "m"],
+                           idx_test: Integer[np.ndarray, "u"],
+                           idx_adv: Integer[np.ndarray, "r"],
+                           y_test: Integer[torch.Tensor, "n"],
+                           X_test: Float[torch.Tensor, "n d"],
+                           A_test: Union[SparseTensor,
+                                         Tuple[Integer[torch.Tensor, "2 nnz"], 
+                                         Float[torch.Tensor, "nnz"]],
+                                         Float[torch.Tensor, "n_nodes n_nodes"]],
+                           delta: float = 0.01,
+                           perturbation_model: str = "l0",
+                           learning_setting: Optional[str] = None,
+                           return_ntk: bool = False,
+                        ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
+        """Perform kernel regression or SVM prediction using the upper-bounded
+        NTK matrix.
+
+        The NTK of the test-graph is calculated using X_test & A_test, except
+        if they are None and the learning setting set to transductive. Then,
+        uses initialized A & X (corresponding to training graph) for prediction.
+        
+        Parameters
+        ----------
+        idx_labeled : Integer[np.ndarray, "m"]
+            Indices of labeled nodes in X_test / A_test.
+        idx_test : Integer[np.ndarray, "u"]
+            Indices of unlabeled test nodes in X_test / A_test.
+        idx_adv : Integer[np.ndarray, "r"]
+            Indices of adversarily controlled nodes in X_test / A_test.
+        y_test : Integer[torch.Tensor, "n"]
+            Labels of the test graph.
+        X_test : Float[torch.Tensor, "n d"]
+            Node features available during testing (i.e., of the test graph). 
+        A_test : Float[torch.Tensor, "n n"]
+            Graph adjacency matrix available during testing (i.e., of the test
+            graph).
+        learning_setting : Optional[str] 
+            Optional, per default uses the learning setting set when initializing
+            the NTK object. However, if set, inference will be done with the
+            here set learning_setting instead. Options: "inductive" (default) 
+            or "transductive".
+        delta : float
+            Local budget, interpretation depending on chosen perurbation model:
+            - l0: local budget = delta * feature dimension
+        perturbation_model : str
+            Currently, only l0 (default) supported.
+        return_ntk : Optional[bool]
+            If true, return the NTK of the test-graph calculated using X_test
+            and A_test. Defaul: False
+
+        Returns: 
+            Logits of unlabeled nodes, defines as in
+            https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+        """
+        if learning_setting is None:
+            learning_setting = self.learning_setting
+        # handle different adj representations
+        A_test = make_dense(A_test)
+
+        ntk_test_lb, ntk_test_ub = self.calc_ntk_lb_ub(X_test, A_test, idx_adv,
+                                                       delta, perturbation_model)
+        self.empty_gpu_memory()
+        if learning_setting == "inductive":
+            ntk_labeled = self.ntk 
+            if self.idx_trn_labeled is not None: # semi-supervised setting
+                ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
+                ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
+            ntk_unlabeled = ntk_test_lb[idx_test,:][:,idx_labeled]
+        if learning_setting == "transductive": 
+            ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
+            ntk_unlabeled = ntk_test_lb[idx_test,:][:,idx_labeled]
+
+        if self.pred_method == "krr":
+            # ensure non-singularity
+            ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=self.dtype).to(self.device) \
+                        * self.regularizer
+            if self.solution_method == "QR":
+                assert self.n_classes == 2, "Legacy QR-Method - no multiclass support"
+                # Fascinatingly has the exact same behaviour/result as (P)LU
+                Q, R = torch.linalg.qr(ntk_labeled)
+                Qy = torch.matmul(Q.T, (y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+                v = torch.linalg.solve_triangular(R, Qy.view(-1, 1), upper=True)
+                v = v.view(-1)
+                y_pred = torch.matmul(ntk_unlabeled, v)
+            else:
+                # Uses (P)LU factorization
+                if self.n_classes == 2:
+                    v = torch.linalg.solve(ntk_labeled, 
+                                        (y_test[idx_labeled] * 2 - 1).to(dtype=torch.float64))
+                else:
+                    y_onehot = torch.nn.functional.one_hot(y_test[idx_labeled]).to(dtype=torch.float64)
+                    v = torch.linalg.solve(ntk_labeled, y_onehot)
+                y_pred = torch.matmul(ntk_unlabeled, v)
+        else:
+            if self.n_classes == 2:
+                # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
+                alpha = torch.tensor(self.svm.dual_coef_, dtype=self.dtype, device=self.device)
+                b = torch.tensor(self.svm.intercept_, dtype=self.dtype, device=self.device)
+                idx_sup = self.svm.support_
+                y_pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+            else:
+                y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                for i, svm in enumerate(self.svm.estimators_):
+                    # Implementation of the following scikit-learn function in PyTorch:
+                    # - pred = svm.decision_function(ntk_u_cpu) 
+                    alpha = torch.tensor(svm.dual_coef_, dtype=self.dtype, device=self.device)
+                    b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
+                    idx_sup = svm.support_
+                    pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+                    y_pred[:, i] = pred
+
+        if return_ntk:
+            return y_pred, ntk_test_ub 
         return y_pred
