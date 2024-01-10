@@ -174,7 +174,7 @@ class NTK(torch.nn.Module):
         t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
         pi = torch.acos(t_zero) * 2
         t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
-        u_lb_ = torch.maximum(u_lb-1e-7, -t_one)
+        u_lb_ = torch.maximum(u_lb-1e-7, -t_one+1e-7)
         return (pi - torch.acos(u_lb_)) / pi
     
     def kappa_0_ub(self, u_ub):
@@ -188,16 +188,16 @@ class NTK(torch.nn.Module):
         t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
         t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
         pi = torch.acos(t_zero) * 2
-        a = torch.minimum(1-u_ub*u_ub+1e-7, t_zero)
-        u_lb_ = torch.maximum(u_lb-1e-7, -t_one)
+        a = torch.maximum(1-u_ub*u_ub+1e-7, t_zero)
+        u_lb_ = torch.maximum(u_lb-1e-7, -t_one+1e-7)
         return (u_lb*(pi - torch.acos(u_lb_)) + torch.sqrt(a))/pi
     
     def kappa_1_ub(self, u_lb, u_ub):
         t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
         t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
         pi = torch.acos(t_zero) * 2
-        u_ub_ = torch.minimum(u_ub-1e-7, t_one)
-        a = torch.minimum(1-u_lb*u_lb, t_zero)
+        u_ub_ = torch.minimum(u_ub, t_one)-1e-7
+        a = torch.maximum(1-u_lb*u_lb, t_zero)+1e-7
         return (u_ub*(pi - torch.acos(u_ub_)) + torch.sqrt(a))/pi
     
 
@@ -342,20 +342,15 @@ class NTK(torch.nn.Module):
                 Sig_j_lb = p + Diag_Sig_lb.reshape(-1, 1)
                 Sig_i_ub = p + Diag_Sig_ub.reshape(1, -1)
                 Sig_j_ub = p + Diag_Sig_ub.reshape(-1, 1)
-                q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb)
-                print((q_lb == 0).sum())
+                q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb) + 1e-7
                 q_ub = torch.sqrt(Sig_i_ub * Sig_j_ub)
                 u_lb = Sig_lb/q_ub 
                 u_ub = Sig_ub/q_lb
                 E_lb = (q_lb * self.kappa_1_lb(u_lb, u_ub)) * csigma
                 E_ub = (q_ub * self.kappa_1_ub(u_lb, u_ub)) * csigma
-                print(E_lb)
-                print(E_ub)
                 self.empty_gpu_memory()
                 E_der_lb = (self.kappa_0_lb(u_lb)) * csigma
                 E_der_ub = (self.kappa_0_ub(u_ub)) * csigma
-                print(E_der_lb)
-                print(E_der_ub)
                 self.empty_gpu_memory()
                 ntk_lb_sub[i] = S.matmul((Sig_lb * E_der_lb).matmul(S.T))
                 ntk_ub_sub[i] = S.matmul((Sig_ub * E_der_ub).matmul(S.T))
@@ -369,8 +364,6 @@ class NTK(torch.nn.Module):
             ntk_ub += torch.sum(ntk_ub_sub, dim=0)
             ntk_lb += Sig_lb
             ntk_ub += Sig_ub
-            print(ntk_lb)
-            print(ntk_ub)
             self.calculated_lb_ub = True
             self.ntk_lb = ntk_lb
             self.ntk_ub = ntk_ub
@@ -612,7 +605,6 @@ class NTK(torch.nn.Module):
             return y_pred, ntk_test_ub 
         return y_pred
     
-
     def forward_lowerbound(self, 
                            idx_labeled: Integer[np.ndarray, "m"],
                            idx_test: Integer[np.ndarray, "u"],
@@ -726,5 +718,5 @@ class NTK(torch.nn.Module):
                     y_pred[:, i] = pred
 
         if return_ntk:
-            return y_pred, ntk_test_ub 
+            return y_pred, ntk_test_lb
         return y_pred

@@ -5,6 +5,24 @@ import numpy as np
 import torch
 from torch_sparse import coalesce
 
+
+def certify(y_pred: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
+            y_ub: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
+            y_lb: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]]
+    ) -> float:
+    if len(y_pred.shape) > 1:
+        n = y_pred.shape[0]
+        pred_orig = y_pred.argmax(1)
+        pred_orig_lb = y_lb[range(n), pred_orig]
+        mask = torch.ones(y_ub.shape, dtype=torch.bool).to(y_ub.device)
+        mask[range(n), pred_orig] = False
+        pred_other_ub = y_ub[mask].reshape((n, y_ub.shape[1]-1))
+        count_beaten = (pred_other_ub > pred_orig_lb.reshape(-1, 1)).sum(dim=1)
+        return ((count_beaten == 0).sum() / n).cpu().item()
+    else:
+        assert False, "Not implemented"
+
+
 def accuracy(logits: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
              labels: Integer[torch.Tensor, "n"], 
              idx_labels: np.ndarray = None) -> float:

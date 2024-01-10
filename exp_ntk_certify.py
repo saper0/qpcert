@@ -217,8 +217,7 @@ def run(data_params: Dict[str, Any],
     acc = utils.accuracy(y_pred, y[idx_test])
     acc_ub = utils.accuracy(y_ub, y[idx_test])
     acc_lb = utils.accuracy(y_lb, y[idx_test])
-    print(y_ub)
-    print(y_lb)
+    acc_cert = utils.certify(y_pred, y_ub, y_lb)
     logging.info(f'Accuracy {acc}')
 
     # Some Debugging Info
@@ -230,10 +229,18 @@ def run(data_params: Dict[str, Any],
     cond = torch.linalg.cond(ntk_labeled)
     min_ypred = torch.min(y_pred).cpu().item()
     max_ypred = torch.max(y_pred).cpu().item()
+    min_ylb = torch.min(y_lb).cpu().item()
+    max_ylb = torch.max(y_lb).cpu().item()
+    min_yub = torch.min(y_ub).cpu().item()
+    max_yub = torch.max(y_ub).cpu().item()
     min_ntklabeled = torch.min(ntk_labeled).cpu().item()
     max_ntklabeled = torch.max(ntk_labeled).cpu().item()
     min_ntkunlabeled = torch.min(ntk_unlabeled).cpu().item()
     max_ntkunlabeled = torch.max(ntk_unlabeled).cpu().item()
+    min_ntklb = torch.min(ntk_lb).cpu().item()
+    max_ntklb = torch.max(ntk_lb).cpu().item()
+    min_ntkub = torch.min(ntk_ub).cpu().item()
+    max_ntkub = torch.max(ntk_ub).cpu().item()
 
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
@@ -242,8 +249,17 @@ def run(data_params: Dict[str, Any],
         accuracy = acc,
         accuracy_ub = acc_ub,
         accuracy_lb = acc_lb,
+        accuracy_cert = acc_cert,
         min_ypred = min_ypred,
         max_ypred = max_ypred,
+        min_ylb = min_ylb,
+        max_ylb = max_ylb,
+        min_yub = min_yub,
+        max_yub = max_yub,
+        min_ntklb = min_ntklb,
+        max_ntklb = max_ntklb,
+        min_ntkub = min_ntkub,
+        max_ntkub = max_ntkub,
         min_ntklabeled = min_ntklabeled,
         max_ntklabeled = max_ntklabeled,
         min_ntkunlabeled = min_ntkunlabeled,
