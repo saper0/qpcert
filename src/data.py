@@ -82,7 +82,7 @@ def get_cora_ml(specification: Dict[str, Any]):
                 if matrix_name == "adj_matrix":
                     A = M.toarray()
                 elif matrix_name == "attr_matrix":
-                    X = M.toarray()
+                    X = (M.toarray() > 0).astype("float32")
                 else:
                     assert False
                 del_entries.extend([mat_data, mat_indices, mat_indptr, mat_shape])

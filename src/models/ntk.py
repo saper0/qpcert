@@ -287,6 +287,14 @@ class NTK(torch.nn.Module):
         if perturbation_model == "l0":
             """TODO: Implement Sparse Computation."""
             delta = int(delta * X.shape[1])
+            #print(X.min())
+            #print(X.max())
+            X_rowsum = X.sum(dim=1)
+            #print(X_rowsum.mean())
+            #print(X_rowsum.median())
+            #print(X_rowsum.min())
+            #print(X_rowsum.max())
+            #print(X_rowsum)
             XXT = X.matmul(X.T)
             Delta_lb = torch.zeros(XXT.shape, dtype=self.dtype, device=self.device)
             Delta_ub = torch.zeros(XXT.shape, dtype=self.dtype, device=self.device)
