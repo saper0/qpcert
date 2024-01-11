@@ -6,9 +6,15 @@ import torch
 from torch_sparse import coalesce
 
 
-def certify(y_pred: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
-            y_ub: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
-            y_lb: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]]
+def empty_gpu_memory(device: Union[str, torch.device]):
+    if torch.cuda.is_available() and device != "cpu":
+        torch.cuda.empty_cache()
+
+
+def certify_robust(
+        y_pred: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
+        y_ub: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
+        y_lb: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]]
     ) -> float:
     if len(y_pred.shape) > 1:
         n = y_pred.shape[0]
@@ -19,6 +25,24 @@ def certify(y_pred: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
         pred_other_ub = y_ub[mask].reshape((n, y_ub.shape[1]-1))
         count_beaten = (pred_other_ub > pred_orig_lb.reshape(-1, 1)).sum(dim=1)
         return ((count_beaten == 0).sum() / n).cpu().item()
+    else:
+        assert False, "Not implemented"
+
+
+def certify_unrobust(
+        y_pred: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
+        y_ub: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],
+        y_lb: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]]
+    ) -> float:
+    if len(y_pred.shape) > 1:
+        n = y_pred.shape[0]
+        pred_orig = y_pred.argmax(1)
+        pred_orig_ub = y_ub[range(n), pred_orig]
+        mask = torch.ones(y_lb.shape, dtype=torch.bool).to(y_lb.device)
+        mask[range(n), pred_orig] = False
+        pred_other_lb = y_lb[mask].reshape((n, y_lb.shape[1]-1))
+        count_beaten = (pred_other_lb > pred_orig_ub.reshape(-1, 1)).sum(dim=1)
+        return ((count_beaten > 0).sum() / n).cpu().item()
     else:
         assert False, "Not implemented"
 
@@ -75,7 +99,8 @@ def to_symmetric(edge_index: torch.Tensor, edge_weight: torch.Tensor,
 
 
 def grad_with_checkpoint(outputs: Union[torch.Tensor, Sequence[torch.Tensor]],
-                         inputs: Union[torch.Tensor, Sequence[torch.Tensor]]) -> Tuple[torch.Tensor, ...]:
+                         inputs: Union[torch.Tensor, Sequence[torch.Tensor]]
+    ) -> Tuple[torch.Tensor, ...]:
     inputs = (inputs,) if isinstance(inputs, torch.Tensor) else tuple(inputs)
 
     for input in inputs:

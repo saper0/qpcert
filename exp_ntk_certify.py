@@ -217,7 +217,8 @@ def run(data_params: Dict[str, Any],
     acc = utils.accuracy(y_pred, y[idx_test])
     acc_ub = utils.accuracy(y_ub, y[idx_test])
     acc_lb = utils.accuracy(y_lb, y[idx_test])
-    acc_cert = utils.certify(y_pred, y_ub, y_lb)
+    acc_cert = utils.certify_robust(y_pred, y_ub, y_lb)
+    acc_cert_u = utils.certify_unrobust(y_pred, y_ub, y_lb)
     logging.info(f'Accuracy {acc}')
 
     # Some Debugging Info
@@ -250,6 +251,7 @@ def run(data_params: Dict[str, Any],
         accuracy_ub = acc_ub,
         accuracy_lb = acc_lb,
         accuracy_cert = acc_cert,
+        accuracy_cert_unrobust = acc_cert_u,
         min_ypred = min_ypred,
         max_ypred = max_ypred,
         min_ylb = min_ylb,

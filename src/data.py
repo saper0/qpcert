@@ -68,28 +68,18 @@ def get_cora_ml(specification: Dict[str, Any]):
     path_to_file = directory / ("cora_ml.npz")
     with np.load(path_to_file, allow_pickle=True) as loader:
         loader = dict(loader)
-        del_entries = []
-        # Construct sparse matrices
-        for key in loader.keys():
-            if key.endswith('.data'):
-                matrix_name = key[:-5]
-                mat_data = key
-                mat_indices = matrix_name + ".indices"
-                mat_indptr = matrix_name + ".indptr"
-                mat_shape = matrix_name + ".shape"
-                M = sp.csr_matrix((loader[mat_data], loader[mat_indices],
-                                loader[mat_indptr]), shape=loader[mat_shape])
-                if matrix_name == "adj_matrix":
-                    A = M.toarray()
-                elif matrix_name == "attr_matrix":
-                    X = (M.toarray() > 0).astype("float32")
-                else:
-                    assert False
-                del_entries.extend([mat_data, mat_indices, mat_indptr, mat_shape])
-        # Delete sparse matrix entries
-        for del_entry in del_entries:
-            del loader[del_entry]
+        adj_matrix = sp.csr_matrix((loader['adj_matrix.data'], 
+                                    loader['adj_matrix.indices'],
+                                    loader['adj_matrix.indptr']), 
+                                    shape=loader['adj_matrix.shape'])
+        attr_matrix = sp.csr_matrix((loader['attr_matrix.data'], 
+                                     loader['attr_matrix.indices'],
+                                     loader['attr_matrix.indptr']), 
+                                     shape=loader['attr_matrix.shape'])
+        A = adj_matrix.toarray()
+        X = (attr_matrix.toarray() > 0).astype("float32")
         y = np.array(loader["labels"])
+        del loader
 
     # make undirected
     lt = np.tril(A) == 1
@@ -124,6 +114,14 @@ def get_graph(
         A = A[idx_lcc, :]
         A = A[:, idx_lcc]
         y = y[idx_lcc]
+    # Log statistics, could remove
+    logging.info(f"X.min(): {X.min()}")
+    logging.info(f"X.max(): {X.max()}")
+    X_rowsum = X.sum(axis=1)
+    logging.info(f"X_rowsum.mean(): {X_rowsum.mean()}")
+    logging.info(f"X_rowsum.median(): {np.median(X_rowsum)}")
+    logging.info(f"X_rowsum.min(): {np.min(X_rowsum)}")
+    logging.info(f"X_rowsum.max(): {np.max(X_rowsum)}")
     if sort:
         idx = np.argsort(y)
         y = y[idx]

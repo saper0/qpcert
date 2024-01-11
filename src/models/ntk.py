@@ -14,6 +14,7 @@ from torch_sparse import SparseTensor
 
 from src.models.common import row_normalize, tbn_normalize, degree_scaling, \
                               sym_normalize, APPNP_propogation, make_dense
+from src import utils
 
 
 class NTK(torch.nn.Module):
@@ -82,8 +83,7 @@ class NTK(torch.nn.Module):
             self.device = X_trn.device
         self.ntk = self.calc_ntk(X_trn, A_trn)
         self.calculated_lb_ub = False
-        if torch.cuda.is_available() and self.device != "cpu":
-            torch.cuda.empty_cache()
+        self.empty_gpu_memory()
         self.learning_setting = learning_setting
         self.regularizer = regularizer
         self.pred_method = pred_method
@@ -98,8 +98,7 @@ class NTK(torch.nn.Module):
                 self.solution_method = model_dict["solution_method"]
 
     def empty_gpu_memory(self):
-        if torch.cuda.is_available() and self.device != "cpu":
-            torch.cuda.empty_cache()
+        utils.empty_gpu_memory(self.device)
 
     def fit_svm(self,
                 X: Float[torch.Tensor, "n d"], 
@@ -287,14 +286,6 @@ class NTK(torch.nn.Module):
         if perturbation_model == "l0":
             """TODO: Implement Sparse Computation."""
             delta = int(delta * X.shape[1])
-            #print(X.min())
-            #print(X.max())
-            X_rowsum = X.sum(dim=1)
-            #print(X_rowsum.mean())
-            #print(X_rowsum.median())
-            #print(X_rowsum.min())
-            #print(X_rowsum.max())
-            #print(X_rowsum)
             XXT = X.matmul(X.T)
             Delta_lb = torch.zeros(XXT.shape, dtype=self.dtype, device=self.device)
             Delta_ub = torch.zeros(XXT.shape, dtype=self.dtype, device=self.device)
