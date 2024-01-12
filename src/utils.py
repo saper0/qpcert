@@ -7,7 +7,7 @@ from torch_sparse import coalesce
 
 
 def empty_gpu_memory(device: Union[str, torch.device]):
-    if torch.cuda.is_available() and device != "cpu":
+    if torch.cuda.is_available() and device.type != "cpu":
         torch.cuda.empty_cache()
 
 

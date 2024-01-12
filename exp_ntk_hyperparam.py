@@ -172,10 +172,21 @@ def run(data_params: Dict[str, Any],
     n_classes = int(y.max() + 1)
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
-    skf = StratifiedKFold(n_splits=data_params["cv_folds"])
-    # idx of labeled nodes in nodes known during training (for semi-supervised)
+    split_seed = seed
+    if "seed" in data_params["specification"]:
+        split_seed = data_params["specification"]["seed"]
+    skf = StratifiedKFold(n_splits=data_params["cv_folds"], 
+                          shuffle=True, random_state=split_seed)
     with torch.no_grad():
         val_acc_l = []
+        cond_l = []
+        min_ypred_l = []
+        max_ypred_l = []
+        min_ntklabeled_l = []
+        max_ntklabeled_l = []
+        min_ntkunlabeled_l = []
+        max_ntkunlabeled_l = []
+        # k-fold cross validation
         for trn_split, val_split in skf.split(np.zeros(len(idx_labeled)), 
                                               y=y[idx_labeled].cpu().numpy()):
             idx_trn_split = idx_labeled[trn_split]
@@ -196,14 +207,79 @@ def run(data_params: Dict[str, Any],
                     regularizer=model_params["regularizer"],
                     dtype=other_params["dtype"])
             
-            y_pred = ntk(idx_labeled=idx_trn_split, idx_test=idx_val_split,
-                         y_test=y, X_test=X, A_test=A, return_ntk=False)
+            y_pred, ntk_test = ntk(idx_labeled=idx_trn_split, 
+                                   idx_test=idx_val_split,
+                                   y_test=y, X_test=X, A_test=A, 
+                                   return_ntk=True)
             val_acc = utils.accuracy(y_pred, y[idx_val_split])
             val_acc_l.append(val_acc)
+            # Some Statistics
+            ntk_labeled = ntk.ntk[idx_known_labeled, :]
+            ntk_labeled = ntk_labeled[:, idx_known_labeled]
+            ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=torch.float64).to(device) \
+                            * model_params["regularizer"]
+            ntk_unlabeled = ntk_test[idx_test,:][:,idx_labeled]
+            cond_l.append(torch.linalg.cond(ntk_labeled).cpu().item())
+            min_ypred_l.append(torch.min(y_pred).cpu().item())
+            max_ypred_l.append(torch.max(y_pred).cpu().item())
+            min_ntklabeled_l.append(torch.min(ntk_labeled).cpu().item())
+            max_ntklabeled_l.append(torch.max(ntk_labeled).cpu().item())
+            min_ntkunlabeled_l.append(torch.min(ntk_unlabeled).cpu().item())
+            max_ntkunlabeled_l.append(torch.max(ntk_unlabeled).cpu().item())
+            # free memory
             del ntk
+            del ntk_labeled
+            del ntk_test
             del y_pred
             utils.empty_gpu_memory(device)
-
+        # Test
+        idx_known = np.concatenate((idx_trn, idx_unlabeled))
+        idx_known_labeled = np.array([i for i in range(len(idx_trn))]) #actually is just 0 to len(idx_labeled)
+        if data_params["learning_setting"] == "transductive":
+            A_trn = A
+            X_trn = X
+        else:
+            A_trn = A[idx_known, :]
+            A_trn = A_trn[:, idx_known]
+            X_trn = X[idx_known, :]
+        ntk = NTK(model_params, X_trn=X_trn, A_trn=A_trn, n_classes=n_classes, 
+                idx_trn_labeled=idx_known_labeled, y_trn=y[idx_trn],
+                learning_setting=data_params["learning_setting"],
+                pred_method=model_params["pred_method"],
+                regularizer=model_params["regularizer"],
+                dtype=other_params["dtype"])
+        
+        y_pred, ntk_test = ntk(idx_labeled=idx_trn, idx_test=idx_test,
+                               y_test=y, X_test=X, A_test=A, return_ntk=True)
+        test_acc = utils.accuracy(y_pred, y[idx_test])
+        # Some Statistics
+        ntk_labeled = ntk.ntk[idx_known_labeled, :]
+        ntk_labeled = ntk_labeled[:, idx_known_labeled]
+        ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=torch.float64).to(device) \
+                        * model_params["regularizer"]
+        ntk_unlabeled = ntk_test[idx_test,:][:,idx_labeled]
+        cond = torch.linalg.cond(ntk_labeled).cpu().item()
+        min_ypred = torch.min(y_pred).cpu().item()
+        max_ypred = torch.max(y_pred).cpu().item()
+        min_ntklabeled = torch.min(ntk_labeled).cpu().item()
+        max_ntklabeled = torch.max(ntk_labeled).cpu().item()
+        min_ntkunlabeled = torch.min(ntk_unlabeled).cpu().item()
+        max_ntkunlabeled = torch.max(ntk_unlabeled).cpu().item()
     return dict(
-        val_acc_l = val_acc_l
+        val_acc_l = val_acc_l,
+        test_acc = test_acc,
+        val_cond = cond_l,
+        val_min_ypred = min_ypred_l,
+        val_max_ypred = max_ypred_l,
+        val_min_ntklabeled = min_ntklabeled_l,
+        val_max_ntklabeled = max_ntklabeled_l,
+        val_min_ntkunlabeled = min_ntkunlabeled_l,
+        val_max_ntkunlabeled = max_ntkunlabeled_l,
+        test_min_ypred = min_ypred,
+        test_max_ypred = max_ypred,
+        test_min_ntklabeled = min_ntklabeled,
+        test_max_ntklabeled = max_ntklabeled,
+        test_min_ntkunlabeled = min_ntkunlabeled,
+        test_max_ntkunlabeled = max_ntkunlabeled,
+        test_cond = cond
     )

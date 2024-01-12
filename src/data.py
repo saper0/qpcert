@@ -195,8 +195,9 @@ def split_inductive(labels, n_per_class=20, fraction_test=0.1, seed=None,
     split_unlabeled: array-like [num_nodes - 3*n_per_class * nc]
         The indices of the unlabeled nodes
     """
-    if seed is not None:
-        np.random.seed(seed)
+    if seed is None:
+        seed = 0
+    rng = np.random.Generator(np.random.PCG64(seed))
     nc = labels.max() + 1
     if balance_test:
     # compute n_per_class
@@ -207,21 +208,26 @@ def split_inductive(labels, n_per_class=20, fraction_test=0.1, seed=None,
 
     split_labeled, split_val, split_test = [], [], []
     for label in range(nc):
-        perm = np.random.permutation((labels == label).nonzero()[0])
+        perm = rng.permutation((labels == label).nonzero()[0])
         split_labeled.append(perm[:n_per_class])
         split_val.append(perm[n_per_class: 2 * n_per_class])
         split_test.append(perm[2*n_per_class: 2 * n_per_class + n_test_per_class[label].astype(int)])
 
-    split_labeled = np.random.permutation(np.concatenate(split_labeled))
-    split_val = np.random.permutation(np.concatenate(split_val))
-    split_test = np.random.permutation(np.concatenate(split_test))
+    split_labeled = rng.permutation(np.concatenate(split_labeled))
+    split_val = rng.permutation(np.concatenate(split_val))
+    split_test = rng.permutation(np.concatenate(split_test))
     
 
     assert split_labeled.shape[0] == split_val.shape[0] == n_per_class * nc
 
-    split_unlabeled = np.setdiff1d(np.arange(len(labels)), np.concatenate((split_labeled, split_val, split_test)))
+    split_unlabeled = np.setdiff1d(np.arange(len(labels)), 
+                                   np.concatenate((split_labeled, split_val, 
+                                                   split_test)))
 
-    logging.info(f'number of samples\n - labeled: {n_per_class * nc} \n - val: {n_per_class * nc} \n - test: {split_test.shape[0]} \n - unlabeled: {split_unlabeled.shape[0]}')
+    logging.info(f'number of samples\n - labeled: {n_per_class * nc} \n' 
+                 f' - val: {n_per_class * nc} \n'
+                 f' - test: {split_test.shape[0]} \n'
+                 f' - unlabeled: {split_unlabeled.shape[0]}')
 
     return split_labeled, split_unlabeled, split_val, split_test
 
