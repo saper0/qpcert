@@ -65,6 +65,7 @@ def accuracy(logits: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]]
         else:
             return (logits.argmax(1) == labels).float().mean().cpu().item()
     else:
+        logits = logits.reshape(-1,)
         p_cls1 = torch.sigmoid(logits)
         y_pred = (p_cls1 > 0.5).to(dtype=torch.long)
         if idx_labels is not None:

@@ -120,9 +120,17 @@ def configure_hardware(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+    # dtype
+    if other_params["dtype"] == "float32":
+        other_params["dtype"] = torch.float32
+    elif other_params["dtype"] == "float64":
+        other_params["dtype"] = torch.float64
+    elif type(other_params["dtype"]) is not torch.dtype:
+        assert False, "Given dtype not supported."
+
     # Hardware
-    torch.backends.cuda.matmul.allow_tf32 = other_params["allow_tf32"]
-    torch.backends.cudnn.allow_tf32 = other_params["allow_tf32"]
+    torch.backends.cuda.matmul.allow_tf32 = bool(other_params["allow_tf32"])
+    torch.backends.cudnn.allow_tf32 = bool(other_params["allow_tf32"])
 
     device = other_params["device"]
     if not torch.cuda.is_available():
@@ -189,8 +197,8 @@ def run(data_params: Dict[str, Any],
                 dtype=other_params["dtype"])
         
         y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
-                                y_test=y, X_test=X, A_test=A, 
-                                return_ntk=True)
+                               y_test=y, X_test=X, A_test=A, 
+                               return_ntk=True)
     acc = utils.accuracy(y_pred, y[idx_test])
     logging.info(f'Accuracy {acc}')
 

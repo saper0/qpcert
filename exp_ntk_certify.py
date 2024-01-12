@@ -130,6 +130,14 @@ def configure_hardware(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+    # dtype
+    if other_params["dtype"] == "float32":
+        other_params["dtype"] = torch.float32
+    elif other_params["dtype"] == "float64":
+        other_params["dtype"] = torch.float64
+    elif type(other_params["dtype"]) is not torch.dtype:
+        assert False, "Given dtype not supported."
+
     # Hardware
     torch.backends.cuda.matmul.allow_tf32 = other_params["allow_tf32"]
     torch.backends.cudnn.allow_tf32 = other_params["allow_tf32"]

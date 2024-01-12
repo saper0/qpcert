@@ -31,17 +31,20 @@ def get_planetoid(dataset: str, specification: Dict[str, Any]):
     '''Loads Planetoid datasets from 
     https://pytorch-geometric.readthedocs.io/en/latest/modules/datasets.html#torch_geometric.datasets.Planetoid
     '''
-    make_undirected = specification["make_undirected"]
     dataset_root = specification["data_dir"]
-    assert make_undirected == True , "undirected not implemented for cora"
     data = Planetoid(root = dataset_root, name=dataset)
     X = data.x.numpy()
     y = data.y.numpy()
+    idx_features = (X.sum(axis=1) != 0)
+    X = X[idx_features, :]
+    y = y[idx_features]
     edge_index = data.edge_index
     edge_weight = torch.ones(edge_index.shape[1])
     A = SparseTensor(row=edge_index[0], col=edge_index[1], value=edge_weight, 
                      sparse_sizes=(edge_index.max()+1, edge_index.max()+1))
     A = A.to_dense().numpy()
+    A = A[idx_features, :]
+    A = A[:, idx_features]
     return X, A, y
 
 
