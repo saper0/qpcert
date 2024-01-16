@@ -52,6 +52,7 @@ class Experiment:
         self.val_acc_std_l = []
         self.val_acc_all_l = []
         self.trn_acc_l = []
+        self.test_acc_l = []
         for experiment in experiment_list:
             results = experiment["result"]
             val_acc_l = np.array(results["val_acc_l"])
@@ -60,6 +61,7 @@ class Experiment:
             self.val_acc_mean_l.append(val_acc_l.mean())
             self.val_acc_std_l.append(val_acc_l.std())
             self.trn_acc_l.append(results["trn_acc"])
+            self.test_acc_l.append(results["test_acc"])
 
     def to_dict(self, hyperparams_list: List[str]) -> Dict[str, Any]:
         """Genereates a dict representation of the experiment.
@@ -107,6 +109,14 @@ class Experiment:
     @property
     def training_accuracy_std(self):
         return float(np.std(self.trn_acc_l))
+
+    @property
+    def test_accuracy(self):
+        return float(np.mean(self.test_acc_l))
+
+    @property
+    def test_accuracy_std(self):
+        return float(np.std(self.test_acc_l))
     
     @property
     def dataset(self):
@@ -139,6 +149,7 @@ class Experiment:
         print_str = "ID: " + str(self.individual_experiments[0]["_id"])
         print_str += f" ValAcc: {self.validation_accuracy*100:.2f} +- {self.validation_accuracy_std*100:.2f}"
         print_str += f" TrnAcc: {self.training_accuracy*100:.2f} +- {self.training_accuracy_std*100:.2f}"
+        print_str += f" TestAcc: {self.test_accuracy*100:.2f} +- {self.test_accuracy_std*100:.2f}"
         return print_str
 
 
@@ -207,4 +218,7 @@ def get_best_hyperparams(
     exp_loader = ExperimentLoader(collection=collection)
     experiments = exp_loader.load_experiments(start_id, end_id, n_seeds, 
                                               pred_method, dataset, use_seeds)
+    print("---- Details of best experiment ----")
+    print(experiments[0])
+    print("------------------------------------")
     return Experiment.to_dataframe(experiments, hyperparams)

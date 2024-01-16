@@ -117,7 +117,7 @@ class NTK(torch.nn.Module):
         if self.n_classes == 2:
             f.fit(gram_matrix, y.detach().cpu().numpy())
         else:
-            f = OneVsRestClassifier(f, n_jobs=-1).fit(gram_matrix, y.detach().cpu().numpy())
+            f = OneVsRestClassifier(f, n_jobs=1).fit(gram_matrix, y.detach().cpu().numpy())
         return f
 
     def _calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
@@ -199,12 +199,14 @@ class NTK(torch.nn.Module):
         a = torch.maximum(1-u_lb*u_lb, t_zero)+1e-7
         return (u_ub*(pi - torch.acos(u_ub_)) + torch.sqrt(a))/pi
     
-
     def _calc_ntk_gcn(self, X: Float[torch.Tensor, "n d"], 
                       S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
         csigma = 1 
         XXT = X.matmul(X.T)
         Sig = S.matmul(XXT.matmul(S.T))
+        print(f"Sig.mean(): {Sig.mean()}")
+        print(f"Sig.min(): {Sig.min()}")
+        print(f"Sig.max(): {Sig.max()}")
         del XXT
         self.empty_gpu_memory()
         kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
@@ -213,6 +215,7 @@ class NTK(torch.nn.Module):
         kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
                                 dtype=self.dtype).to(self.device)
         for i in range(depth):
+            print(f"Depth {i}")
             p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
             Diag_Sig = torch.diagonal(Sig) 
             Sig_i = p + Diag_Sig.reshape(1, -1)
@@ -226,9 +229,14 @@ class NTK(torch.nn.Module):
             del q
             self.empty_gpu_memory()
             E_der = (self.kappa_0(u)) * csigma
+            print(f"E_der.min(): {E_der.min()}")
+            print(f"E_der.max(): {E_der.max()}")
             self.empty_gpu_memory()
             kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
             Sig = S.matmul(E.matmul(S.T))
+            print(f"Sig.mean(): {Sig.mean()}")
+            print(f"Sig.min(): {Sig.min()}")
+            print(f"Sig.max(): {Sig.max()}")
             for j in range(i):
                 kernel_sub[j] = S.matmul((kernel_sub[j].float() * E_der).matmul(S.T))
             del E_der
@@ -279,32 +287,72 @@ class NTK(torch.nn.Module):
     
     def calc_XXT_lb_ub(self, X: Float[torch.Tensor, "n d"],
                        idx_adv: Integer[np.ndarray, "r"],
-                       delta: float,
+                       delta: Union[float, int],
                        perturbation_model: str
     ) -> Tuple[Float[torch.Tensor, "n n"], Float[torch.Tensor, "n n"]]:
-        """Return XXT_lb and XXT_ub in that order."""
+        """Return XXT_lb and XXT_ub in that order.
+        
+        Parameters
+        ----------
+        delta : Union[float, int]
+            Depends on perturbation model:
+            - l0: if < 1 interpreted as % of number of features, otherwise 
+                  assumed to be integer and directly interpreted as discrete 
+                  local budget.
+        """
         if perturbation_model == "l0":
             """TODO: Implement Sparse Computation."""
-            delta = int(delta * X.shape[1])
+            if delta < 1:
+                delta = int(delta * X.shape[1])
+            delta = torch.tensor(delta, dtype=self.dtype, device=self.device)
             XXT = X.matmul(X.T)
+            print(XXT.mean())
+            print(XXT.min())
+            print(XXT.max())
+            #print(XXT)
             Delta_lb = torch.zeros(XXT.shape, dtype=self.dtype, device=self.device)
             Delta_ub = torch.zeros(XXT.shape, dtype=self.dtype, device=self.device)
             # Delta^T@Delta Terms
-            DD_lb = Delta_lb[idx_adv, :]
-            DD_lb[:, idx_adv] = -delta
-            Delta_lb[idx_adv, :] = DD_lb
-            DD_ub = Delta_ub[idx_adv, :]
-            DD_ub[:, idx_adv] = delta
-            Delta_ub[idx_adv, :] = DD_ub
+            #DD_lb = Delta_lb[idx_adv, :]
+            #DD_lb[:, idx_adv] = -delta
+            #Delta_lb[idx_adv, :] = DD_lb
+            #DD_ub = Delta_ub[idx_adv, :]
+            #DD_ub[:, idx_adv] = delta
+            #Delta_ub[idx_adv, :] = DD_ub
             # Delta@X^T Terms
             Delta_lb[idx_adv, :] -= delta
-            Delta_ub[idx_adv, :] += delta
+            delta_ub = torch.minimum(delta, X.sum(dim=1))
+            Delta_ub[idx_adv, :] += delta_ub.reshape(1, -1)
             # X@Delta^T Terms
             Delta_lb[:, idx_adv] -= delta
-            Delta_ub[:, idx_adv] += delta
+            Delta_ub[:, idx_adv] += delta_ub.reshape(-1, 1)
+            # Correct for double counting
+            #mask_1 = torch.zeros(XXT.shape, dtype=torch.bool, device=self.device)
+            #mask_1[:, idx_adv] = True
+            #mask_2 = torch.zeros(XXT.shape, dtype=torch.bool, device=self.device)
+            #mask_2[idx_adv, :] = True
+            #mask_3 = torch.logical_and(mask_1, mask_2)
+            #Delta_lb[mask_3] += delta
+            #Delta_ub[mask_3] -= delta_ub[idx_adv].repeat(len(idx_adv))
+            #Delta_lb[idx_adv, idx_adv] = -delta
+            #Delta_ub[idx_adv, idx_adv] = delta_ub[idx_adv]
             XXT_lb = torch.maximum(XXT+Delta_lb, 
                                    torch.tensor(0, dtype=self.dtype).to(self.device))
-            return XXT_lb, XXT+Delta_ub
+            print(XXT_lb.mean())
+            print(XXT_lb.min())
+            print(XXT_lb.max())
+            XXT_ub = XXT+Delta_ub
+            #print(XXT_lb)
+            print(XXT_ub.mean())
+            print(XXT_ub.min())
+            print(XXT_ub.max())
+            # percentage increase
+            print("Adversarial Nodes: ")
+            print((XXT[idx_adv, :].mean() + XXT[:, idx_adv].mean())/2)
+            print((XXT_lb[idx_adv, :].mean() + XXT_lb[:, idx_adv].mean())/2)
+            print((XXT_ub[idx_adv, :].mean() + XXT_ub[:, idx_adv].mean())/2)
+            #print(XXT_ub)
+            return XXT_lb, XXT_ub
         else:
             assert False, f"Perturbation model {perturbation_model} not supported"
 
@@ -324,6 +372,12 @@ class NTK(torch.nn.Module):
         if self.model_dict["model"] == "GCN":
             Sig_lb = S.matmul(XXT_lb.matmul(S.T))
             Sig_ub = S.matmul(XXT_ub.matmul(S.T))
+            print(f"Sig_lb.mean(): {Sig_lb.mean()}")
+            print(f"Sig_lb.min(): {Sig_lb.min()}")
+            print(f"Sig_lb.max(): {Sig_lb.max()}")
+            print(f"Sig_ub.mean(): {Sig_ub.mean()}")
+            print(f"Sig_ub.min(): {Sig_ub.min()}")
+            print(f"Sig_ub.max(): {Sig_ub.max()}")
 
             ntk_lb = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
             ntk_ub = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
@@ -334,6 +388,7 @@ class NTK(torch.nn.Module):
             ntk_ub_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
                                     dtype=self.dtype).to(self.device)
             for i in range(depth):
+                print(f"Depth {i}")
                 p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
                 Diag_Sig_lb = torch.diagonal(Sig_lb) 
                 Diag_Sig_ub = torch.diagonal(Sig_ub) 
@@ -350,11 +405,21 @@ class NTK(torch.nn.Module):
                 self.empty_gpu_memory()
                 E_der_lb = (self.kappa_0_lb(u_lb)) * csigma
                 E_der_ub = (self.kappa_0_ub(u_ub)) * csigma
+                print(f"E_der_lb.min(): {E_der_lb.min()}")
+                print(f"E_der_lb.max(): {E_der_lb.max()}")
+                print(f"E_der_ub.min(): {E_der_ub.min()}")
+                print(f"E_der_ub.max(): {E_der_ub.max()}")
                 self.empty_gpu_memory()
                 ntk_lb_sub[i] = S.matmul((Sig_lb * E_der_lb).matmul(S.T))
                 ntk_ub_sub[i] = S.matmul((Sig_ub * E_der_ub).matmul(S.T))
                 Sig_lb = S.matmul(E_lb.matmul(S.T))
                 Sig_ub = S.matmul(E_ub.matmul(S.T))
+                print(f"Sig_lb.mean(): {Sig_lb.mean()}")
+                print(f"Sig_lb.min(): {Sig_lb.min()}")
+                print(f"Sig_lb.max(): {Sig_lb.max()}")
+                print(f"Sig_ub.mean(): {Sig_ub.mean()}")
+                print(f"Sig_ub.min(): {Sig_ub.min()}")
+                print(f"Sig_ub.max(): {Sig_ub.max()}")
                 for j in range(i):
                     ntk_lb_sub[j] = S.matmul((ntk_lb_sub[j].float() * E_der_lb).matmul(S.T))
                     ntk_ub_sub[j] = S.matmul((ntk_ub_sub[j].float() * E_der_ub).matmul(S.T))
@@ -369,7 +434,6 @@ class NTK(torch.nn.Module):
             return self.ntk_lb, self.ntk_ub
         else:
             assert False, "Other models than GCN not implemented so far."
-
 
     def get_ntk(self):
         """Return (precomputed) ntk matrix."""
@@ -440,10 +504,9 @@ class NTK(torch.nn.Module):
             if self.idx_trn_labeled is not None: # semi-supervised setting
                 ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
                 ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
-            ntk_unlabeled = ntk_test[idx_test,:][:,idx_labeled]
         if learning_setting == "transductive": 
             ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
-            ntk_unlabeled = ntk_test[idx_test,:][:,idx_labeled]
+        ntk_unlabeled = ntk_test[idx_test,:][:,idx_labeled]
 
         if self.pred_method == "krr":
             # ensure non-singularity
@@ -481,6 +544,9 @@ class NTK(torch.nn.Module):
                     alpha = torch.tensor(svm.dual_coef_, dtype=self.dtype, device=self.device)
                     b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
                     idx_sup = svm.support_
+                    if i == 0:
+                        print((alpha.reshape(1,-1) * ntk_unlabeled[:,idx_sup]).sum(dim=1))
+                        print((alpha.reshape(1,-1) * ntk_unlabeled[:,idx_sup]).sum(dim=1).shape)
                     pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
                     y_pred[:, i] = pred
 
@@ -501,6 +567,7 @@ class NTK(torch.nn.Module):
                            delta: float = 0.01,
                            perturbation_model: str = "l0",
                            learning_setting: Optional[str] = None,
+                           force_recalculation: bool = False,
                            return_ntk: bool = False,
                         ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """Perform kernel regression or SVM prediction using the upper-bounded
@@ -525,29 +592,33 @@ class NTK(torch.nn.Module):
         A_test : Float[torch.Tensor, "n n"]
             Graph adjacency matrix available during testing (i.e., of the test
             graph).
-        learning_setting : Optional[str] 
-            Optional, per default uses the learning setting set when initializing
-            the NTK object. However, if set, inference will be done with the
-            here set learning_setting instead. Options: "inductive" (default) 
-            or "transductive".
         delta : float
             Local budget, interpretation depending on chosen perurbation model:
             - l0: local budget = delta * feature dimension
         perturbation_model : str
             Currently, only l0 (default) supported.
+        learning_setting : Optional[str] 
+            Optional, per default uses the learning setting set when initializing
+            the NTK object. However, if set, inference will be done with the
+            here set learning_setting instead. Options: "inductive" (default) 
+            or "transductive".
+        force_recalculation : Optional[bool]
+            Calculate new NTK lower and upper bounds. You want to set this to 
+            true, if you change X_test, A_test or idx_adv compared to your 
+            previous function call.
         return_ntk : Optional[bool]
             If true, return the NTK of the test-graph calculated using X_test
             and A_test. Defaul: False
-
         Returns: 
-            Logits of unlabeled nodes, defines as in
-            https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+            Logits of unlabeled nodes
         """
         if learning_setting is None:
             learning_setting = self.learning_setting
         # handle different adj representations
         A_test = make_dense(A_test)
 
+        if force_recalculation:
+            self.calculated_lb_ub = False
         ntk_test_lb, ntk_test_ub = self.calc_ntk_lb_ub(X_test, A_test, idx_adv,
                                                        delta, perturbation_model)
         self.empty_gpu_memory()
@@ -556,10 +627,10 @@ class NTK(torch.nn.Module):
             if self.idx_trn_labeled is not None: # semi-supervised setting
                 ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
                 ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
-            ntk_unlabeled = ntk_test_ub[idx_test,:][:,idx_labeled]
         if learning_setting == "transductive": 
             ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
-            ntk_unlabeled = ntk_test_ub[idx_test,:][:,idx_labeled]
+        ntk_unlabeled_ub = ntk_test_ub[idx_test,:][:,idx_labeled]
+        ntk_unlabeled_lb = ntk_test_lb[idx_test,:][:,idx_labeled]
 
         if self.pred_method == "krr":
             # ensure non-singularity
@@ -594,10 +665,22 @@ class NTK(torch.nn.Module):
                 for i, svm in enumerate(self.svm.estimators_):
                     # Implementation of the following scikit-learn function in PyTorch:
                     # - pred = svm.decision_function(ntk_u_cpu) 
-                    alpha = torch.tensor(svm.dual_coef_, dtype=self.dtype, device=self.device)
+                    alpha_pos_mask = svm.dual_coef_ > 0
+                    alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
+                                         dtype=self.dtype, device=self.device)
+                    alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
+                                         dtype=self.dtype, device=self.device)
                     b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
                     idx_sup = svm.support_
-                    pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+                    alpha_pos_mask = alpha_pos_mask.reshape(-1)
+                    idx_sup_pos = svm.support_[alpha_pos_mask]
+                    idx_sup_neg = svm.support_[~alpha_pos_mask]
+                    if i == 0:
+                        print((alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
+                        + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1))
+                    pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
+                        + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1) \
+                        + b
                     y_pred[:, i] = pred
 
         if return_ntk:
@@ -617,6 +700,7 @@ class NTK(torch.nn.Module):
                            delta: float = 0.01,
                            perturbation_model: str = "l0",
                            learning_setting: Optional[str] = None,
+                           force_recalculation = False,
                            return_ntk: bool = False,
                         ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """Perform kernel regression or SVM prediction using the upper-bounded
@@ -641,29 +725,33 @@ class NTK(torch.nn.Module):
         A_test : Float[torch.Tensor, "n n"]
             Graph adjacency matrix available during testing (i.e., of the test
             graph).
-        learning_setting : Optional[str] 
-            Optional, per default uses the learning setting set when initializing
-            the NTK object. However, if set, inference will be done with the
-            here set learning_setting instead. Options: "inductive" (default) 
-            or "transductive".
         delta : float
             Local budget, interpretation depending on chosen perurbation model:
             - l0: local budget = delta * feature dimension
         perturbation_model : str
             Currently, only l0 (default) supported.
+        force_recalculation : Optional[bool]
+            Calculate new NTK lower and upper bounds. You want to set this to 
+            true, if you change X_test, A_test or idx_adv compared to your 
+            previous function call.
+        learning_setting : Optional[str] 
+            Optional, per default uses the learning setting set when initializing
+            the NTK object. However, if set, inference will be done with the
+            here set learning_setting instead. Options: "inductive" (default) 
+            or "transductive".
         return_ntk : Optional[bool]
             If true, return the NTK of the test-graph calculated using X_test
             and A_test. Defaul: False
-
         Returns: 
-            Logits of unlabeled nodes, defines as in
-            https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+            Logits of unlabeled nodes
         """
         if learning_setting is None:
             learning_setting = self.learning_setting
         # handle different adj representations
         A_test = make_dense(A_test)
 
+        if force_recalculation:
+            self.calculated_lb_ub = False
         ntk_test_lb, ntk_test_ub = self.calc_ntk_lb_ub(X_test, A_test, idx_adv,
                                                        delta, perturbation_model)
         self.empty_gpu_memory()
@@ -672,10 +760,10 @@ class NTK(torch.nn.Module):
             if self.idx_trn_labeled is not None: # semi-supervised setting
                 ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
                 ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
-            ntk_unlabeled = ntk_test_lb[idx_test,:][:,idx_labeled]
         if learning_setting == "transductive": 
             ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
-            ntk_unlabeled = ntk_test_lb[idx_test,:][:,idx_labeled]
+        ntk_unlabeled_ub = ntk_test_ub[idx_test,:][:,idx_labeled]
+        ntk_unlabeled_lb = ntk_test_lb[idx_test,:][:,idx_labeled]
 
         if self.pred_method == "krr":
             # ensure non-singularity
@@ -710,10 +798,22 @@ class NTK(torch.nn.Module):
                 for i, svm in enumerate(self.svm.estimators_):
                     # Implementation of the following scikit-learn function in PyTorch:
                     # - pred = svm.decision_function(ntk_u_cpu) 
-                    alpha = torch.tensor(svm.dual_coef_, dtype=self.dtype, device=self.device)
+                    alpha_pos_mask = svm.dual_coef_ > 0
+                    alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
+                                         dtype=self.dtype, device=self.device)
+                    alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
+                                         dtype=self.dtype, device=self.device)
                     b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
                     idx_sup = svm.support_
-                    pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+                    alpha_pos_mask = alpha_pos_mask.reshape(-1)
+                    idx_sup_pos = svm.support_[alpha_pos_mask]
+                    idx_sup_neg = svm.support_[~alpha_pos_mask]
+                    if i == 0:
+                        print((alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
+                        + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1))
+                    pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
+                        + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1) \
+                        + b
                     y_pred[:, i] = pred
 
         if return_ntk:

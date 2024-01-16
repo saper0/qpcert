@@ -106,6 +106,9 @@ def get_graph(
         X, A, y = get_csbm(data_params["specification"])
     elif data_params["dataset"] in ["cora", "citeseer", "pubmed"]:
         X, A, y = get_planetoid(data_params["dataset"], data_params["specification"])
+    elif data_params["dataset"] in ["cora_inv"]:
+        X, A, y = get_planetoid("cora", data_params["specification"])
+        X = (X - 1) * (-1)
     elif data_params["dataset"] == "wikics":
         X, A, y = get_wikics(data_params["specification"])
     elif data_params["dataset"] == "cora_ml":

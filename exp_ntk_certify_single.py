@@ -13,10 +13,8 @@ import seml
 import torch
 
 from src import utils
-from src.attacks import create_attack
 from src.data import get_graph, split
 from src.models.ntk import NTK
-from common import count_edges_for_idx
 
 
 ex = Experiment()
@@ -76,9 +74,8 @@ def config():
     )
 
     certificate_params = dict(
-        n_adversarial = 10, # number adversarial nodes
         perturbation_model = "l0",
-        delta = 0.01 # l0: local budget = delta * feature_dim
+        delta = 5 # l0: local budget = delta * feature_dim
     )
 
     verbosity_params = dict(
@@ -209,24 +206,50 @@ def run(data_params: Dict[str, Any],
                 pred_method=model_params["pred_method"],
                 regularizer=model_params["regularizer"],
                 dtype=other_params["dtype"])
-        for idx in idx_test:
-            y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
-                                y_test=y, X_test=X, A_test=A, return_ntk=True)
-            idx_adv = rng.choice(idx_test, size=certificate_params["n_adversarial"],
-                                replace=False)
-            y_ub, ntk_ub = ntk.forward_upperbound(idx_labeled, idx_test, idx_adv,
-                                                y, X, A, certificate_params["delta"],
-                                                certificate_params["perturbation_model"],
-                                                return_ntk=True)
-            y_lb, ntk_lb = ntk.forward_lowerbound(idx_labeled, idx_test, idx_adv,
-                                                y, X, A, certificate_params["delta"],
-                                                certificate_params["perturbation_model"],
-                                                return_ntk=True)
-    acc = utils.accuracy(y_pred, y[idx_test])
-    acc_ub = utils.accuracy(y_ub, y[idx_test])
-    acc_lb = utils.accuracy(y_lb, y[idx_test])
-    acc_cert = utils.certify(y_pred, y_ub, y_lb)
-    logging.info(f'Accuracy {acc}')
+        
+        y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
+                               y_test=y, X_test=X, A_test=A, return_ntk=True)
+        acc = utils.accuracy(y_pred, y[idx_test])
+        logging.info(f'Accuracy {acc}')
+        acc_ub_l = []
+        acc_lb_l = []
+        acc_cert_all_r_l = []
+        acc_cert_all_u_l = []
+        cert_target_r_l = []
+        cert_target_u_l = []
+        for i, idx in enumerate(idx_test):
+            idx_adv = [idx]
+            y_ub = ntk.forward_upperbound(idx_labeled, idx_test, idx_adv,
+                                          y, X, A, certificate_params["delta"],
+                                          certificate_params["perturbation_model"],
+                                          force_recalculation=True,
+                                          return_ntk=False)
+            y_lb = ntk.forward_lowerbound(idx_labeled, idx_test, idx_adv,
+                                          y, X, A, certificate_params["delta"],
+                                          certificate_params["perturbation_model"],
+                                          force_recalculation=False,
+                                          return_ntk=False)
+            acc_ub = utils.accuracy(y_ub, y[idx_test])
+            acc_lb = utils.accuracy(y_lb, y[idx_test])
+            acc_cert_all_r = utils.certify_robust(y_pred, y_ub, y_lb)
+            acc_cert_all_u = utils.certify_unrobust(y_pred, y_ub, y_lb)
+            acc_cert_all_r_l.append(acc_cert_all_r)
+            acc_cert_all_u_l.append(acc_cert_all_u)
+            y_pred_i = y_pred[i, :].reshape(1, -1)
+            y_ub_i = y_ub[i, :].reshape(1, -1)
+            y_lb_i = y_lb[i, :].reshape(1, -1)
+            cert_target_r = utils.certify_robust(y_pred_i, y_ub_i, y_lb_i)
+            cert_target_u = utils.certify_unrobust(y_pred_i, y_ub_i, y_lb_i)
+            cert_target_r_l.append(cert_target_r)
+            cert_target_u_l.append(cert_target_u)
+            if i % 10 == 0:
+                print(f"Calc {i}")
+                print(y_pred_i)
+                print(y_ub_i)
+                print(y_lb_i)
+                print(np.mean(cert_target_r_l))
+                print(np.mean(cert_target_u_l))
+            utils.empty_gpu_memory(device)
 
     # Some Debugging Info
     ntk_labeled = ntk.ntk[idx_known_labeled, :]
@@ -237,18 +260,10 @@ def run(data_params: Dict[str, Any],
     cond = torch.linalg.cond(ntk_labeled)
     min_ypred = torch.min(y_pred).cpu().item()
     max_ypred = torch.max(y_pred).cpu().item()
-    min_ylb = torch.min(y_lb).cpu().item()
-    max_ylb = torch.max(y_lb).cpu().item()
-    min_yub = torch.min(y_ub).cpu().item()
-    max_yub = torch.max(y_ub).cpu().item()
     min_ntklabeled = torch.min(ntk_labeled).cpu().item()
     max_ntklabeled = torch.max(ntk_labeled).cpu().item()
     min_ntkunlabeled = torch.min(ntk_unlabeled).cpu().item()
     max_ntkunlabeled = torch.max(ntk_unlabeled).cpu().item()
-    min_ntklb = torch.min(ntk_lb).cpu().item()
-    max_ntklb = torch.max(ntk_lb).cpu().item()
-    min_ntkub = torch.min(ntk_ub).cpu().item()
-    max_ntkub = torch.max(ntk_ub).cpu().item()
 
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
@@ -258,16 +273,9 @@ def run(data_params: Dict[str, Any],
         accuracy_ub = acc_ub,
         accuracy_lb = acc_lb,
         accuracy_cert = acc_cert,
+        accuracy_cert_unrobust = acc_cert_u,
         min_ypred = min_ypred,
         max_ypred = max_ypred,
-        min_ylb = min_ylb,
-        max_ylb = max_ylb,
-        min_yub = min_yub,
-        max_yub = max_yub,
-        min_ntklb = min_ntklb,
-        max_ntklb = max_ntklb,
-        min_ntkub = min_ntkub,
-        max_ntkub = max_ntkub,
         min_ntklabeled = min_ntklabeled,
         max_ntklabeled = max_ntklabeled,
         min_ntkunlabeled = min_ntkunlabeled,

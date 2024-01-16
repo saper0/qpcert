@@ -222,6 +222,18 @@ def run(data_params: Dict[str, Any],
                                               y, X, A, certificate_params["delta"],
                                               certificate_params["perturbation_model"],
                                               return_ntk=True)
+    #Trivial bounds:
+    mask_no_adv_in_n = (A[:, idx_adv] > 0).sum(dim=1) == 0
+    A2 = A.matmul(A)
+    mask_no_adv_in_n2 = (A2[:, idx_adv] > 0).sum(dim=1) == 0
+    mask_no_adv_in_receptive_field = torch.logical_and(mask_no_adv_in_n, mask_no_adv_in_n2)
+    print(mask_no_adv_in_receptive_field.sum())
+    print(mask_no_adv_in_receptive_field[idx_test].sum())
+    acc_cert_trivial = mask_no_adv_in_receptive_field[idx_test].sum().cpu().item() / len(idx_test)
+    A3 = A2.matmul(A)
+    mask_no_adv_in_n3 = (A3[:, idx_adv] > 0).sum(dim=1) == 0
+    mask_no_adv_in_receptive_field = torch.logical_and(mask_no_adv_in_receptive_field, mask_no_adv_in_n3)
+    acc_cert_n3 = mask_no_adv_in_receptive_field[idx_test].sum().cpu().item() / len(idx_test)
     acc = utils.accuracy(y_pred, y[idx_test])
     acc_ub = utils.accuracy(y_ub, y[idx_test])
     acc_lb = utils.accuracy(y_lb, y[idx_test])
@@ -244,10 +256,13 @@ def run(data_params: Dict[str, Any],
     max_yub = torch.max(y_ub).cpu().item()
     min_ntklabeled = torch.min(ntk_labeled).cpu().item()
     max_ntklabeled = torch.max(ntk_labeled).cpu().item()
+    avg_ntkunlabeled = torch.mean(ntk_unlabeled).cpu().item()
     min_ntkunlabeled = torch.min(ntk_unlabeled).cpu().item()
     max_ntkunlabeled = torch.max(ntk_unlabeled).cpu().item()
+    avg_ntklb = torch.mean(ntk_lb).cpu().item()
     min_ntklb = torch.min(ntk_lb).cpu().item()
     max_ntklb = torch.max(ntk_lb).cpu().item()
+    avg_ntkub = torch.mean(ntk_ub).cpu().item()
     min_ntkub = torch.min(ntk_ub).cpu().item()
     max_ntkub = torch.max(ntk_ub).cpu().item()
 
@@ -258,6 +273,8 @@ def run(data_params: Dict[str, Any],
         accuracy = acc,
         accuracy_ub = acc_ub,
         accuracy_lb = acc_lb,
+        accuracy_cert_trivial = acc_cert_trivial,
+        accuracy_cert_trivial_n3 = acc_cert_n3,
         accuracy_cert = acc_cert,
         accuracy_cert_unrobust = acc_cert_u,
         min_ypred = min_ypred,
@@ -266,12 +283,15 @@ def run(data_params: Dict[str, Any],
         max_ylb = max_ylb,
         min_yub = min_yub,
         max_yub = max_yub,
+        avg_ntklb = avg_ntklb,
         min_ntklb = min_ntklb,
         max_ntklb = max_ntklb,
+        avg_ntkub = avg_ntkub,
         min_ntkub = min_ntkub,
         max_ntkub = max_ntkub,
         min_ntklabeled = min_ntklabeled,
         max_ntklabeled = max_ntklabeled,
+        avg_ntkunlabeled = avg_ntkunlabeled,
         min_ntkunlabeled = min_ntkunlabeled,
         max_ntkunlabeled = max_ntkunlabeled,
         cond = cond.cpu().item()
