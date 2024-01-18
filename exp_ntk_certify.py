@@ -190,6 +190,7 @@ def run(data_params: Dict[str, Any],
     A = torch.tensor(A, dtype=other_params["dtype"], device=device)
     y = torch.tensor(y, device=device)
     n_classes = int(y.max() + 1)
+    print(f"X.mean() {X.mean()}")
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
     idx_known = np.concatenate((idx_labeled, idx_unlabeled))
@@ -217,23 +218,23 @@ def run(data_params: Dict[str, Any],
         y_ub, ntk_ub = ntk.forward_upperbound(idx_labeled, idx_test, idx_adv,
                                               y, X, A, certificate_params["delta"],
                                               certificate_params["perturbation_model"],
-                                              return_ntk=True)
+                                              return_ntk=True,
+                                              method=certificate_params["method"])
         y_lb, ntk_lb = ntk.forward_lowerbound(idx_labeled, idx_test, idx_adv,
                                               y, X, A, certificate_params["delta"],
                                               certificate_params["perturbation_model"],
-                                              return_ntk=True)
+                                              return_ntk=True,
+                                              method=certificate_params["method"])
+        #print("predictions:")
+        #print(y_pred[:50,:])
+        #print(y_ub[:50,:])
+        #print(y_lb[:50,:])
     #Trivial bounds:
     mask_no_adv_in_n = (A[:, idx_adv] > 0).sum(dim=1) == 0
     A2 = A.matmul(A)
     mask_no_adv_in_n2 = (A2[:, idx_adv] > 0).sum(dim=1) == 0
     mask_no_adv_in_receptive_field = torch.logical_and(mask_no_adv_in_n, mask_no_adv_in_n2)
-    print(mask_no_adv_in_receptive_field.sum())
-    print(mask_no_adv_in_receptive_field[idx_test].sum())
     acc_cert_trivial = mask_no_adv_in_receptive_field[idx_test].sum().cpu().item() / len(idx_test)
-    A3 = A2.matmul(A)
-    mask_no_adv_in_n3 = (A3[:, idx_adv] > 0).sum(dim=1) == 0
-    mask_no_adv_in_receptive_field = torch.logical_and(mask_no_adv_in_receptive_field, mask_no_adv_in_n3)
-    acc_cert_n3 = mask_no_adv_in_receptive_field[idx_test].sum().cpu().item() / len(idx_test)
     acc = utils.accuracy(y_pred, y[idx_test])
     acc_ub = utils.accuracy(y_ub, y[idx_test])
     acc_lb = utils.accuracy(y_lb, y[idx_test])
@@ -274,7 +275,6 @@ def run(data_params: Dict[str, Any],
         accuracy_ub = acc_ub,
         accuracy_lb = acc_lb,
         accuracy_cert_trivial = acc_cert_trivial,
-        accuracy_cert_trivial_n3 = acc_cert_n3,
         accuracy_cert = acc_cert,
         accuracy_cert_unrobust = acc_cert_u,
         min_ypred = min_ypred,

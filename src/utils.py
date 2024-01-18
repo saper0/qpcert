@@ -26,7 +26,11 @@ def certify_robust(
         count_beaten = (pred_other_ub > pred_orig_lb.reshape(-1, 1)).sum(dim=1)
         return ((count_beaten == 0).sum() / n).cpu().item()
     else:
-        assert False, "Not implemented"
+        mask_neg = y_pred < 0
+        n_cert = (y_ub[mask_neg] < 0).sum()
+        mask_pos = y_pred >= 0
+        n_cert += (y_lb[mask_pos] >= 0).sum()
+        return (n_cert / y_pred.shape[0]).cpu().item()
 
 
 def certify_unrobust(
@@ -44,7 +48,11 @@ def certify_unrobust(
         count_beaten = (pred_other_lb > pred_orig_ub.reshape(-1, 1)).sum(dim=1)
         return ((count_beaten > 0).sum() / n).cpu().item()
     else:
-        assert False, "Not implemented"
+        mask_neg = y_pred < 0
+        n_cert = (y_lb[mask_neg] >= 0).sum()
+        mask_pos = y_pred >= 0
+        n_cert += (y_ub[mask_pos] < 0).sum()
+        return (n_cert / y_pred.shape[0]).cpu().item()
 
 
 def accuracy(logits: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]],

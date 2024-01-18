@@ -34,6 +34,8 @@ class CSBM(GraphGenerationModel):
         self.d = round(n / math.log(n)**2)
         self.mu = np.array([K*sigma / (2 * self.d**0.5) for i in range(self.d)], 
                            dtype=np.float32)
+        print("CSBM mu:")
+        print(self.mu)
         self.cov = sigma**2 * np.identity(self.d, dtype=np.float32)
 
     def sample(self, n: int, seed = 0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
