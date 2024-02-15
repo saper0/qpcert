@@ -12,7 +12,7 @@ from sacred.run import Run
 import seml
 import torch
 
-from src import utils
+from src import utils, globals
 from src.data import get_graph, split
 from src.models.ntk import NTK
 
@@ -164,6 +164,7 @@ def setup_experiment(data_params: Dict[str, Any], model_params: Dict[str, Any],
     set_debug_lvl(verbosity_params["debug_lvl"])
     log_configuration(data_params, model_params, certificate_params,
                       verbosity_params, other_params, seed)
+    globals.init()
     device = configure_hardware(other_params, seed)
     rng = np.random.Generator(np.random.PCG64(seed))
     return device, rng

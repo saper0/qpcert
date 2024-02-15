@@ -10,7 +10,7 @@ from sacred.run import Run
 import seml
 import torch
 
-from src import utils
+from src import utils, globals
 from src.attacks import create_attack
 from src.data import get_graph, split
 from src.models.ntk import NTK
@@ -70,7 +70,9 @@ def config():
         depth = 1,
         regularizer = 1e-8,
         pred_method = "krr",
-        solver = "LU"
+        solver = "LU",
+        alpha_tol = 1e-4,
+        bias = True,
     )
 
     verbosity_params = dict(
@@ -81,7 +83,8 @@ def config():
         device = "gpu",
         dtype = torch.float64,
         allow_tf32 = False,
-        enable_gradient = False
+        enable_gradient = False,
+        debug = False
     )
 
 
@@ -155,6 +158,7 @@ def setup_experiment(data_params: Dict[str, Any], model_params: Dict[str, Any],
     set_debug_lvl(verbosity_params["debug_lvl"])
     log_configuration(data_params, model_params, verbosity_params,
                       other_params, seed)
+    globals.init(other_params)
     return configure_hardware(other_params, seed)
 
 
@@ -167,7 +171,6 @@ def run(data_params: Dict[str, Any],
         _run: Run):
     device = setup_experiment(data_params, model_params, verbosity_params, 
                               other_params, seed)
-    
     X, A, y = get_graph(data_params, sort=True)
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
@@ -194,6 +197,9 @@ def run(data_params: Dict[str, Any],
                 learning_setting=data_params["learning_setting"],
                 pred_method=model_params["pred_method"],
                 regularizer=model_params["regularizer"],
+                bias=model_params["bias"],
+                solver=model_params["solver"],
+                alpha_tol=model_params["alpha_tol"],
                 dtype=other_params["dtype"])
         
         y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,

@@ -3,6 +3,7 @@
 # https://pytorch-geometric.readthedocs.io/en/latest/_modules/torch_geometric/nn/models/correct_and_smooth.html #noqa
 from typing import Any, Dict, Optional, Union, Tuple
 
+import cvxopt
 from jaxtyping import Float, Integer
 import numpy as np
 from sklearn import svm
@@ -14,7 +15,7 @@ from torch_sparse import SparseTensor
 
 from src.models.common import row_normalize, tbn_normalize, degree_scaling, \
                               sym_normalize, APPNP_propogation, make_dense
-from src import utils
+from src import utils, globals
 
 
 class NTK(torch.nn.Module):
@@ -31,6 +32,10 @@ class NTK(torch.nn.Module):
                  learning_setting: str = "inductive", 
                  pred_method: str = "svm",
                  regularizer: float = 1e-8,
+                 bias: bool = True,
+                 append_dimension: bool = False,
+                 solver: str = "sklearn",
+                 alpha_tol: float = 1e-4,
                  device: Union[torch.device, str] = None,
                  dtype: torch.dtype = torch.float64):
         """ In the forward pass, the here calculated NTK will be considered
@@ -64,6 +69,22 @@ class NTK(torch.nn.Module):
             KRR: Conditioner to add to the diagonal of the NTK to invert. Higher
                  is higher regularization.
             SVM: How much weight is given to correct classification. Default: 1e-8 
+        bias : bool
+            Only if "svm". Whether to include a bias term. Default: True.
+        append_dimension : bool
+            Only used if bias == False. If true, adds an extra feature dimension
+            to compensate for no bias term. TODO: implement
+        solver : string
+            If pred_method = "svm": 
+                Can be "cvxopt" or "sklearn". Solving the SVM-problem wihout
+                bias is only possible using "cvxopt". Currenlty, multiclass
+                classicification is only implemented for "sklearn".
+            If pred_method = "krr":
+                Currently has no effect. TODO: Can implement LU etc. factor-
+                ization with this property.
+        alpha_tol : float
+            Only relevant if using cvxopt-solver. Numerical theshold for 
+            choosing support vectors. Default 1e-4.
         device : Union[torch.device, str]
             Device to use for calculating the kernel and doing inference
             with it. If not set, will be set to device of X_trn.
@@ -89,6 +110,9 @@ class NTK(torch.nn.Module):
         self.pred_method = pred_method
         self.idx_trn_labeled = idx_trn_labeled
         self.n_classes = n_classes
+        self.solver = solver
+        self.alpha_tol = alpha_tol
+        self.bias = bias
         if pred_method == "svm":
             self.svm = self.fit_svm(X_trn, A_trn, y_trn, idx_trn_labeled)
         else:
@@ -108,17 +132,53 @@ class NTK(torch.nn.Module):
         cache_size = 1000
         if "cache_size" in self.model_dict:
             cache_size = self.model_dict["cache_size"]
-        f = svm.SVC(C=self.regularizer, kernel="precomputed", 
-                    cache_size=cache_size)
         gram_matrix = self.ntk.detach().cpu().numpy()
         if idx_trn_labeled is not None:
             gram_matrix = gram_matrix[idx_trn_labeled, :]
             gram_matrix = gram_matrix[:, idx_trn_labeled]
-        if self.n_classes == 2:
-            f.fit(gram_matrix, y.detach().cpu().numpy())
+        if self.solver == "sklearn":
+            f = svm.SVC(C=self.regularizer, kernel="precomputed", 
+                        cache_size=cache_size)
+            if self.n_classes == 2:
+                f.fit(gram_matrix, y.detach().cpu().numpy())
+            else:
+                f = OneVsRestClassifier(f, n_jobs=1).fit(gram_matrix, y.detach().cpu().numpy())
+            return f
+        elif self.solver == "cvxopt":
+            assert self.n_classes == 2, "\"cvxopt\" only implemented for " \
+                + "binary classification"
+            y = y.detach().cpu().numpy()
+            y = y * 2 - 1
+            l = y.shape[0]
+            Y = np.outer(y, y)
+            # Make the gram matrix symmetric (removes numerical inconsistencies)
+            # gram_matrix = np.triu(gram_matrix, k=0) + np.triu(gram_matrix, k=-1).T 
+            P = cvxopt.matrix(Y*gram_matrix)
+            q = cvxopt.matrix(-np.ones((l,), dtype=np.float64))
+            I = np.identity(n=l, dtype=np.float64)
+            I_neg = -np.identity(n=l, dtype=np.float64)
+            G = cvxopt.matrix(np.concatenate((I, I_neg), axis=0))
+            h = cvxopt.matrix(np.zeros((2*l,), dtype=np.float64))
+            h[:l] = self.regularizer
+            cvxopt.solvers.options["show_progress"] = False
+            if self.bias:
+                A = cvxopt.matrix(y.astype(np.float64).reshape((1,-1)))
+                b = cvxopt.matrix(np.zeros(1))
+                solution = cvxopt.solvers.qp(P, q, G, h, A, b)
+            else:
+                solution = cvxopt.solvers.qp(P, q, G, h)
+            alphas = np.array(solution["x"]).reshape(-1,)
+            y = (y + 1) / 2
+            #f_ = svm.SVC(C=self.regularizer, kernel="precomputed", 
+            #            cache_size=cache_size)
+            #f_.fit(gram_matrix, y)
+            #self.f_ = f_
+            #print(f_.dual_coef_)
+            #print(f_.intercept_)
+            return alphas
         else:
-            f = OneVsRestClassifier(f, n_jobs=1).fit(gram_matrix, y.detach().cpu().numpy())
-        return f
+            assert False, "Solver not found"
+
 
     def _calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
         if self.model_dict["model"] == "GCN":
@@ -208,9 +268,10 @@ class NTK(torch.nn.Module):
         csigma = 1 
         XXT = X.matmul(X.T)
         Sig = S.matmul(XXT.matmul(S.T))
-        print(f"Sig.mean(): {Sig.mean()}")
-        print(f"Sig.min(): {Sig.min()}")
-        print(f"Sig.max(): {Sig.max()}")
+        if globals.debug:
+            print(f"Sig.mean(): {Sig.mean()}")
+            print(f"Sig.min(): {Sig.min()}")
+            print(f"Sig.max(): {Sig.max()}")
         del XXT
         self.empty_gpu_memory()
         kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
@@ -219,7 +280,8 @@ class NTK(torch.nn.Module):
         kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
                                 dtype=self.dtype).to(self.device)
         for i in range(depth):
-            print(f"Depth {i}")
+            if globals.debug:
+                print(f"Depth {i}")
             p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
             Diag_Sig = torch.diagonal(Sig) 
             Sig_i = p + Diag_Sig.reshape(1, -1)
@@ -233,14 +295,16 @@ class NTK(torch.nn.Module):
             del q
             self.empty_gpu_memory()
             E_der = (self.kappa_0(u)) * csigma
-            print(f"E_der.min(): {E_der.min()}")
-            print(f"E_der.max(): {E_der.max()}")
+            if globals.debug:
+                print(f"E_der.min(): {E_der.min()}")
+                print(f"E_der.max(): {E_der.max()}")
             self.empty_gpu_memory()
             kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
             Sig = S.matmul(E.matmul(S.T))
-            print(f"Sig.mean(): {Sig.mean()}")
-            print(f"Sig.min(): {Sig.min()}")
-            print(f"Sig.max(): {Sig.max()}")
+            if globals.debug:
+                print(f"Sig.mean(): {Sig.mean()}")
+                print(f"Sig.min(): {Sig.min()}")
+                print(f"Sig.max(): {Sig.max()}")
             for j in range(i):
                 kernel_sub[j] = S.matmul((kernel_sub[j].float() * E_der).matmul(S.T))
             del E_der
@@ -767,11 +831,41 @@ class NTK(torch.nn.Module):
                 y_pred = torch.matmul(ntk_unlabeled, v)
         else:
             if self.n_classes == 2:
-                # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
-                alpha = torch.tensor(self.svm.dual_coef_, dtype=self.dtype, device=self.device)
-                b = torch.tensor(self.svm.intercept_, dtype=self.dtype, device=self.device)
-                idx_sup = self.svm.support_
-                y_pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+                if self.solver == "cvxopt":
+                    alpha = torch.tensor(self.svm, dtype=self.dtype, 
+                                         device=self.device)
+                    idx_sup = (alpha > self.alpha_tol)
+                    y_sup = y_test[idx_labeled][idx_sup] * 2 - 1
+                    alpha_sup = alpha[idx_sup]
+                    w = y_sup * alpha_sup
+                    bias_tol = max(self.alpha_tol, 1e-10)
+                    idx_bias = alpha_sup < (self.regularizer - bias_tol)
+                    ntk_sup = ntk_labeled[idx_sup, :]
+                    ntk_sup = ntk_sup[:, idx_sup]
+                    if self.bias:
+                        b = y_sup[idx_bias] - (y_sup * alpha_sup * ntk_sup[idx_bias, :]).sum(dim=1)
+                        b = b.mean()
+                    #print(alpha_sup*y_sup)
+                    #print(b)
+                    y_pred = (y_sup * alpha_sup * ntk_unlabeled[:,idx_sup]).sum(dim=1) 
+                    if self.bias:
+                        y_pred += b
+                    # debug
+                    #alpha_ = torch.tensor(self.f_.dual_coef_, dtype=self.dtype, device=self.device)
+                    #b_ = torch.tensor(self.f_.intercept_, dtype=self.dtype, device=self.device)
+                    #idx_sup_ = self.f_.support_
+                    #y_pred_ = (alpha_ * ntk_unlabeled[:,idx_sup_]).sum(dim=1) + b_
+                    #print(y_pred_)
+                    #print(y_pred)
+                    #y_pred = y_pred_
+                elif self.solver == "sklearn":
+                    # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
+                    alpha = torch.tensor(self.svm.dual_coef_, dtype=self.dtype, device=self.device)
+                    b = torch.tensor(self.svm.intercept_, dtype=self.dtype, device=self.device)
+                    idx_sup = self.svm.support_
+                    y_pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+                else:
+                    assert False
             else:
                 y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
                 idx_sup_set = set()

@@ -1,0 +1,85 @@
+seml:
+  name: ntk_gcn_hyperparams
+  executable: exp_ntk_hyperparam.py
+  project_root_dir: ../..
+  output_dir: log/hyperparam
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    qos: phdcpu      
+    partition: cpu
+    gres: gpu:0       # num gpu
+    mem: 20G          # memory
+    cpus-per-task: 1  # num cores
+    time: 0-08:30     # max time, D-HH:MM
+    exclude: gpu12
+
+fixed:
+  data_params:
+    learning_setting: inductive
+    cv_folds: 4
+    specification:
+      n_per_class: 20
+      fraction_test: 0.1
+      data_dir: ./data
+      balance_test: True
+
+  model_params:
+    label: GCN
+    model: GCN
+    normalization: row_normalization
+    depth: 1
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+
+grid:
+  
+  data_params:
+    dataset:
+      type: choice
+      options:
+      - csbm
+
+  model_params:
+    pred_method:
+      type: choice
+      options:
+      - svm
+      - krr
+
+    regularizer:
+      type: choice
+      options:
+      - 0.0001
+      - 0.001
+      - 0.005
+      - 0.01
+      - 0.05
+      - 0.1
+      - 0.5
+      - 1
+      - 2
+      - 5
+      - 10
+      - 50
+      - 100
+      - 1000
+  
+
+seeds:
+  grid:
+    data_params:
+      specification:
+        seed:
+          type: range
+          min: 0
+          max: 10
+          step: 1
+

@@ -93,6 +93,41 @@ def get_cora_ml(specification: Dict[str, Any]):
     return X, A, y
 
 
+def get_cora_ml_cont(dataset: str, specification: Dict[str, Any]):
+    """Loads cora_ml and makes it undirected."""
+    directory = specification["data_dir"]
+    if isinstance(directory, str):
+        directory = Path(directory)
+    path_to_file = directory / (dataset + ".npz")
+    with np.load(path_to_file, allow_pickle=True) as loader:
+        loader = dict(loader)
+        for key in loader:
+            print(key)
+        print(len(loader["attr_text"]))
+        print(loader["attr_text"])
+        assert False, "Not implemented"
+        adj_matrix = sp.csr_matrix((loader['adj_matrix.data'], 
+                                    loader['adj_matrix.indices'],
+                                    loader['adj_matrix.indptr']), 
+                                    shape=loader['adj_matrix.shape'])
+        attr_matrix = sp.csr_matrix((loader['attr_matrix.data'], 
+                                     loader['attr_matrix.indices'],
+                                     loader['attr_matrix.indptr']), 
+                                     shape=loader['attr_matrix.shape'])
+        A = adj_matrix.toarray()
+        X = (attr_matrix.toarray() > 0).astype("float32")
+        y = np.array(loader["labels"])
+        del loader
+
+    # make undirected
+    lt = np.tril(A) == 1
+    ut = np.triu(A) == 1
+    lt = np.logical_or(lt, lt.T)
+    ut = np.logical_or(ut, ut.T)
+    A = np.logical_or(lt, ut).astype(np.int64)
+    return X, A, y
+
+
 def get_graph(
         data_params: Dict[str, Any], sort: bool=True
 ) -> Tuple[Float[ndarray, "n n"], Integer[ndarray, "n n"], Integer[ndarray, "n"]]:
@@ -113,6 +148,11 @@ def get_graph(
         X, A, y = get_wikics(data_params["specification"])
     elif data_params["dataset"] == "cora_ml":
         X, A, y = get_cora_ml(data_params["specification"])
+    elif data_params["dataset"] in ["cora_ml_cont", "dblp", "cora_cont", "cora_full"]:
+        dataset = data_params["dataset"]
+        if dataset.endswith("_cont"):
+            dataset = dataset[:-5]
+        X, A, y = get_cora_ml_cont(dataset, data_params["specification"])
     if data_params["dataset"] in ["citeseer", "wikics", "cora_ml"]:
         G = nx.from_numpy_array(A)
         idx_lcc = list(max(nx.connected_components(G), key=len))
