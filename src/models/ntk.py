@@ -993,23 +993,50 @@ class NTK(torch.nn.Module):
                 y_pred = torch.matmul(ntk_unlabeled, v)
         else:
             if self.n_classes == 2:
-                # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
-                svm = self.svm
-                alpha_pos_mask = svm.dual_coef_ > 0
-                alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
-                                        dtype=self.dtype, device=self.device)
-                alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
-                                        dtype=self.dtype, device=self.device)
-                b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
-                alpha_pos_mask = alpha_pos_mask.reshape(-1)
-                idx_sup_pos = svm.support_[alpha_pos_mask]
-                idx_sup_neg = svm.support_[~alpha_pos_mask]
-                #if i == 0:
-                #    print((alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
-                #    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1))
-                y_pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
-                    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1) \
-                    + b
+                if self.solver == 'cvxopt':
+                    alpha = torch.tensor(self.svm, dtype=self.dtype, 
+                                         device=self.device)
+                    idx_sup = (alpha > self.alpha_tol)
+                    y_sup = y_test[idx_labeled][idx_sup] * 2 - 1
+                    y_sup_pos_mask = y_sup > 0
+                    y_sup_pos = y_sup[y_sup_pos_mask]
+                    y_sup_neg = y_sup[~y_sup_pos_mask]
+                    alpha_sup = alpha[idx_sup]
+                    alpha_sup_pos = alpha_sup[y_sup_pos_mask]
+                    alpha_sup_neg = alpha_sup[~y_sup_pos_mask]
+                    bias_tol = max(self.alpha_tol, 1e-10)
+                    idx_bias = alpha_sup < (self.regularizer - bias_tol)
+                    ntk_sup = ntk_labeled[idx_sup, :]
+                    ntk_sup = ntk_sup[:, idx_sup]
+                    ntk_unlabeled_sup_ub = ntk_unlabeled_ub[:,idx_sup]
+                    ntk_unlabeled_sup_lb = ntk_unlabeled_lb[:,idx_sup]
+                     
+                    y_pred = (y_sup_pos * alpha_sup_pos * ntk_unlabeled_sup_ub[:,y_sup_pos_mask]).sum(dim=1) \
+                        + (y_sup_neg * alpha_sup_neg * ntk_unlabeled_sup_lb[:,~y_sup_pos_mask]).sum(dim=1)
+                    if self.bias:
+                        b = y_sup[idx_bias] - (y_sup * alpha_sup * ntk_sup[idx_bias, :]).sum(dim=1)
+                        b = b.mean()
+                        y_pred += b
+                elif self.solver == 'sklearn':
+                    # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
+                    svm = self.svm
+                    alpha_pos_mask = svm.dual_coef_ > 0
+                    alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
+                                            dtype=self.dtype, device=self.device)
+                    alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
+                                            dtype=self.dtype, device=self.device)
+                    b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
+                    alpha_pos_mask = alpha_pos_mask.reshape(-1)
+                    idx_sup_pos = svm.support_[alpha_pos_mask]
+                    idx_sup_neg = svm.support_[~alpha_pos_mask]
+                    #if i == 0:
+                    #    print((alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
+                    #    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1))
+                    y_pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
+                        + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1) \
+                        + b
+                else:
+                    assert False
             else:
                 y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
                 alpha_pos_mean = 0
@@ -1150,23 +1177,49 @@ class NTK(torch.nn.Module):
                 y_pred = torch.matmul(ntk_unlabeled, v)
         else:
             if self.n_classes == 2:
-                # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
-                svm = self.svm
-                alpha_pos_mask = svm.dual_coef_ > 0
-                alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
-                                        dtype=self.dtype, device=self.device)
-                alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
-                                        dtype=self.dtype, device=self.device)
-                b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
-                alpha_pos_mask = alpha_pos_mask.reshape(-1)
-                idx_sup_pos = svm.support_[alpha_pos_mask]
-                idx_sup_neg = svm.support_[~alpha_pos_mask]
-                #if i == 0:
-                #    print((alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
-                #    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1))
-                y_pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
-                    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1) \
-                    + b
+                if self.solver == 'cvxopt':
+                    alpha = torch.tensor(self.svm, dtype=self.dtype, 
+                                         device=self.device)
+                    idx_sup = (alpha > self.alpha_tol)
+                    y_sup = y_test[idx_labeled][idx_sup] * 2 - 1
+                    y_sup_pos_mask = y_sup > 0
+                    y_sup_pos = y_sup[y_sup_pos_mask]
+                    y_sup_neg = y_sup[~y_sup_pos_mask]
+                    alpha_sup = alpha[idx_sup]
+                    alpha_sup_pos = alpha_sup[y_sup_pos_mask]
+                    alpha_sup_neg = alpha_sup[~y_sup_pos_mask]
+                    bias_tol = max(self.alpha_tol, 1e-10)
+                    idx_bias = alpha_sup < (self.regularizer - bias_tol)
+                    ntk_sup = ntk_labeled[idx_sup, :]
+                    ntk_sup = ntk_sup[:, idx_sup]
+                    ntk_unlabeled_sup_ub = ntk_unlabeled_ub[:,idx_sup]
+                    ntk_unlabeled_sup_lb = ntk_unlabeled_lb[:,idx_sup]
+                        
+                    y_pred = (y_sup_pos * alpha_sup_pos * ntk_unlabeled_sup_lb[:,y_sup_pos_mask]).sum(dim=1) \
+                        + (y_sup_neg * alpha_sup_neg * ntk_unlabeled_sup_ub[:,~y_sup_pos_mask]).sum(dim=1)
+                    if self.bias:
+                        b = y_sup[idx_bias] - (y_sup * alpha_sup * ntk_sup[idx_bias, :]).sum(dim=1)
+                        b = b.mean()
+                        y_pred += b
+                elif self.solver == 'sklearn':
+                    # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
+                    svm = self.svm
+                    alpha_pos_mask = svm.dual_coef_ > 0
+                    alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
+                                            dtype=self.dtype, device=self.device)
+                    alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
+                                            dtype=self.dtype, device=self.device)
+                    b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
+                    alpha_pos_mask = alpha_pos_mask.reshape(-1)
+                    idx_sup_pos = svm.support_[alpha_pos_mask]
+                    idx_sup_neg = svm.support_[~alpha_pos_mask]
+                    #if i == 0:
+                    #    print((alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
+                    #    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1))
+                    y_pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
+                        + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1) \
+                        + b
+
             else:
                 y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
                 for i, svm in enumerate(self.svm.estimators_):
