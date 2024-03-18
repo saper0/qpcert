@@ -133,6 +133,8 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
     print('ntk shapes ', ntk.shape, ntk_lb.shape, ntk_ub.shape)
     print('y shapes ', y.shape, y_pred.shape, y, y_pred)
     print('alpha ', svm_alpha.shape, svm_alpha)
+    assert ntk_lb.min() <= ntk_ub.min()
+    assert ntk_lb.max() <= ntk_ub.max()
 
     n_labeled = idx_labeled.shape[0]
     ntk = ntk.detach().cpu().numpy()
@@ -151,18 +153,11 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
 
     print(ntk_labeled.shape, ntk_labeled_ub.shape, ntk_labeled_lb.shape)
     print(ntk_unlabeled.shape, ntk_unlabeled_ub.shape, ntk_unlabeled_ub.shape)
-    # print('y labeled ', y_labeled)
     y_labeled = y_labeled*2 -1 
-    # print('y labeled ', y_labeled)
-    # print('y test ', y[idx_test]*2-1)
-    # print('y pred ', y_pred)
 
     obj_min = None
     robust_count = 0
-    # y_pred_mask = y_pred[:10] > 0 
-    # y_pred_pos = y_pred[:10][y_pred_mask]
-    # print('pos in 100 pred ', y_pred_pos.shape)
-    for idx in range(y_pred.shape[0]): #y_pred.shape[0]
+    for idx in range(y_pred.shape[0]):
         if y_pred[idx] < 0:
             obj_min = False
         else:
@@ -208,10 +203,14 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 # m.Params.BestObjStop = -1e-8
                 # m.Params.BestBdStop = -1-1e-8
 
-            # To know whether the model is infeasible or unbounded
-            m.Params.DualReductions = 0
-
-            # Following flags are needed to escape infeasibility solutions
+            m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
+            m.Params.IntFeasTol = 1e-8 # to stabilize big-M constraint (helps, works without this also) 
+            m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
+            # Debugging
+            m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded
+            # m.write('poison_cert.lp') # helps in checking if the implemented model is correct
+        
+            # Played around with the following flags to escape infeasibility solutions
             m.Params.FeasibilityTol = 1e-8
             # m.Params.MIPGap = 1e-8
             # m.Params.MIPGapAbs = 1e-8
@@ -222,15 +221,9 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             # m.Params.MIPFocus = 1
             # m.Params.InfProofCuts = 0
 
-            m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
-            m.Params.IntFeasTol = 1e-8 # to stabilize big-M constraint (helps, works without this also) 
-            m.Params.LogToConsole = 0 # To suppress the logging in console - for better readability
-            # Debugging
-            # m.write('poison_cert.lp') # Helps in checking if the implemented model is correct
-        
             #Stopping criteria
-            m.Params.SolutionLimit = 1
-            # m.Params.NodeLimit = 0
+            m.Params.SolutionLimit = 1 #stops when a solution is found
+            # m.Params.NodeLimit = 0 #stops when the root is found 
 
             # Optimize model
             m.optimize()
@@ -250,10 +243,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                     if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
                     if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
 
-                # m.setObjective(0, GRB.MINIMIZE)
-                # m.optimize()
-
-                # m.feasRelaxS(2, True, False, True)
+                # m.feasRelaxS(2, True, False, True) #relaxes the constraints depending on the argument
                 # m.optimize()
             elif m.Status == GRB.OPTIMAL or m.Status == GRB.NODE_LIMIT or m.Status == GRB.SOLUTION_LIMIT:
                 # # Debugging values 
@@ -268,7 +258,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 # print('u ', u.X)
                 # print('const check ', y_labeled*(z.X@y_labeled) - u.X + v.X)
 
-            #return objective value
+            #check robustness using the objective value
             if obj_min and m.ObjVal > 0:
                 robust_count += 1
             elif not obj_min and m.ObjVal < 0:
