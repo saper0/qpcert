@@ -657,7 +657,7 @@ class NTK(torch.nn.Module):
                 Sig_j_lb = p + Diag_Sig_lb.reshape(-1, 1)
                 Sig_i_ub = p + Diag_Sig_ub.reshape(1, -1)
                 Sig_j_ub = p + Diag_Sig_ub.reshape(-1, 1)
-                q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb) + 1e-7
+                q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb) #+ 1e-7
                 q_ub = torch.sqrt(Sig_i_ub * Sig_j_ub)
                 mask_pos = Sig_lb >= 0
                 mask_neg = ~mask_pos

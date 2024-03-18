@@ -166,7 +166,7 @@ def setup_experiment(data_params: Dict[str, Any], model_params: Dict[str, Any],
     set_debug_lvl(verbosity_params["debug_lvl"])
     log_configuration(data_params, model_params, certificate_params,
                       verbosity_params, other_params, seed)
-    globals.init()
+    globals.init(other_params)
     device = configure_hardware(other_params, seed)
     rng = np.random.Generator(np.random.PCG64(seed))
     return device, rng
@@ -210,6 +210,9 @@ def run(data_params: Dict[str, Any],
                 learning_setting=data_params["learning_setting"],
                 pred_method=model_params["pred_method"],
                 regularizer=model_params["regularizer"],
+                bias=model_params["bias"],
+                solver=model_params["solver"],
+                alpha_tol=model_params["alpha_tol"],
                 dtype=other_params["dtype"])
         
         y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
@@ -239,8 +242,18 @@ def run(data_params: Dict[str, Any],
     acc = utils.accuracy(y_pred, y[idx_test])
     acc_ub = utils.accuracy(y_ub, y[idx_test])
     acc_lb = utils.accuracy(y_lb, y[idx_test])
-    acc_cert = utils.certify_robust(y_pred, y_ub, y_lb)
-    acc_cert_u = utils.certify_unrobust(y_pred, y_ub, y_lb)
+    if certificate_params["cert_method"]=="bilevel_svm":
+        svm_alpha = ntk.svm
+        acc_cert = utils.certify_robust_bilevel_svm(idx_labeled, idx_test, ntk_test, ntk_lb, ntk_ub, y, y_pred,
+                                                        svm_alpha, C=model_params["regularizer"], 
+                                                        M=1e3, Mprime=1e3)
+        acc_cert_u = 0 #not implemented
+    elif certificate_params["cert_method"]=="ntk_bound":
+        acc_cert = utils.certify_robust(y_pred, y_ub, y_lb)
+        acc_cert_u = utils.certify_unrobust(y_pred, y_ub, y_lb)
+    else:
+        print('Specify certification method: ntk_bound or bilevel_svm')
+        assert False
     logging.info(f'Accuracy {acc}')
 
     # Some Debugging Info
