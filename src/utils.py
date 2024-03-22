@@ -135,6 +135,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
     print('alpha ', svm_alpha.shape, svm_alpha)
     assert ntk_lb.min() <= ntk_ub.min()
     assert ntk_lb.max() <= ntk_ub.max()
+    print(torch.all(torch.less(ntk_lb, ntk_ub))) # Todo: it doesn't hold element wise! Debug it!
 
     n_labeled = idx_labeled.shape[0]
     ntk = ntk.detach().cpu().numpy()
@@ -155,6 +156,32 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
     print(ntk_unlabeled.shape, ntk_unlabeled_ub.shape, ntk_unlabeled_ub.shape)
     y_labeled = y_labeled*2 -1 
 
+    svm_alpha = np.round(svm_alpha, 4) #rounding off helps to start with a feasible solution sometimes
+    alpha_nz_mask = svm_alpha>1e-5 #svm_alpha>0 #
+    alpha_c_mask = svm_alpha>(C-1e-5) #svm_alpha==C #
+    eq_constraint = y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1
+    u_start = np.copy(svm_alpha)
+    v_start = np.copy(svm_alpha)
+    u_start[alpha_nz_mask] = 0
+    v_start[~alpha_c_mask] = 0
+    u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
+    v_start[alpha_c_mask] = -eq_constraint[alpha_c_mask]
+    s_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
+    u_nz_mask = u_start > 0
+    s_start[u_nz_mask] = 1
+    t_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
+    v_nz_mask = v_start > 0
+    t_start[v_nz_mask] = 1
+    # print('ustart ', u_start)
+    # print('sstart ', s_start)
+    # print('vstart ', v_start)
+    # print('tstart ', t_start)
+    # print('svm alpha ', svm_alpha)
+    # print('eq cons ', eq_constraint)
+    # print('full constraint ', y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1 - u_start + v_start)
+    # print('u*alp ', u_start*svm_alpha)
+    # print('v*(C-alp) ', v_start*(C-svm_alpha))
+
     obj_min = None
     robust_count = 0
     for idx in range(y_pred.shape[0]):
@@ -168,11 +195,12 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             m = gp.Model("poison_cert")
 
             # Create variables
+            z_bound = np.minimum(0.0, C*ntk_lb.min())
             alpha = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, ub=C, name="alpha")
             u = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, name="u")
             v = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, name="v")
-            z = m.addMVar(shape=(n_labeled, n_labeled), vtype=GRB.CONTINUOUS, name="z")
-            z_test = m.addMVar(shape=(1, n_labeled), vtype=GRB.CONTINUOUS, name="z_test")
+            z = m.addMVar(shape=(n_labeled, n_labeled), vtype=GRB.CONTINUOUS, lb=z_bound, name="z")
+            z_test = m.addMVar(shape=(1, n_labeled), vtype=GRB.CONTINUOUS, lb=z_bound, name="z_test")
             s = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="s")
             t = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="t")
 
@@ -193,6 +221,10 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             alpha.Start = svm_alpha
             z.Start = ntk_labeled * svm_alpha
             z_test.Start = ntk_unlabeled[idx,:].reshape(1,-1) * svm_alpha
+            u.Start = u_start
+            v.Start = v_start
+            s.Start = s_start
+            t.Start = t_start
 
             # Set objective
             if obj_min:
@@ -204,17 +236,17 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 # m.Params.BestBdStop = -1-1e-8
 
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
-            m.Params.IntFeasTol = 1e-8 # to stabilize big-M constraint (helps, works without this also) 
+            m.Params.IntFeasTol = 1e-4 # to stabilize big-M constraint (helps, works without this also) 
             m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
             # Debugging
             m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded
             # m.write('poison_cert.lp') # helps in checking if the implemented model is correct
         
             # Played around with the following flags to escape infeasibility solutions
-            m.Params.FeasibilityTol = 1e-8
-            # m.Params.MIPGap = 1e-8
-            # m.Params.MIPGapAbs = 1e-8
-            m.Params.OptimalityTol = 1e-8
+            m.Params.FeasibilityTol = 1e-4
+            # m.Params.MIPGap = 1e-4
+            # m.Params.MIPGapAbs = 1e-4
+            m.Params.OptimalityTol = 1e-4
             # m.Params.Presolve = 0
             # m.Params.Aggregate = 0 #aggregation level in presolve
             m.Params.NumericFocus = 3
@@ -225,8 +257,18 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             m.Params.SolutionLimit = 1 #stops when a solution is found
             # m.Params.NodeLimit = 0 #stops when the root is found 
 
+            def callback(model, where):
+                if where == gp.GRB.Callback.MESSAGE:
+                    msg = model.cbGet(gp.GRB.Callback.MSG_STRING)
+                    if "MIP start" in msg:
+                        print("in callback ", msg)
+
+            m.params.OutputFlag=0
+
             # Optimize model
             m.optimize()
+            # Debugging -  use callback
+            # m.optimize(callback)
 
             print('optimization status ', m.Status)
 
@@ -247,6 +289,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 # m.optimize()
             elif m.Status == GRB.OPTIMAL or m.Status == GRB.NODE_LIMIT or m.Status == GRB.SOLUTION_LIMIT:
                 # # Debugging values 
+                print('Original ', y_pred[idx])
                 print('Obj: %g' % m.ObjVal)
 
                 # Debugging 
