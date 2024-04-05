@@ -245,8 +245,8 @@ def run(data_params: Dict[str, Any],
     if certificate_params["cert_method"]=="bilevel_svm":
         svm_alpha = ntk.svm
         acc_cert = utils.certify_robust_bilevel_svm(idx_labeled, idx_test, ntk_test, ntk_lb, ntk_ub, y, y_pred,
-                                                        svm_alpha, C=model_params["regularizer"], 
-                                                        M=1e3, Mprime=1e3)
+                                                    svm_alpha, C=model_params["regularizer"], 
+                                                    M=1e3, Mprime=1e3)
         acc_cert_u = 0 #not implemented
     elif certificate_params["cert_method"]=="ntk_bound":
         acc_cert = utils.certify_robust(y_pred, y_ub, y_lb)

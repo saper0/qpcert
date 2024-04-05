@@ -103,6 +103,7 @@ class NTK(torch.nn.Module):
         else:
             self.device = X_trn.device
         self.ntk = self.calc_ntk(X_trn, A_trn)
+        print(self.ntk)
         self.calculated_lb_ub = False
         self.empty_gpu_memory()
         self.learning_setting = learning_setting
@@ -160,7 +161,7 @@ class NTK(torch.nn.Module):
             G = cvxopt.matrix(np.concatenate((I, I_neg), axis=0))
             h = cvxopt.matrix(np.zeros((2*l,), dtype=np.float64))
             h[:l] = self.regularizer
-            cvxopt.solvers.options["show_progress"] = False
+            cvxopt.solvers.options["show_progress"] = True
             if self.bias:
                 A = cvxopt.matrix(y.astype(np.float64).reshape((1,-1)))
                 b = cvxopt.matrix(np.zeros(1))
@@ -168,17 +169,18 @@ class NTK(torch.nn.Module):
             else:
                 solution = cvxopt.solvers.qp(P, q, G, h)
             alphas = np.array(solution["x"]).reshape(-1,)
+            print(alphas)
             y = (y + 1) / 2
-            #f_ = svm.SVC(C=self.regularizer, kernel="precomputed", 
-            #            cache_size=cache_size)
-            #f_.fit(gram_matrix, y)
-            #self.f_ = f_
-            #print(f_.dual_coef_)
+            f_ = svm.SVC(C=self.regularizer, kernel="precomputed", 
+                        cache_size=cache_size)
+            f_.fit(gram_matrix, y)
+            self.f_ = f_
+            print(f_.dual_coef_)
+            assert False
             #print(f_.intercept_)
             return alphas
         else:
             assert False, "Solver not found"
-
 
     def _calc_diffusion(self, X: torch.Tensor, A: torch.Tensor):
         if self.model_dict["model"] == "GCN":
@@ -223,45 +225,35 @@ class NTK(torch.nn.Module):
 
     def kappa_0(self, u):
         pi = torch.acos(torch.tensor(0, dtype=self.dtype).to(self.device)) * 2
-        return (pi - torch.acos(u-1e-7)) / pi
+        assert (u > 1).sum() == 0
+        assert (u < -1).sum() == 0
+        return (pi - torch.acos(u)) / pi
 
     def kappa_1(self, u):
         pi = torch.acos(torch.tensor(0, dtype=self.dtype).to(self.device)) * 2
-        return (u*(pi - torch.acos(u-1e-7)) + torch.sqrt(1-u*u+1e-7))/pi
+        assert (u > 1).sum() == 0 
+        assert (u < -1).sum() == 0
+        return (u*(pi - torch.acos(u)) + torch.sqrt(1-u*u))/pi
 
     def kappa_0_lb(self, u_lb):
         t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
         pi = torch.acos(t_zero) * 2
-        t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
-        u_lb_ = torch.maximum(u_lb-1e-7, -t_one+1e-7)
-        return (pi - torch.acos(u_lb_)) / pi
+        return (pi - torch.acos(u_lb)) / pi
     
     def kappa_0_ub(self, u_ub):
         t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
-        t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
         pi = torch.acos(t_zero) * 2
-        u_ub_ = torch.minimum(u_ub-1e-7, t_one)
-        return (pi - torch.acos(u_ub_)) / pi
+        return (pi - torch.acos(u_ub)) / pi
 
-    def kappa_1_lb(self, u_lb, u_ub):
+    def kappa_1_lb(self, u_lb, u_ub_sq):
         t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
-        t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
         pi = torch.acos(t_zero) * 2
-        a = torch.maximum(1-u_ub*u_ub+1e-7, t_zero)
-        print(torch.max(a))
-        print(torch.min(a))
-        u_lb_ = torch.maximum(u_lb-1e-7, -t_one+1e-7)
-        print(torch.max(u_lb_))
-        print(torch.min(u_lb_))
-        return (u_lb*(pi - torch.acos(u_lb_)) + torch.sqrt(a))/pi
+        return (u_lb*(pi - torch.acos(u_lb)) + torch.sqrt(1-u_ub_sq))/pi
     
-    def kappa_1_ub(self, u_lb, u_ub):
+    def kappa_1_ub(self, u_ub, u_lb_sq):
         t_zero = torch.tensor(0, dtype=self.dtype).to(self.device)
-        t_one = torch.tensor(1, dtype=self.dtype).to(self.device)
         pi = torch.acos(t_zero) * 2
-        u_ub_ = torch.minimum(u_ub, t_one)-1e-7
-        a = torch.maximum(1-u_lb*u_lb, t_zero)+1e-7
-        return (u_ub*(pi - torch.acos(u_ub_)) + torch.sqrt(a))/pi
+        return (u_ub*(pi - torch.acos(u_ub)) + torch.sqrt(1-u_lb_sq))/pi
     
     def _calc_ntk_gcn(self, X: Float[torch.Tensor, "n d"], 
                       S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
@@ -436,9 +428,15 @@ class NTK(torch.nn.Module):
             # D^TX and X^TD Terms
             Delta_l[idx_adv, :] -= (delta*X_1norm).view(1,-1)
             Delta_l[:, idx_adv] -= (delta*X_1norm).view(-1,1)
+            Delta_l.fill_diagonal_(0.)
             Delta_u[idx_adv, :] += (delta*X_1norm).view(1,-1)
             Delta_u[:, idx_adv] += (delta*X_1norm).view(-1,1)
-            return XXT+Delta_l, XXT+Delta_u
+            # Symmetrice (due to numerical issues)
+            XXT_lb = XXT+Delta_l
+            XXT_lb = torch.tril(XXT_lb) + torch.tril(XXT_lb, diagonal=-1).T
+            XXT_ub = XXT+Delta_u
+            XXT_ub = torch.tril(XXT_ub) + torch.tril(XXT_ub, diagonal=-1).T
+            return XXT_lb, XXT_ub
         else:
             assert False, f"Perturbation model {perturbation_model} not supported"
 
@@ -568,6 +566,8 @@ class NTK(torch.nn.Module):
         S = self.calc_diffusion(X, A)
         if method == "XXT":
             XXT_lb, XXT_ub = self.calc_XXT_lb_ub(X, idx_adv, delta, perturbation_model)
+            assert (XXT_lb != XXT_lb.T).sum() == 0
+            assert (XXT_ub != XXT_ub.T).sum() == 0
             assert (XXT_lb > XXT_ub).sum() == 0
         self.empty_gpu_memory()
 
@@ -578,23 +578,18 @@ class NTK(torch.nn.Module):
             #Sig_ub_old = S.matmul(XXT_ub.matmul(S.T))
             if method == "XXT":
                 Sig_lb = S.matmul(XXT_lb.matmul(S.T))
+                diag = Sig_lb.diag()
+                diag[diag < 0] = 0
+                mask = torch.eye(diag.shape[0], dtype=bool, device=self.device)
+                Sig_lb[mask] = diag
                 Sig_ub = S.matmul(XXT_ub.matmul(S.T))
             else:
                 Sig_ub = self.calc_SXXTS_ub(X, S, idx_adv, delta, perturbation_model)
                 Sig_lb = self.calc_SXXTS_lb(X, S, idx_adv, delta, perturbation_model)
-            print(f"Sig.mean(): {Sig.mean()}")
-            print(f"Sig.min(): {Sig.min()}")
-            print(f"Sig.max(): {Sig.max()}")
-            print(f"Sig[:,idx_adv]: {Sig[:,idx_adv].mean()}")
-            print(f"Sig_ub.mean(): {Sig_ub.mean()}")
-            print(f"Sig_ub.min(): {Sig_ub.min()}")
-            print(f"Sig_ub.max(): {Sig_ub.max()}")
-            print(f"Sig_ub[:,idx_adv]: {Sig_ub[:,idx_adv].mean()}")
-            print(f"Sig_lb.mean(): {Sig_lb.mean()}")
-            print(f"Sig_lb.min(): {Sig_lb.min()}")
-            print(f"Sig_lb.max(): {Sig_lb.max()}")
-            print(f"Sig_lb[:,idx_adv]: {Sig_lb[:,idx_adv].mean()}")
-            if False:
+            assert (Sig_lb > Sig_ub).sum() == 0
+            assert (Sig_lb > Sig).sum() == 0
+            assert (Sig_ub < Sig).sum() == 0
+            if globals.debug:
                 print(f"Sig.mean(): {Sig.mean()}")
                 print(f"Sig.min(): {Sig.min()}")
                 print(f"Sig.max(): {Sig.max()}")
@@ -603,19 +598,10 @@ class NTK(torch.nn.Module):
                 print(f"Sig_ub.min(): {Sig_ub.min()}")
                 print(f"Sig_ub.max(): {Sig_ub.max()}")
                 print(f"Sig_ub[:,idx_adv]: {Sig_ub[:,idx_adv].mean()}")
-                print(f"Sig_ub_old.mean(): {Sig_ub_old.mean()}")
-                print(f"Sig_ub_old.min(): {Sig_ub_old.min()}")
-                print(f"Sig_ub_old.max(): {Sig_ub_old.max()}")
-                print(f"Sig_ub_old[:,idx_adv]: {Sig_ub_old[:,idx_adv].mean()}")
                 print(f"Sig_lb.mean(): {Sig_lb.mean()}")
                 print(f"Sig_lb.min(): {Sig_lb.min()}")
                 print(f"Sig_lb.max(): {Sig_lb.max()}")
                 print(f"Sig_lb[:,idx_adv]: {Sig_lb[:,idx_adv].mean()}")
-                print(f"Sig_lb_old.mean(): {Sig_lb_old.mean()}")
-                print(f"Sig_lb_old.min(): {Sig_lb_old.min()}")
-                print(f"Sig_lb_old.max(): {Sig_lb_old.max()}")
-                print(f"Sig_lb_old[:,idx_adv]: {Sig_lb_old[:,idx_adv].mean()}")
-                assert False
             self.empty_gpu_memory()
             ntk_lb = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
             ntk_ub = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
@@ -629,7 +615,8 @@ class NTK(torch.nn.Module):
             ntk_sub = torch.zeros((depth, S.shape[0], S.shape[1]), # only for debug
                                     dtype=self.dtype).to(self.device)
             for i in range(depth):
-                print(f"Depth {i}")
+                if globals.debug:
+                    print(f"Depth {i}")
                 # only for debug
                 p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
                 Diag_Sig = torch.diagonal(Sig) 
@@ -653,59 +640,115 @@ class NTK(torch.nn.Module):
                 p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
                 Diag_Sig_lb = torch.diagonal(Sig_lb) 
                 Diag_Sig_ub = torch.diagonal(Sig_ub) 
+                assert (Diag_Sig_ub == 0).sum() == 0
                 Sig_i_lb = p + Diag_Sig_lb.reshape(1, -1)
                 Sig_j_lb = p + Diag_Sig_lb.reshape(-1, 1)
                 Sig_i_ub = p + Diag_Sig_ub.reshape(1, -1)
                 Sig_j_ub = p + Diag_Sig_ub.reshape(-1, 1)
-                q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb) #+ 1e-7
+                q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb) #+ 1e-7 q_lb_{ij} = Sigma_ii * Sigma_jj
                 q_ub = torch.sqrt(Sig_i_ub * Sig_j_ub)
+                assert (q_lb < 0).sum() == 0
+                assert (q_ub <= 0).sum() == 0
                 mask_pos = Sig_lb >= 0
                 mask_neg = ~mask_pos
                 u_lb = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
                 u_lb[mask_pos] = Sig_lb[mask_pos]/q_ub[mask_pos]
                 u_lb[mask_neg] = Sig_lb[mask_neg]/q_lb[mask_neg]
+                u_lb[u_lb < -1] = -1
+                u_lb[u_lb > 1] = 1
+                assert torch.isnan(u_lb).sum() == 0
                 u_ub = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
                 mask_pos = Sig_ub >= 0
                 mask_neg = ~mask_pos
                 u_ub[mask_pos] = Sig_ub[mask_pos]/q_lb[mask_pos] 
-                u_ub[mask_neg] = Sig_ub[mask_neg]/q_ub[mask_neg] 
+                u_ub[mask_neg] = Sig_ub[mask_neg]/q_ub[mask_neg]
+                u_ub[u_ub > 1] = 1
+                u_ub[u_ub < -1] = -1
+                u_ub[torch.isnan(u_ub)] = 0
+                mask_abs_u = torch.abs(Sig_ub) >= torch.abs(Sig_lb)
+                mask_abs_l = ~mask_abs_u
+                u_ub_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
+                u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] * Sig_ub[mask_abs_u] \
+                                        / (q_lb[mask_abs_u] * q_lb[mask_abs_u])
+                u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] * Sig_lb[mask_abs_l] \
+                                        / (q_lb[mask_abs_l] * q_lb[mask_abs_l])
+                u_ub_sq[u_ub_sq > 1] = 1
+                u_ub_sq[u_ub_sq < 0] = 0
+                u_ub_sq[torch.isnan(u_ub_sq)] = 0
+                u_lb_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
+                u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] * Sig_lb[mask_abs_u] \
+                                    / (q_ub[mask_abs_u] * q_ub[mask_abs_u])
+                u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
+                                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
+                u_lb_sq[u_lb_sq > 1] = 1
+                u_lb_sq[u_lb_sq < 0] = 0
+                u_lb_sq[torch.isnan(u_lb_sq)] = 0
+                assert (u_ub_sq < u_lb_sq).sum() == 0
                 if perturbation_model == "l0":
                     assert (Sig_lb < 0).sum() == 0
                     assert (Sig_ub < 0).sum() == 0
-                E_lb = (q_lb * self.kappa_1_lb(u_lb, u_ub)) * csigma
-                E_ub = (q_ub * self.kappa_1_ub(u_lb, u_ub)) * csigma
+                E_lb = (q_lb * self.kappa_1_lb(u_lb, u_ub_sq)) * csigma
+                E_lb[E_lb < 0] = 0
+                E_ub = (q_ub * self.kappa_1_ub(u_ub, u_lb_sq)) * csigma
+                assert (E_ub < E_lb).sum() == 0
+                assert (E_lb > E).sum() == 0
+                assert (E_ub < E).sum() == 0
                 self.empty_gpu_memory()
-                E_der_lb = (self.kappa_0_lb(u_lb)) * csigma
-                E_der_ub = (self.kappa_0_ub(u_ub)) * csigma
-                print(f"E_der.mean(): {E_der.mean()}")
-                print(f"E_der.min(): {E_der.min()}")
-                print(f"E_der.max(): {E_der.max()}")
-                print(f"E_der[:,idx_adv]: {E_der[:,idx_adv].mean()}")
-                print(f"E_der_lb.mean(): {E_der_lb.mean()}")
-                print(f"E_der_lb.min(): {E_der_lb.min()}")
-                print(f"E_der_lb.max(): {E_der_lb.max()}")
-                print(f"E_der_lb[:,idx_adv]: {E_der_lb[:,idx_adv].mean()}")
-                print(f"E_der_ub.mean(): {E_der_ub.mean()}")
-                print(f"E_der_ub.min(): {E_der_ub.min()}")
-                print(f"E_der_ub.max(): {E_der_ub.max()}")
-                print(f"E_der_ub[:,idx_adv]: {E_der_ub[:,idx_adv].mean()}")
+                E_der_lb = self.kappa_0_lb(u_lb)
+                assert (E_der_lb < 0).sum() == 0
+                assert (E_der_lb > 1).sum() == 0
+                E_der_lb = E_der_lb * csigma
+                E_der_ub = self.kappa_0_ub(u_ub) 
+                assert (E_der_ub < 0).sum() == 0
+                assert (E_der_ub > 1).sum() == 0
+                E_der_ub = E_der_ub * csigma
+                assert (E_der_ub < E_der).sum() == 0
+                assert (E_der_lb > E_der).sum() == 0
+                assert (E_der_ub < E_der_lb).sum() == 0
+                if globals.debug:
+                    print(f"E_der.mean(): {E_der.mean()}")
+                    print(f"E_der.min(): {E_der.min()}")
+                    print(f"E_der.max(): {E_der.max()}")
+                    print(f"E_der[:,idx_adv]: {E_der[:,idx_adv].mean()}")
+                    print(f"E_der_lb.mean(): {E_der_lb.mean()}")
+                    print(f"E_der_lb.min(): {E_der_lb.min()}")
+                    print(f"E_der_lb.max(): {E_der_lb.max()}")
+                    print(f"E_der_lb[:,idx_adv]: {E_der_lb[:,idx_adv].mean()}")
+                    print(f"E_der_ub.mean(): {E_der_ub.mean()}")
+                    print(f"E_der_ub.min(): {E_der_ub.min()}")
+                    print(f"E_der_ub.max(): {E_der_ub.max()}")
+                    print(f"E_der_ub[:,idx_adv]: {E_der_ub[:,idx_adv].mean()}")
                 self.empty_gpu_memory()
-                ntk_lb_sub[i] = S.matmul((Sig_lb * E_der_lb).matmul(S.T))
-                ntk_ub_sub[i] = S.matmul((Sig_ub * E_der_ub).matmul(S.T))
+                assert (Sig_lb > Sig_ub).sum() == 0
+                mask_pos = Sig_ub >= 0
+                mask_neg = ~mask_pos
+                sig_dot_E_der_ub = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
+                sig_dot_E_der_ub[mask_pos] = (Sig_ub * E_der_ub)[mask_pos]
+                sig_dot_E_der_ub[mask_neg] = (Sig_ub * E_der_lb)[mask_neg]
+                mask_pos = Sig_lb >= 0
+                mask_neg = ~mask_pos
+                sig_dot_E_der_lb = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
+                sig_dot_E_der_lb[mask_pos] = (Sig_lb * E_der_lb)[mask_pos]
+                sig_dot_E_der_lb[mask_neg] = (Sig_lb * E_der_ub)[mask_neg]
+                ntk_lb_sub[i] = S.matmul(sig_dot_E_der_lb.matmul(S.T))
+                ntk_ub_sub[i] = S.matmul(sig_dot_E_der_ub.matmul(S.T))
+                assert (ntk_lb_sub[i] > ntk_ub_sub[i]).sum() == 0
                 Sig_lb = S.matmul(E_lb.matmul(S.T))
                 Sig_ub = S.matmul(E_ub.matmul(S.T))
-                print(f"Sig.mean(): {Sig.mean()}")
-                print(f"Sig.min(): {Sig.min()}")
-                print(f"Sig.max(): {Sig.max()}")
-                print(f"Sig[:,idx_adv]: {Sig[:,idx_adv].mean()}")
-                print(f"Sig_lb.mean(): {Sig_lb.mean()}")
-                print(f"Sig_lb.min(): {Sig_lb.min()}")
-                print(f"Sig_lb.max(): {Sig_lb.max()}")
-                print(f"Sig_lb[:,idx_adv]: {Sig_lb[:,idx_adv].mean()}")
-                print(f"Sig_ub.mean(): {Sig_ub.mean()}")
-                print(f"Sig_ub.min(): {Sig_ub.min()}")
-                print(f"Sig_ub.max(): {Sig_ub.max()}")
-                print(f"Sig_ub[:,idx_adv]: {Sig_ub[:,idx_adv].mean()}")
+                assert (Sig_lb > Sig_ub).sum() == 0
+                if globals.debug:
+                    print(f"Sig.mean(): {Sig.mean()}")
+                    print(f"Sig.min(): {Sig.min()}")
+                    print(f"Sig.max(): {Sig.max()}")
+                    print(f"Sig[:,idx_adv]: {Sig[:,idx_adv].mean()}")
+                    print(f"Sig_lb.mean(): {Sig_lb.mean()}")
+                    print(f"Sig_lb.min(): {Sig_lb.min()}")
+                    print(f"Sig_lb.max(): {Sig_lb.max()}")
+                    print(f"Sig_lb[:,idx_adv]: {Sig_lb[:,idx_adv].mean()}")
+                    print(f"Sig_ub.mean(): {Sig_ub.mean()}")
+                    print(f"Sig_ub.min(): {Sig_ub.min()}")
+                    print(f"Sig_ub.max(): {Sig_ub.max()}")
+                    print(f"Sig_ub[:,idx_adv]: {Sig_ub[:,idx_adv].mean()}")
                 for j in range(i):
                     ntk_lb_sub[j] = S.matmul((ntk_lb_sub[j].float() * E_der_lb).matmul(S.T))
                     ntk_ub_sub[j] = S.matmul((ntk_ub_sub[j].float() * E_der_ub).matmul(S.T))
@@ -719,18 +762,20 @@ class NTK(torch.nn.Module):
             self.calculated_lb_ub = True
             self.ntk_lb = ntk_lb
             self.ntk_ub = ntk_ub
-            print(f"ntk.mean(): {ntk.mean()}")
-            print(f"ntk.min(): {ntk.min()}")
-            print(f"ntk.max(): {ntk.max()}")
-            print(f"ntk[:,idx_adv]: {ntk[:,idx_adv].mean()}")
-            print(f"ntk_lb.mean(): {ntk_lb.mean()}")
-            print(f"ntk_lb.min(): {ntk_lb.min()}")
-            print(f"ntk_lb.max(): {ntk_lb.max()}")
-            print(f"ntk_lb[:,idx_adv]: {ntk_lb[:,idx_adv].mean()}")
-            print(f"ntk_ub.mean(): {ntk_ub.mean()}")
-            print(f"ntk_ub.min(): {ntk_ub.min()}")
-            print(f"ntk_ub.max(): {ntk_ub.max()}")
-            print(f"ntk_ub[:,idx_adv]: {ntk_ub[:,idx_adv].mean()}")
+            assert (ntk_lb > ntk_ub).sum() == 0
+            if globals.debug:
+                print(f"ntk.mean(): {ntk.mean()}")
+                print(f"ntk.min(): {ntk.min()}")
+                print(f"ntk.max(): {ntk.max()}")
+                print(f"ntk[:,idx_adv]: {ntk[:,idx_adv].mean()}")
+                print(f"ntk_lb.mean(): {ntk_lb.mean()}")
+                print(f"ntk_lb.min(): {ntk_lb.min()}")
+                print(f"ntk_lb.max(): {ntk_lb.max()}")
+                print(f"ntk_lb[:,idx_adv]: {ntk_lb[:,idx_adv].mean()}")
+                print(f"ntk_ub.mean(): {ntk_ub.mean()}")
+                print(f"ntk_ub.min(): {ntk_ub.min()}")
+                print(f"ntk_ub.max(): {ntk_ub.max()}")
+                print(f"ntk_ub[:,idx_adv]: {ntk_ub[:,idx_adv].mean()}")
             return self.ntk_lb, self.ntk_ub
         else:
             assert False, "Other models than GCN not implemented so far."
