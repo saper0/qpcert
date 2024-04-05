@@ -168,15 +168,16 @@ class NTK(torch.nn.Module):
                 solution = cvxopt.solvers.qp(P, q, G, h, A, b)
             else:
                 solution = cvxopt.solvers.qp(P, q, G, h)
+            #print(solution)
             alphas = np.array(solution["x"]).reshape(-1,)
-            print(alphas)
-            y = (y + 1) / 2
-            f_ = svm.SVC(C=self.regularizer, kernel="precomputed", 
-                        cache_size=cache_size)
-            f_.fit(gram_matrix, y)
-            self.f_ = f_
-            print(f_.dual_coef_)
-            assert False
+            print(f"Alphas found: {alphas}")
+            #y = (y + 1) / 2
+            #f_ = svm.SVC(C=self.regularizer, kernel="precomputed", 
+            #            cache_size=cache_size)
+            #f_.fit(gram_matrix, y)
+            #self.f_ = f_
+            #print(f_.dual_coef_)
+            #assert False
             #print(f_.intercept_)
             return alphas
         else:
@@ -628,7 +629,7 @@ class NTK(torch.nn.Module):
                 q = torch.sqrt(Sig_i * Sig_j)
                 u = Sig/q 
                 E = (q * self.kappa_1(u)) * csigma
-                del q
+                #del q
                 self.empty_gpu_memory()
                 E_der = (self.kappa_0(u)) * csigma
                 self.empty_gpu_memory()
@@ -639,6 +640,7 @@ class NTK(torch.nn.Module):
                 ######################
                 p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
                 Diag_Sig_lb = torch.diagonal(Sig_lb) 
+                assert (Diag_Sig_lb < 0).sum() == 0
                 Diag_Sig_ub = torch.diagonal(Sig_ub) 
                 assert (Diag_Sig_ub == 0).sum() == 0
                 Sig_i_lb = p + Diag_Sig_lb.reshape(1, -1)
@@ -656,6 +658,7 @@ class NTK(torch.nn.Module):
                 u_lb[mask_neg] = Sig_lb[mask_neg]/q_lb[mask_neg]
                 u_lb[u_lb < -1] = -1
                 u_lb[u_lb > 1] = 1
+                assert (u_lb > u).sum() == 0
                 assert torch.isnan(u_lb).sum() == 0
                 u_ub = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
                 mask_pos = Sig_ub >= 0
@@ -665,24 +668,41 @@ class NTK(torch.nn.Module):
                 u_ub[u_ub > 1] = 1
                 u_ub[u_ub < -1] = -1
                 u_ub[torch.isnan(u_ub)] = 0
+                assert (u_ub < u).sum() == 0
                 mask_abs_u = torch.abs(Sig_ub) >= torch.abs(Sig_lb)
                 mask_abs_l = ~mask_abs_u
                 u_ub_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] * Sig_ub[mask_abs_u] \
-                                        / (q_lb[mask_abs_u] * q_lb[mask_abs_u])
-                u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] * Sig_lb[mask_abs_l] \
-                                        / (q_lb[mask_abs_l] * q_lb[mask_abs_l])
+                #Use same calculation scheme as for NTK
+                u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u]  \
+                                        / torch.sqrt(q_lb[mask_abs_u] * q_lb[mask_abs_u])
+                u_ub_sq[mask_abs_u] *= u_ub_sq[mask_abs_u]
+                #Sligthly better (numerically on a scale of 1e-16 & faster) would 
+                #be the following, however - then NTK would need more storage!
+                #u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] * Sig_ub[mask_abs_u] \
+                #                        / q_lb[mask_abs_u] * q_lb[mask_abs_u])
+                #u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] * Sig_lb[mask_abs_l] \
+                #                        / (q_lb[mask_abs_l] * q_lb[mask_abs_l])
+                u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] \
+                                        / torch.sqrt(q_lb[mask_abs_l] * q_lb[mask_abs_l])
+                u_ub_sq[mask_abs_l] *= u_ub_sq[mask_abs_l]
                 u_ub_sq[u_ub_sq > 1] = 1
                 u_ub_sq[u_ub_sq < 0] = 0
                 u_ub_sq[torch.isnan(u_ub_sq)] = 0
                 u_lb_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] * Sig_lb[mask_abs_u] \
-                                    / (q_ub[mask_abs_u] * q_ub[mask_abs_u])
-                u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
-                                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
+                #u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] * Sig_lb[mask_abs_u] \
+                #                    / (q_ub[mask_abs_u] * q_ub[mask_abs_u])
+                u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] \
+                                    / torch.sqrt(q_ub[mask_abs_u] * q_ub[mask_abs_u])
+                u_lb_sq[mask_abs_u] *= u_lb_sq[mask_abs_u]
+                #u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
+                #                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
+                u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] \
+                                    / torch.sqrt(q_ub[mask_abs_l] * q_ub[mask_abs_l])
+                u_lb_sq[mask_abs_l] *= u_lb_sq[mask_abs_l]
                 u_lb_sq[u_lb_sq > 1] = 1
                 u_lb_sq[u_lb_sq < 0] = 0
                 u_lb_sq[torch.isnan(u_lb_sq)] = 0
+                print(u_ub_sq[u_ub_sq<u_lb_sq]-u_lb_sq[u_ub_sq<u_lb_sq])
                 assert (u_ub_sq < u_lb_sq).sum() == 0
                 if perturbation_model == "l0":
                     assert (Sig_lb < 0).sum() == 0
@@ -691,6 +711,12 @@ class NTK(torch.nn.Module):
                 E_lb[E_lb < 0] = 0
                 E_ub = (q_ub * self.kappa_1_ub(u_ub, u_lb_sq)) * csigma
                 assert (E_ub < E_lb).sum() == 0
+                #print(u[E_lb>E][:5]-u_lb[E_lb>E][:5])
+                #print(u_lb[E_lb>E][:5])
+                #print(E[E_lb>E][:5]-E_lb[E_lb>E][:5])
+                #print(E_lb[E_lb>E][:5])
+                #print(torch.max((u*u)[E_lb>E]-u_ub_sq[E_lb>E]))
+                #print(u_ub_sq[E_lb>E][:5])
                 assert (E_lb > E).sum() == 0
                 assert (E_ub < E).sum() == 0
                 self.empty_gpu_memory()
