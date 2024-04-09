@@ -917,21 +917,16 @@ class NTK(torch.nn.Module):
                     alpha_sup = alpha[idx_sup]
                     w = y_sup * alpha_sup
                     bias_tol = max(self.alpha_tol, 1e-10)
-                    idx_bias = alpha_sup < (self.regularizer - bias_tol)
+                    bias_mask = alpha_sup < (self.regularizer - bias_tol)
                     ntk_sup = ntk_labeled[idx_sup, :]
                     ntk_sup = ntk_sup[:, idx_sup]
-                    if self.bias:
-                        if len(idx_bias) == 0:
-                            logging.warning("All alpha = C, calculating bias not supported by cvxopt implementaiton")
-                            assert False
-                        b = y_sup[idx_bias] - (y_sup * alpha_sup * ntk_sup[idx_bias, :]).sum(dim=1)
-                        b = b.mean()
-                        #print(f"b: {b}")
-                    #print(ntk_unlabeled[:,idx_sup])
-                    #print(alpha_sup)
-                    #print(y_sup)
                     y_pred = (y_sup * alpha_sup * ntk_unlabeled[:,idx_sup]).sum(dim=1) 
                     if self.bias:
+                        if bias_mask.sum() == 0:
+                            logging.warning("All alpha = C, calculating bias not supported by cvxopt implementaiton")
+                            assert False
+                        b = y_sup[bias_mask] - (y_sup * alpha_sup * ntk_sup[bias_mask, :]).sum(dim=1)
+                        b = b.mean()
                         y_pred += b
                 elif self.solver == "sklearn":
                     # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
