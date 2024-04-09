@@ -922,13 +922,14 @@ class NTK(torch.nn.Module):
                     ntk_sup = ntk_sup[:, idx_sup]
                     if self.bias:
                         if len(idx_bias) == 0:
-                            logging.warning("No datapoint with ")
+                            logging.warning("All alpha = C, calculating bias not supported by cvxopt implementaiton")
+                            assert False
                         b = y_sup[idx_bias] - (y_sup * alpha_sup * ntk_sup[idx_bias, :]).sum(dim=1)
                         b = b.mean()
-                        print(f"b: {b}")
-                    print(ntk_unlabeled[:,idx_sup])
-                    print(alpha_sup)
-                    print(y_sup)
+                        #print(f"b: {b}")
+                    #print(ntk_unlabeled[:,idx_sup])
+                    #print(alpha_sup)
+                    #print(y_sup)
                     y_pred = (y_sup * alpha_sup * ntk_unlabeled[:,idx_sup]).sum(dim=1) 
                     if self.bias:
                         y_pred += b
