@@ -1,6 +1,7 @@
 # Label Propagation implementation with Code & Comments mainly taken from 
 # PyTorch Geometric implementation of the Correct and Smooth Framework:
 # https://pytorch-geometric.readthedocs.io/en/latest/_modules/torch_geometric/nn/models/correct_and_smooth.html #noqa
+import logging
 from typing import Any, Dict, Optional, Union, Tuple
 
 import cvxopt
@@ -103,7 +104,6 @@ class NTK(torch.nn.Module):
         else:
             self.device = X_trn.device
         self.ntk = self.calc_ntk(X_trn, A_trn)
-        print(self.ntk)
         self.calculated_lb_ub = False
         self.empty_gpu_memory()
         self.learning_setting = learning_setting
@@ -142,6 +142,8 @@ class NTK(torch.nn.Module):
                         cache_size=cache_size)
             if self.n_classes == 2:
                 f.fit(gram_matrix, y.detach().cpu().numpy())
+                alphas_str = [f"{alpha:.04f}" for alpha in f.dual_coef_[0]]
+                print(f"Alphas found: {alphas_str}")
             else:
                 f = OneVsRestClassifier(f, n_jobs=1).fit(gram_matrix, y.detach().cpu().numpy())
             return f
@@ -170,7 +172,8 @@ class NTK(torch.nn.Module):
                 solution = cvxopt.solvers.qp(P, q, G, h)
             #print(solution)
             alphas = np.array(solution["x"]).reshape(-1,)
-            print(f"Alphas found: {alphas}")
+            alphas_str = [f"{alpha:.04f}" for alpha in alphas]
+            print(f"Alphas found: {alphas_str}")
             #y = (y + 1) / 2
             #f_ = svm.SVC(C=self.regularizer, kernel="precomputed", 
             #            cache_size=cache_size)
@@ -259,7 +262,7 @@ class NTK(torch.nn.Module):
     def _calc_ntk_gcn(self, X: Float[torch.Tensor, "n d"], 
                       S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
         csigma = 1 
-        XXT = X.matmul(X.T)
+        XXT = NTK._calc_XXT(X)
         Sig = S.matmul(XXT.matmul(S.T))
         if globals.debug:
             print(f"Sig.mean(): {Sig.mean()}")
@@ -310,7 +313,7 @@ class NTK(torch.nn.Module):
     def _calc_ntk_appnp(self, X: Float[torch.Tensor, "n d"], 
                         S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
         kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-        XXT = X.matmul(X.T)
+        XXT = NTK._calc_XXT(X)
         B = torch.ones((S.shape), dtype=self.dtype).to(self.device)
         Sig = XXT+B
         p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
@@ -346,6 +349,16 @@ class NTK(torch.nn.Module):
             self.empty_gpu_memory()
             return kernel
     
+    @staticmethod
+    def _calc_XXT(X: Float[torch.Tensor, "n d"]):
+        """Uniform method to calculate XXT. Ensures symmetry.
+        
+        Choosing lower triangular part as "numerical truth". Could also use
+        upper triangular part.
+        """
+        XXT = X.matmul(X.T)
+        return torch.tril(XXT) + torch.tril(XXT, diagonal=-1).T
+
     def calc_XXT_lb_ub(self, X: Float[torch.Tensor, "n d"],
                        idx_adv: Integer[np.ndarray, "r"],
                        delta: Union[float, int],
@@ -366,7 +379,7 @@ class NTK(torch.nn.Module):
             if delta < 1:
                 delta = int(delta * X.shape[1])
             delta = torch.tensor(delta, dtype=self.dtype, device=self.device)
-            XXT = X.matmul(X.T)
+            XXT = NTK._calc_XXT(X)
             print(XXT.mean())
             print(XXT.min())
             print(XXT.max())
@@ -415,7 +428,7 @@ class NTK(torch.nn.Module):
             #print(XXT_ub)
             return XXT_lb, XXT_ub
         elif perturbation_model == "linf":
-            XXT = X.matmul(X.T)
+            XXT = NTK._calc_XXT(X)
             X_1norm = torch.linalg.vector_norm(X,ord=1,dim=1)
             Delta_l = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
             Delta_u = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
@@ -432,11 +445,12 @@ class NTK(torch.nn.Module):
             Delta_l.fill_diagonal_(0.)
             Delta_u[idx_adv, :] += (delta*X_1norm).view(1,-1)
             Delta_u[:, idx_adv] += (delta*X_1norm).view(-1,1)
+            assert (Delta_l != Delta_l.T).sum() == 0
+            assert (Delta_u != Delta_u.T).sum() == 0
+            assert (XXT != XXT.T).sum() == 0
             # Symmetrice (due to numerical issues)
             XXT_lb = XXT+Delta_l
-            XXT_lb = torch.tril(XXT_lb) + torch.tril(XXT_lb, diagonal=-1).T
             XXT_ub = XXT+Delta_u
-            XXT_ub = torch.tril(XXT_ub) + torch.tril(XXT_ub, diagonal=-1).T
             return XXT_lb, XXT_ub
         else:
             assert False, f"Perturbation model {perturbation_model} not supported"
@@ -474,7 +488,7 @@ class NTK(torch.nn.Module):
                 SXXTS_ub[:,i:split_end] = W
                 del W
                 utils.empty_gpu_memory(self.device)
-            XXT = X.matmul(X.T)
+            XXT = NTK._calc_XXT(X)
             Sig = S.matmul(XXT.matmul(S.T))
             return Sig + SXXTS_ub
         elif perturbation_model == "l0_del":
@@ -506,7 +520,7 @@ class NTK(torch.nn.Module):
                 SXXTS_ub[:,i:split_end] = W
                 del W
                 utils.empty_gpu_memory(self.device)
-            XXT = X.matmul(X.T)
+            XXT = NTK._calc_XXT(X)
             Sig = S.matmul(XXT.matmul(S.T))
             return Sig + SXXTS_ub
         else:
@@ -546,7 +560,7 @@ class NTK(torch.nn.Module):
                 SXXTS_lb[:,i:split_end] = W
                 del W
                 utils.empty_gpu_memory(self.device)
-            XXT = X.matmul(X.T)
+            XXT = NTK._calc_XXT(X)
             Sig = S.matmul(XXT.matmul(S.T))
             SXXTS_lb = Sig - SXXTS_lb
             SXXTS_lb[SXXTS_lb<0] = 0
@@ -565,18 +579,18 @@ class NTK(torch.nn.Module):
         csigma = 1 
         A = make_dense(A)
         S = self.calc_diffusion(X, A)
+        XXT = NTK._calc_XXT(X)
         if method == "XXT":
             XXT_lb, XXT_ub = self.calc_XXT_lb_ub(X, idx_adv, delta, perturbation_model)
             assert (XXT_lb != XXT_lb.T).sum() == 0
             assert (XXT_ub != XXT_ub.T).sum() == 0
             assert (XXT_lb > XXT_ub).sum() == 0
+            assert (XXT_lb > XXT).sum() == 0
+            assert (XXT_ub < XXT).sum() == 0
         self.empty_gpu_memory()
 
         if self.model_dict["model"] == "GCN":
-            XXT = X.matmul(X.T)
             Sig = S.matmul(XXT.matmul(S.T))
-            #Sig_lb_old = S.matmul(XXT_lb.matmul(S.T))
-            #Sig_ub_old = S.matmul(XXT_ub.matmul(S.T))
             if method == "XXT":
                 Sig_lb = S.matmul(XXT_lb.matmul(S.T))
                 diag = Sig_lb.diag()
@@ -671,17 +685,21 @@ class NTK(torch.nn.Module):
                 assert (u_ub < u).sum() == 0
                 mask_abs_u = torch.abs(Sig_ub) >= torch.abs(Sig_lb)
                 mask_abs_l = ~mask_abs_u
-                u_ub_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                #Use same calculation scheme as for NTK
-                u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u]  \
-                                        / torch.sqrt(q_lb[mask_abs_u] * q_lb[mask_abs_u])
-                u_ub_sq[mask_abs_u] *= u_ub_sq[mask_abs_u]
+                #For u_ub_sq use same calculation scheme as for NTK
                 #Sligthly better (numerically on a scale of 1e-16 & faster) would 
                 #be the following, however - then NTK would need more storage!
                 #u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] * Sig_ub[mask_abs_u] \
                 #                        / q_lb[mask_abs_u] * q_lb[mask_abs_u])
                 #u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] * Sig_lb[mask_abs_l] \
                 #                        / (q_lb[mask_abs_l] * q_lb[mask_abs_l])
+                #u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] * Sig_lb[mask_abs_u] \
+                #                    / (q_ub[mask_abs_u] * q_ub[mask_abs_u])
+                #u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
+                #                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
+                u_ub_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
+                u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u]  \
+                                        / torch.sqrt(q_lb[mask_abs_u] * q_lb[mask_abs_u])
+                u_ub_sq[mask_abs_u] *= u_ub_sq[mask_abs_u]
                 u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] \
                                         / torch.sqrt(q_lb[mask_abs_l] * q_lb[mask_abs_l])
                 u_ub_sq[mask_abs_l] *= u_ub_sq[mask_abs_l]
@@ -689,20 +707,15 @@ class NTK(torch.nn.Module):
                 u_ub_sq[u_ub_sq < 0] = 0
                 u_ub_sq[torch.isnan(u_ub_sq)] = 0
                 u_lb_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                #u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] * Sig_lb[mask_abs_u] \
-                #                    / (q_ub[mask_abs_u] * q_ub[mask_abs_u])
                 u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] \
                                     / torch.sqrt(q_ub[mask_abs_u] * q_ub[mask_abs_u])
                 u_lb_sq[mask_abs_u] *= u_lb_sq[mask_abs_u]
-                #u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
-                #                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
                 u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] \
                                     / torch.sqrt(q_ub[mask_abs_l] * q_ub[mask_abs_l])
                 u_lb_sq[mask_abs_l] *= u_lb_sq[mask_abs_l]
                 u_lb_sq[u_lb_sq > 1] = 1
                 u_lb_sq[u_lb_sq < 0] = 0
                 u_lb_sq[torch.isnan(u_lb_sq)] = 0
-                print(u_ub_sq[u_ub_sq<u_lb_sq]-u_lb_sq[u_ub_sq<u_lb_sq])
                 assert (u_ub_sq < u_lb_sq).sum() == 0
                 if perturbation_model == "l0":
                     assert (Sig_lb < 0).sum() == 0
@@ -711,12 +724,6 @@ class NTK(torch.nn.Module):
                 E_lb[E_lb < 0] = 0
                 E_ub = (q_ub * self.kappa_1_ub(u_ub, u_lb_sq)) * csigma
                 assert (E_ub < E_lb).sum() == 0
-                #print(u[E_lb>E][:5]-u_lb[E_lb>E][:5])
-                #print(u_lb[E_lb>E][:5])
-                #print(E[E_lb>E][:5]-E_lb[E_lb>E][:5])
-                #print(E_lb[E_lb>E][:5])
-                #print(torch.max((u*u)[E_lb>E]-u_ub_sq[E_lb>E]))
-                #print(u_ub_sq[E_lb>E][:5])
                 assert (E_lb > E).sum() == 0
                 assert (E_ub < E).sum() == 0
                 self.empty_gpu_memory()
@@ -914,21 +921,17 @@ class NTK(torch.nn.Module):
                     ntk_sup = ntk_labeled[idx_sup, :]
                     ntk_sup = ntk_sup[:, idx_sup]
                     if self.bias:
+                        if len(idx_bias) == 0:
+                            logging.warning("No datapoint with ")
                         b = y_sup[idx_bias] - (y_sup * alpha_sup * ntk_sup[idx_bias, :]).sum(dim=1)
                         b = b.mean()
-                    #print(alpha_sup*y_sup)
-                    #print(b)
+                        print(f"b: {b}")
+                    print(ntk_unlabeled[:,idx_sup])
+                    print(alpha_sup)
+                    print(y_sup)
                     y_pred = (y_sup * alpha_sup * ntk_unlabeled[:,idx_sup]).sum(dim=1) 
                     if self.bias:
                         y_pred += b
-                    # debug
-                    #alpha_ = torch.tensor(self.f_.dual_coef_, dtype=self.dtype, device=self.device)
-                    #b_ = torch.tensor(self.f_.intercept_, dtype=self.dtype, device=self.device)
-                    #idx_sup_ = self.f_.support_
-                    #y_pred_ = (alpha_ * ntk_unlabeled[:,idx_sup_]).sum(dim=1) + b_
-                    #print(y_pred_)
-                    #print(y_pred)
-                    #y_pred = y_pred_
                 elif self.solver == "sklearn":
                     # Implementation of self.svm.decision_function(ntk_unlabeled) in PyTorch
                     alpha = torch.tensor(self.svm.dual_coef_, dtype=self.dtype, device=self.device)

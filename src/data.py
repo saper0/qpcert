@@ -14,6 +14,7 @@ from torch_sparse import SparseTensor
 import scipy.sparse as sp
 
 from src.graph_models.csbm import CSBM
+from src import globals
 
 
 def get_csbm(
@@ -22,7 +23,7 @@ def get_csbm(
     n = specification["n_trn_labeled"] + specification["n_trn_unlabeled"] \
         + specification["n_val"] + specification["n_test"]
     csbm = CSBM(n=n, **specification)
-    logging.info(f"CSBM(p={csbm.p}, q={csbm.q})")
+    logging.info(f"CSBM(p={csbm.p:.05f}, q={csbm.q:.05f})")
     X, A, y = csbm.sample(n, specification["seed"])
     return X, A, y
 
@@ -161,13 +162,14 @@ def get_graph(
         A = A[:, idx_lcc]
         y = y[idx_lcc]
     # Log statistics, could remove
-    logging.info(f"X.min(): {X.min()}")
-    logging.info(f"X.max(): {X.max()}")
-    X_rowsum = X.sum(axis=1)
-    logging.info(f"X_rowsum.mean(): {X_rowsum.mean()}")
-    logging.info(f"X_rowsum.median(): {np.median(X_rowsum)}")
-    logging.info(f"X_rowsum.min(): {np.min(X_rowsum)}")
-    logging.info(f"X_rowsum.max(): {np.max(X_rowsum)}")
+    if globals.debug:
+        X_rowsum = X.sum(axis=1)
+        logging.info(f"X.min(): {X.min()}")
+        logging.info(f"X.max(): {X.max()}")
+        logging.info(f"X_rowsum.mean(): {X_rowsum.mean()}")
+        logging.info(f"X_rowsum.median(): {np.median(X_rowsum)}")
+        logging.info(f"X_rowsum.min(): {np.min(X_rowsum)}")
+        logging.info(f"X_rowsum.max(): {np.max(X_rowsum)}")
     if sort:
         idx = np.argsort(y)
         y = y[idx]

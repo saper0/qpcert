@@ -191,7 +191,8 @@ def run(data_params: Dict[str, Any],
     A = torch.tensor(A, dtype=other_params["dtype"], device=device)
     y = torch.tensor(y, device=device)
     n_classes = int(y.max() + 1)
-    print(f"X.mean() {X.mean()}")
+    if globals.debug:
+        print(f"X.mean() {X.mean()}")
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
     idx_known = np.concatenate((idx_labeled, idx_unlabeled))
@@ -229,10 +230,6 @@ def run(data_params: Dict[str, Any],
                                               certificate_params["perturbation_model"],
                                               return_ntk=True,
                                               method=certificate_params["method"])
-        #print("predictions:")
-        #print(y_pred[:50,:])
-        #print(y_ub[:50,:])
-        #print(y_lb[:50,:])
     #Trivial bounds:
     mask_no_adv_in_n = (A[:, idx_adv] > 0).sum(dim=1) == 0
     A2 = A.matmul(A)
