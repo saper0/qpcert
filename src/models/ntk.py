@@ -271,26 +271,31 @@ class NTK(torch.nn.Module):
         del XXT
         self.empty_gpu_memory()
         kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-        # ReLu GCN
         depth = self.model_dict["depth"]
         kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
                                 dtype=self.dtype).to(self.device)
         for i in range(depth):
             if globals.debug:
                 print(f"Depth {i}")
-            p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-            Diag_Sig = torch.diagonal(Sig) 
-            Sig_i = p + Diag_Sig.reshape(1, -1)
-            Sig_j = p + Diag_Sig.reshape(-1, 1)
-            del p
-            del Diag_Sig
-            self.empty_gpu_memory()
-            q = torch.sqrt(Sig_i * Sig_j)
-            u = Sig/q 
-            E = (q * self.kappa_1(u)) * csigma
-            del q
-            self.empty_gpu_memory()
-            E_der = (self.kappa_0(u)) * csigma
+            if self.model_dict["activation"] == 'relu':
+                p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+                Diag_Sig = torch.diagonal(Sig) 
+                Sig_i = p + Diag_Sig.reshape(1, -1)
+                Sig_j = p + Diag_Sig.reshape(-1, 1)
+                del p
+                del Diag_Sig
+                self.empty_gpu_memory()
+                q = torch.sqrt(Sig_i * Sig_j)
+                u = Sig/q 
+                E = (q * self.kappa_1(u)) * csigma
+                del q
+                self.empty_gpu_memory()
+                E_der = (self.kappa_0(u)) * csigma
+            elif self.model_dict["activation"] == 'linear':
+                E = Sig
+                E_der = torch.ones((S.shape), dtype=self.dtype).to(self.device)
+            else:
+                assert False, f"'linear' and 'relu' GCNs are supported. Please update activation in the model_dict."
             if globals.debug:
                 print(f"E_der.min(): {E_der.min()}")
                 print(f"E_der.max(): {E_der.max()}")
