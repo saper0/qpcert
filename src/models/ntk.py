@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Union, Tuple
 import cvxopt
 from jaxtyping import Float, Integer
 import numpy as np
+from proxsuite.torch.qplayer import QPFunction
 from sklearn import svm
 from sklearn.multiclass import OneVsRestClassifier
 import torch
@@ -183,6 +184,35 @@ class NTK(torch.nn.Module):
             #assert False
             #print(f_.intercept_)
             return alphas
+        elif self.solver == "qplayer":
+            assert self.n_classes == 2
+            y_ = y * 2 - 1
+            l = y.shape[0]
+            Y = torch.outer(y_, y_)
+            if idx_trn_labeled is not None:
+                gram_matrix = self.ntk[idx_trn_labeled, :]
+                gram_matrix = gram_matrix[:, idx_trn_labeled]
+            else:
+                gram_matrix = self.ntk
+            Q = Y*gram_matrix
+            p = -torch.ones((l,), dtype=self.dtype)
+            I = torch.eye(n=l, dtype=self.dtype)
+            I_neg = -torch.eye(n=l, dtype=self.dtype)
+            G = torch.eye(n=l, dtype=self.dtype)
+            h = torch.zeros((l,), dtype=self.dtype)
+            h[:l] = self.regularizer
+            l = torch.zeros((l,), dtype=self.dtype)
+            if self.bias:
+                A = y_.reshape((1, -1))
+                b = torch.zeros(1, dtype=self.dtype)
+                alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+            else:
+                A = torch.Tensor([], device=self.device)
+                b = torch.Tensor([], device=self.device)
+                alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+            alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+            print(f"Alphas found: {alphas_str}")
+            return alphas[0]
         else:
             assert False, "Solver not found"
 
@@ -436,15 +466,20 @@ class NTK(torch.nn.Module):
             DD_l = Delta_l[idx_adv, :]
             DD_l[:, idx_adv] = -X.shape[1]*delta*delta
             Delta_l[idx_adv, :] = DD_l
+            assert (Delta_l != Delta_l.T).sum() == 0
             DD_u = Delta_u[idx_adv, :]
             DD_u[:, idx_adv] = X.shape[1]*delta*delta
             Delta_u[idx_adv, :] = DD_u
+            assert (Delta_u != Delta_u.T).sum() == 0
             # D^TX and X^TD Terms
-            Delta_l[idx_adv, :] -= (delta*X_1norm).view(1,-1)
-            Delta_l[:, idx_adv] -= (delta*X_1norm).view(-1,1)
+            delta_times_X_1norm = delta*X_1norm
+            Delta_l[idx_adv, :] -= delta_times_X_1norm.view(1,-1)
+            Delta_l[:, idx_adv] -= delta_times_X_1norm.view(-1,1)
             Delta_l.fill_diagonal_(0.)
-            Delta_u[idx_adv, :] += (delta*X_1norm).view(1,-1)
-            Delta_u[:, idx_adv] += (delta*X_1norm).view(-1,1)
+            Delta_l = torch.tril(Delta_l) + torch.tril(Delta_l, diagonal=-1).T
+            Delta_u[idx_adv, :] += delta_times_X_1norm.view(1,-1)
+            Delta_u[:, idx_adv] += delta_times_X_1norm.view(-1,1)
+            Delta_u = torch.tril(Delta_u) + torch.tril(Delta_u, diagonal=-1).T
             assert (Delta_l != Delta_l.T).sum() == 0
             assert (Delta_u != Delta_u.T).sum() == 0
             assert (XXT != XXT.T).sum() == 0
@@ -909,9 +944,12 @@ class NTK(torch.nn.Module):
                 y_pred = torch.matmul(ntk_unlabeled, v)
         else:
             if self.n_classes == 2:
-                if self.solver == "cvxopt":
-                    alpha = torch.tensor(self.svm, dtype=self.dtype, 
-                                         device=self.device)
+                if self.solver == "cvxopt" or self.solver == "qplayer":
+                    if self.solver == "cvxopt":
+                        alpha = torch.tensor(self.svm, dtype=self.dtype, 
+                                            device=self.device)
+                    else:
+                        alpha = self.svm
                     idx_sup = (alpha > self.alpha_tol)
                     y_sup = y_test[idx_labeled][idx_sup] * 2 - 1
                     alpha_sup = alpha[idx_sup]
@@ -923,8 +961,8 @@ class NTK(torch.nn.Module):
                     y_pred = (y_sup * alpha_sup * ntk_unlabeled[:,idx_sup]).sum(dim=1) 
                     if self.bias:
                         if bias_mask.sum() == 0:
-                            logging.warning("All alpha = C, calculating bias not supported by cvxopt implementaiton")
-                            assert False
+                            raise NotImplementedError("All alpha = C, calculating"
+                                " bias not supported by cvxopt implementaiton")
                         b = y_sup[bias_mask] - (y_sup * alpha_sup * ntk_sup[bias_mask, :]).sum(dim=1)
                         b = b.mean()
                         y_pred += b
@@ -1063,9 +1101,12 @@ class NTK(torch.nn.Module):
                 y_pred = torch.matmul(ntk_unlabeled, v)
         else:
             if self.n_classes == 2:
-                if self.solver == 'cvxopt':
-                    alpha = torch.tensor(self.svm, dtype=self.dtype, 
-                                         device=self.device)
+                if self.solver == "cvxopt" or self.solver == "qplayer":
+                    if self.solver == "cvxopt":
+                        alpha = torch.tensor(self.svm, dtype=self.dtype, 
+                                            device=self.device)
+                    else:
+                        alpha = self.svm
                     idx_sup = (alpha > self.alpha_tol)
                     y_sup = y_test[idx_labeled][idx_sup] * 2 - 1
                     y_sup_pos_mask = y_sup > 0
@@ -1247,9 +1288,12 @@ class NTK(torch.nn.Module):
                 y_pred = torch.matmul(ntk_unlabeled, v)
         else:
             if self.n_classes == 2:
-                if self.solver == 'cvxopt':
-                    alpha = torch.tensor(self.svm, dtype=self.dtype, 
-                                         device=self.device)
+                if self.solver == "cvxopt" or self.solver == "qplayer":
+                    if self.solver == "cvxopt":
+                        alpha = torch.tensor(self.svm, dtype=self.dtype, 
+                                            device=self.device)
+                    else:
+                        alpha = self.svm
                     idx_sup = (alpha > self.alpha_tol)
                     y_sup = y_test[idx_labeled][idx_sup] * 2 - 1
                     y_sup_pos_mask = y_sup > 0

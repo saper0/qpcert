@@ -129,6 +129,8 @@ def grad_with_checkpoint(outputs: Union[torch.Tensor, Sequence[torch.Tensor]],
 
 
 def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, n_adv=1):
+    if isinstance(svm_alpha, torch.Tensor):
+        svm_alpha = svm_alpha.numpy(force=True)
     print('n_labeled ', idx_labeled.shape[0])
     print('ntk shapes ', ntk.shape, ntk_lb.shape, ntk_ub.shape)
     print('y shapes ', y.shape, y_pred.shape, y, y_pred)
