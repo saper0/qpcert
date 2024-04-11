@@ -4,6 +4,7 @@ from jaxtyping import Float, Integer
 import numpy as np
 import torch
 from torch_sparse import coalesce
+from src import globals
 
 import gurobipy as gp
 from gurobipy import GRB
@@ -128,16 +129,13 @@ def grad_with_checkpoint(outputs: Union[torch.Tensor, Sequence[torch.Tensor]],
     return grad_outputs
 
 
-def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, n_adv=1):
+def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, milp=True):
     if isinstance(svm_alpha, torch.Tensor):
         svm_alpha = svm_alpha.numpy(force=True)
-    print('n_labeled ', idx_labeled.shape[0])
-    print('ntk shapes ', ntk.shape, ntk_lb.shape, ntk_ub.shape)
-    print('y shapes ', y.shape, y_pred.shape, y, y_pred)
-    print('alpha ', svm_alpha.shape, svm_alpha)
-    assert ntk_lb.min() <= ntk_ub.min()
-    assert ntk_lb.max() <= ntk_ub.max()
-    print(torch.all(torch.less(ntk_lb, ntk_ub))) # Todo: it doesn't hold element wise! Debug it!
+    
+    assert (ntk_lb > ntk_ub).sum() == 0
+    assert (ntk_lb > ntk).sum() == 0
+    assert (ntk_ub < ntk).sum() == 0
 
     n_labeled = idx_labeled.shape[0]
     ntk = ntk.detach().cpu().numpy()
@@ -154,35 +152,34 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
     ntk_unlabeled_ub = ntk_ub[idx_test,:][:,idx_labeled]
     ntk_unlabeled_lb = ntk_lb[idx_test,:][:,idx_labeled]
 
-    print(ntk_labeled.shape, ntk_labeled_ub.shape, ntk_labeled_lb.shape)
-    print(ntk_unlabeled.shape, ntk_unlabeled_ub.shape, ntk_unlabeled_ub.shape)
+    # Labels are learned as -1 or 1, but loaded as 0 or 1
     y_labeled = y_labeled*2 -1 
-
-    svm_alpha = np.round(svm_alpha, 4) #rounding off helps to start with a feasible solution sometimes
-    alpha_nz_mask = svm_alpha>1e-5 #svm_alpha>0 #
-    alpha_c_mask = svm_alpha>(C-1e-5) #svm_alpha==C #
+    
+    # Find the initial start feasible solution
+    alpha_mask = svm_alpha < globals.zero_tol
+    svm_alpha[alpha_mask] = 0
+    alpha_nz_mask = svm_alpha>0 
     eq_constraint = y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1
-    u_start = np.copy(svm_alpha)
-    v_start = np.copy(svm_alpha)
-    u_start[alpha_nz_mask] = 0
-    v_start[~alpha_c_mask] = 0
+    u_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
+    v_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
     u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
-    v_start[alpha_c_mask] = -eq_constraint[alpha_c_mask]
+    v_start[alpha_nz_mask] = -eq_constraint[alpha_nz_mask]
+    u_start[u_start<globals.zero_tol] = 0
+    v_start[v_start<globals.zero_tol] = 0
     s_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
     u_nz_mask = u_start > 0
     s_start[u_nz_mask] = 1
     t_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
     v_nz_mask = v_start > 0
     t_start[v_nz_mask] = 1
-    # print('ustart ', u_start)
-    # print('sstart ', s_start)
-    # print('vstart ', v_start)
-    # print('tstart ', t_start)
-    # print('svm alpha ', svm_alpha)
-    # print('eq cons ', eq_constraint)
-    # print('full constraint ', y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1 - u_start + v_start)
-    # print('u*alp ', u_start*svm_alpha)
-    # print('v*(C-alp) ', v_start*(C-svm_alpha))
+    assert (svm_alpha<0).sum() == 0
+    assert (u_start<0).sum() == 0
+    assert (v_start<0).sum() == 0
+    assert ((y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1 - u_start + v_start).sum() < globals.zero_tol)
+    assert (u_start-M*s_start > globals.zero_tol).sum() == 0
+    assert (svm_alpha-C*(1-s_start) > globals.zero_tol).sum() == 0
+    assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
+    assert (-svm_alpha+C*t_start > globals.zero_tol).sum() == 0
 
     obj_min = None
     robust_count = 0
@@ -191,10 +188,9 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             obj_min = False
         else:
             obj_min = True
-        print(y_pred[idx], obj_min)
         try:
             # Create a new model
-            m = gp.Model("poison_cert")
+            m = gp.Model("milp_provable_robustness")
 
             # Create variables
             z_bound = np.minimum(0.0, C*ntk_lb.min())
@@ -203,61 +199,57 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             v = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, name="v")
             z = m.addMVar(shape=(n_labeled, n_labeled), vtype=GRB.CONTINUOUS, lb=z_bound, name="z")
             z_test = m.addMVar(shape=(1, n_labeled), vtype=GRB.CONTINUOUS, lb=z_bound, name="z_test")
-            s = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="s")
-            t = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="t")
+            if milp:
+                s = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="s")
+                t = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="t")
 
             # Add constraints
-            m.addConstr(z <= ntk_labeled_ub * alpha, "c1")
-            m.addConstr(z >= ntk_labeled_lb * alpha, "c2")
-            m.addConstr(z_test <= ntk_unlabeled_ub[idx,:].reshape(1,-1) * alpha, "c11")
-            m.addConstr(z_test >= ntk_unlabeled_lb[idx,:].reshape(1,-1) * alpha, "c22")
-            m.addConstr(y_labeled*(z@y_labeled) - u + v == 1, "c3")
-            m.addConstr(u <= M*s, "c4")
-            m.addConstr(alpha <= C*(1-s), "c5")
-            m.addConstr(v <= Mprime*t, "c6")
-            m.addConstr(C-alpha <= C*(1-t), "c7")
-            # m.addConstr(u*alpha == 0, "c8")
-            # m.addConstr(v*(C-alpha) == 0, "c9")
+            m.addConstr(z <= ntk_labeled_ub * alpha, "z_ub")
+            m.addConstr(z >= ntk_labeled_lb * alpha, "z_lb")
+            m.addConstr(z_test <= ntk_unlabeled_ub[idx,:].reshape(1,-1) * alpha, "z_test_ub")
+            m.addConstr(z_test >= ntk_unlabeled_lb[idx,:].reshape(1,-1) * alpha, "z_test_lb")
+            m.addConstr(y_labeled*(z@y_labeled) - u + v == 1, "eq_constraint")
+            if milp:
+                m.addConstr(u <= M*s, "u_mil1")
+                m.addConstr(alpha <= C*(1-s), "u_mil2")
+                m.addConstr(v <= Mprime*t, "v_mil1")
+                m.addConstr(C-alpha <= C*(1-t), "v_mil2")
+            else:
+                m.addConstr(u*alpha == 0, "u_comp_slack")
+                m.addConstr(v*(C-alpha) == 0, "v_comp_slack")
 
-            # Set the initial value of alpha and z
+            # Set the initial values for the parameters
             alpha.Start = svm_alpha
             z.Start = ntk_labeled * svm_alpha
             z_test.Start = ntk_unlabeled[idx,:].reshape(1,-1) * svm_alpha
             u.Start = u_start
             v.Start = v_start
-            s.Start = s_start
-            t.Start = t_start
+            if milp:
+                s.Start = s_start
+                t.Start = t_start
 
             # Set objective
             if obj_min:
                 m.setObjective(z_test @ y_labeled, GRB.MINIMIZE)
-                # m.Params.BestBdStop = -1-1e-8
             else:
                 m.setObjective(z_test @ y_labeled, GRB.MAXIMIZE)
-                # m.Params.BestObjStop = -1e-8
-                # m.Params.BestBdStop = -1-1e-8
 
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = 1e-4 # to stabilize big-M constraint (helps, works without this also) 
             m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
-            # Debugging
-            m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded
-            # m.write('poison_cert.lp') # helps in checking if the implemented model is correct
+            m.params.OutputFlag=0 # to suppress branch bound search tree outputs
+            m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
         
             # Played around with the following flags to escape infeasibility solutions
             m.Params.FeasibilityTol = 1e-4
+            m.Params.OptimalityTol = 1e-4
+            m.Params.NumericFocus = 3
             # m.Params.MIPGap = 1e-4
             # m.Params.MIPGapAbs = 1e-4
-            m.Params.OptimalityTol = 1e-4
             # m.Params.Presolve = 0
             # m.Params.Aggregate = 0 #aggregation level in presolve
-            m.Params.NumericFocus = 3
             # m.Params.MIPFocus = 1
             # m.Params.InfProofCuts = 0
-
-            #Stopping criteria
-            #m.Params.SolutionLimit = 1 #stops when a solution is found
-            # m.Params.NodeLimit = 0 #stops when the root is found 
 
             def callback(model, where):
                 if where == gp.GRB.Callback.MESSAGE:
@@ -265,17 +257,21 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                     if "MIP start" in msg:
                         print("in callback ", msg)
 
-            m.params.OutputFlag=0
+            if globals.debug:
+                m.write('milp_optimization.lp') # helps in checking if the implemented model is correct
+                m.optimize(callback)
+                print('Optimization status ', m.Status)
+            else:
+                m.optimize()
 
-            # Optimize model
-            # m.optimize()
-            # Debugging -  use callback
-            m.optimize(callback)
-
-            print('optimization status ', m.Status)
-
-            # do IIS if the model is infeasible
             if m.Status == GRB.INFEASIBLE:
+                # WARNING: not a good sign to be here as our model will have feasible region for sure.
+                # Good to debug by closely looking at the violated constraints using the below code
+                # Would relaxing the constraint help as a last resort? try m.feasRelaxS(2, True, False, True) and then m.optimize()
+                # Check the arguments in feasRelaxS
+                assert False, "Time to debug the gurobi optimization!!"
+
+                # do IIS if the model is infeasible
                 m.computeIIS()
 
                 # Print out the IIS constraints and variables
@@ -286,14 +282,8 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 for v in m.getVars():
                     if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
                     if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
-
-                # m.feasRelaxS(2, True, False, True) #relaxes the constraints depending on the argument
-                # m.optimize()
-            elif m.Status == GRB.OPTIMAL or m.Status == GRB.NODE_LIMIT or m.Status == GRB.SOLUTION_LIMIT:
-                # # Debugging values 
-                print('Original ', y_pred[idx])
-                print('Obj: %g' % m.ObjVal)
-
+            elif m.Status == GRB.OPTIMAL and globals.debug:
+                print(f'Original {y_pred[idx].item()}, Opt objective {m.ObjVal}')
                 # Debugging 
                 # for var in m.getVars():
                 #     print('%s %g' % (var.VarName, var.X))
@@ -301,7 +291,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 # print('z ', z.X)
                 # print('v ', v.X)
                 # print('u ', u.X)
-                # print('const check ', y_labeled*(z.X@y_labeled) - u.X + v.X)
+                # print('equality constraint ', y_labeled*(z.X@y_labeled) - u.X + v.X)
 
             #check robustness using the objective value
             if obj_min and m.ObjVal > 0:
@@ -310,7 +300,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 robust_count += 1
             
             m.dispose()
-            print('robust_count ', robust_count)
+            print(f'Robust count {robust_count} out of {idx+1}')
 
         except gp.GurobiError as e:
             print(f"Error code {e.errno}: {e}")
