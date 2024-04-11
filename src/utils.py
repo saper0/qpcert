@@ -234,6 +234,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             else:
                 m.setObjective(z_test @ y_labeled, GRB.MAXIMIZE)
 
+            m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = 1e-4 # to stabilize big-M constraint (helps, works without this also) 
             m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
@@ -255,7 +256,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 if where == gp.GRB.Callback.MESSAGE:
                     msg = model.cbGet(gp.GRB.Callback.MSG_STRING)
                     if "MIP start" in msg:
-                        print("in callback ", msg)
+                        print(msg)
 
             if globals.debug:
                 m.write('milp_optimization.lp') # helps in checking if the implemented model is correct
@@ -282,7 +283,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 for v in m.getVars():
                     if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
                     if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
-            elif m.Status == GRB.OPTIMAL and globals.debug:
+            elif (m.Status == GRB.OPTIMAL or m.Status == GRB.USER_OBJ_LIMIT) and globals.debug:
                 print(f'Original {y_pred[idx].item()}, Opt objective {m.ObjVal}')
                 # Debugging 
                 # for var in m.getVars():
