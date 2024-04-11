@@ -144,7 +144,7 @@ class NTK(torch.nn.Module):
             if self.n_classes == 2:
                 f.fit(gram_matrix, y.detach().cpu().numpy())
                 alphas_str = [f"{alpha:.04f}" for alpha in f.dual_coef_[0]]
-                print(f"Alphas found: {alphas_str}")
+                print(f"{len(alphas_str)} alphas found: {alphas_str}")
             else:
                 f = OneVsRestClassifier(f, n_jobs=1).fit(gram_matrix, y.detach().cpu().numpy())
             return f
@@ -174,7 +174,7 @@ class NTK(torch.nn.Module):
             #print(solution)
             alphas = np.array(solution["x"]).reshape(-1,)
             alphas_str = [f"{alpha:.04f}" for alpha in alphas]
-            print(f"Alphas found: {alphas_str}")
+            print(f"{len(alphas_str)} alphas found: {alphas_str}")
             #y = (y + 1) / 2
             #f_ = svm.SVC(C=self.regularizer, kernel="precomputed", 
             #            cache_size=cache_size)
@@ -211,7 +211,8 @@ class NTK(torch.nn.Module):
                 b = torch.Tensor([], device=self.device)
                 alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
             alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
-            print(f"Alphas found: {alphas_str}")
+            alphas_non_zero = alphas[0] > self.alpha_tol
+            print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
             return alphas[0]
         else:
             assert False, "Solver not found"
@@ -910,20 +911,19 @@ class NTK(torch.nn.Module):
             assert learning_setting == "transductive", "No test graph given, " \
                 + " thus learning setting must be transductive for inference."
             ntk_test = self.ntk
-        else:
+        elif learning_setting == "inductive":
             # handle different adj representations
             A_test = make_dense(A_test) # is differentiable
             ntk_test = self.calc_ntk(X_test, A_test)
             if torch.cuda.is_available() and self.device != "cpu":
                 torch.cuda.empty_cache()
-        
-        if learning_setting == "inductive":
-            ntk_labeled = self.ntk 
-            if self.idx_trn_labeled is not None: # semi-supervised setting
-                ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
-                ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
-        if learning_setting == "transductive": 
-            ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
+        else:
+            ntk_test = self.ntk
+
+        ntk_labeled = self.ntk 
+        if self.idx_trn_labeled is not None: # semi-supervised setting
+            ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
+            ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
         ntk_unlabeled = ntk_test[idx_test,:][:,idx_labeled]
 
         if self.pred_method == "krr":
@@ -1073,13 +1073,10 @@ class NTK(torch.nn.Module):
                                                        delta, perturbation_model,
                                                        method)
         self.empty_gpu_memory()
-        if learning_setting == "inductive":
-            ntk_labeled = self.ntk 
-            if self.idx_trn_labeled is not None: # semi-supervised setting
-                ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
-                ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
-        if learning_setting == "transductive": 
-            ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
+        ntk_labeled = self.ntk 
+        if self.idx_trn_labeled is not None: # semi-supervised setting
+            ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
+            ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
         ntk_unlabeled_ub = ntk_test_ub[idx_test,:][:,idx_labeled]
         ntk_unlabeled_lb = ntk_test_lb[idx_test,:][:,idx_labeled]
 
@@ -1260,13 +1257,10 @@ class NTK(torch.nn.Module):
                                                        delta, perturbation_model,
                                                        method)
         self.empty_gpu_memory()
-        if learning_setting == "inductive":
-            ntk_labeled = self.ntk 
-            if self.idx_trn_labeled is not None: # semi-supervised setting
-                ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
-                ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
-        if learning_setting == "transductive": 
-            ntk_labeled = self.ntk[idx_labeled,:][:,idx_labeled]
+        ntk_labeled = self.ntk 
+        if self.idx_trn_labeled is not None: # semi-supervised setting
+            ntk_labeled = ntk_labeled[self.idx_trn_labeled, :]
+            ntk_labeled = ntk_labeled[:, self.idx_trn_labeled]
         ntk_unlabeled_ub = ntk_test_ub[idx_test,:][:,idx_labeled]
         ntk_unlabeled_lb = ntk_test_lb[idx_test,:][:,idx_labeled]
 

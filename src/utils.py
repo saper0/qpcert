@@ -256,7 +256,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             # m.Params.InfProofCuts = 0
 
             #Stopping criteria
-            m.Params.SolutionLimit = 1 #stops when a solution is found
+            #m.Params.SolutionLimit = 1 #stops when a solution is found
             # m.Params.NodeLimit = 0 #stops when the root is found 
 
             def callback(model, where):
@@ -268,9 +268,9 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
             m.params.OutputFlag=0
 
             # Optimize model
-            m.optimize()
+            # m.optimize()
             # Debugging -  use callback
-            # m.optimize(callback)
+            m.optimize(callback)
 
             print('optimization status ', m.Status)
 

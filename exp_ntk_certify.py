@@ -195,16 +195,18 @@ def run(data_params: Dict[str, Any],
         print(f"X.mean() {X.mean()}")
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
-    idx_known = np.concatenate((idx_labeled, idx_unlabeled))
     # idx of labeled nodes in nodes known during training (for semi-supervised)
-    idx_known_labeled = np.nonzero(np.isin(idx_known, idx_labeled))[0] #actually is just 0 to len(idx_labeled)
     if data_params["learning_setting"] == "transductive":
+        idx_known = np.concatenate((idx_labeled, idx_unlabeled, idx_test)) 
         A_trn = A
         X_trn = X
+        idx_known_labeled = idx_labeled
     else:
+        idx_known = np.concatenate((idx_labeled, idx_unlabeled)) 
         A_trn = A[idx_known, :]
         A_trn = A_trn[:, idx_known]
         X_trn = X[idx_known, :]
+        idx_known_labeled = np.nonzero(np.isin(idx_known, idx_labeled))[0] #actually is just 0 to len(idx_labeled)
     with torch.no_grad():
         ntk = NTK(model_params, X_trn=X_trn, A_trn=A_trn, n_classes=n_classes, 
                 idx_trn_labeled=idx_known_labeled, y_trn=y[idx_labeled],
