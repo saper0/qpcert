@@ -25,7 +25,7 @@ def get_csbm(
     csbm = CSBM(n=n, **specification)
     logging.info(f"CSBM(p={csbm.p:.05f}, q={csbm.q:.05f})")
     X, A, y = csbm.sample(n, specification["seed"])
-    return X, A, y
+    return X, A, y, csbm.mu, csbm.p, csbm.q
 
 
 def get_planetoid(dataset: str, specification: Dict[str, Any]):
@@ -139,7 +139,7 @@ def get_graph(
     Returns X, A, y."""
 
     if data_params["dataset"] == "csbm":
-        X, A, y = get_csbm(data_params["specification"])
+        X, A, y, mu, p, q = get_csbm(data_params["specification"])
     elif data_params["dataset"] in ["cora", "citeseer", "pubmed"]:
         X, A, y = get_planetoid(data_params["dataset"], data_params["specification"])
     elif data_params["dataset"] in ["cora_inv"]:
@@ -176,6 +176,8 @@ def get_graph(
         X = X[idx, :]
         A = A[idx, :]
         A = A[:, idx]
+    if data_params["dataset"] == "csbm":
+        return X, A, y, mu, p, q
     return X, A, y
 
 

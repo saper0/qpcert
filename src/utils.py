@@ -1,3 +1,4 @@
+import logging
 from typing import Tuple, Union, Sequence
 
 from jaxtyping import Float, Integer
@@ -129,7 +130,11 @@ def grad_with_checkpoint(outputs: Union[torch.Tensor, Sequence[torch.Tensor]],
     return grad_outputs
 
 
-def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, milp=True):
+def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
+                               y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, 
+                               milp=True):
+    """TODO: Create documentation 
+    """
     if isinstance(svm_alpha, torch.Tensor):
         svm_alpha = svm_alpha.numpy(force=True)
     
@@ -181,6 +186,9 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
     assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
     assert (-svm_alpha+C*t_start > globals.zero_tol).sum() == 0
 
+    obj_l = []
+    is_robust_l = []
+    opt_status_l = []
     obj_min = None
     robust_count = 0
     for idx in range(y_pred.shape[0]):
@@ -263,7 +271,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 m.optimize(callback)
                 print('Optimization status ', m.Status)
             else:
-                m.optimize()
+                m.optimize(callback)
 
             if m.Status == GRB.INFEASIBLE:
                 # WARNING: not a good sign to be here as our model will have feasible region for sure.
@@ -294,19 +302,27 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, y_
                 # print('u ', u.X)
                 # print('equality constraint ', y_labeled*(z.X@y_labeled) - u.X + v.X)
 
-            #check robustness using the objective value
+            # log results
+            logging.info(f'Original {y_pred[idx].item():.5f}, Opt objective '
+                         f'{m.ObjVal:.5f}')
             if obj_min and m.ObjVal > 0:
                 robust_count += 1
+                is_robust_l.append(True)
             elif not obj_min and m.ObjVal < 0:
                 robust_count += 1
+                is_robust_l.append(True)
+            else:
+                is_robust_l.append(False)
+            obj_l.append(m.ObjVal)
+            opt_status_l.append(m.Status)
             
             m.dispose()
-            print(f'Robust count {robust_count} out of {idx+1}')
+            logging.info(f'Robust count {robust_count} out of {idx+1}')
 
         except gp.GurobiError as e:
-            print(f"Error code {e.errno}: {e}")
+            logging.error(f"Error code {e.errno}: {e}")
             return
         except AttributeError:
-            print("Encountered an attribute error")
+            logging.error("Encountered an attribute error")
             return
-    return (robust_count / y_pred.shape[0])
+    return is_robust_l, obj_l, opt_status_l
