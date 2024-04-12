@@ -646,17 +646,17 @@ class NTK(torch.nn.Module):
         assert (u_ub < u).sum() == 0
         mask_abs_u = torch.abs(Sig_ub) >= torch.abs(Sig_lb)
         mask_abs_l = ~mask_abs_u
-                #For u_ub_sq use same calculation scheme as for NTK
-                #Sligthly better (numerically on a scale of 1e-16 & faster) would 
-                #be the following, however - then NTK would need more storage!
-                #u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] * Sig_ub[mask_abs_u] \
-                #                        / q_lb[mask_abs_u] * q_lb[mask_abs_u])
-                #u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] * Sig_lb[mask_abs_l] \
-                #                        / (q_lb[mask_abs_l] * q_lb[mask_abs_l])
-                #u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] * Sig_lb[mask_abs_u] \
-                #                    / (q_ub[mask_abs_u] * q_ub[mask_abs_u])
-                #u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
-                #                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
+        #For u_ub_sq use same calculation scheme as for NTK
+        #Sligthly better (numerically on a scale of 1e-16 & faster) would 
+        #be the following, however - then NTK would need more storage!
+        #u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] * Sig_ub[mask_abs_u] \
+        #                        / q_lb[mask_abs_u] * q_lb[mask_abs_u])
+        #u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] * Sig_lb[mask_abs_l] \
+        #                        / (q_lb[mask_abs_l] * q_lb[mask_abs_l])
+        #u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] * Sig_lb[mask_abs_u] \
+        #                    / (q_ub[mask_abs_u] * q_ub[mask_abs_u])
+        #u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
+        #                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
         u_ub_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
         u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u]  \
                                         / torch.sqrt(q_lb[mask_abs_u] * q_lb[mask_abs_u])
@@ -936,7 +936,7 @@ class NTK(torch.nn.Module):
         elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
             return self.calc_appnp_lb_ub(X, A, idx_adv, delta, perturbation_model, method)
         else:
-            assert False, "Other models than GCN not implemented so far."
+            assert False, "Models other than GCN and (A)PPNP not implemented so far."
 
     def get_ntk(self):
         """Return (precomputed) ntk matrix."""
