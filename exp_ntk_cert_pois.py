@@ -5,6 +5,7 @@
 import logging
 from typing import Any, Dict, Union, Tuple
 import os
+import socket
 
 import numpy as np
 from sacred import Experiment
@@ -129,6 +130,21 @@ def log_configuration(data_params: Dict[str, Any], model_params: Dict[str, Any],
     logging.info(f"seed: {seed}")
 
 
+def choose_gurobi_license(other_params: Dict[str, Any]):
+    if other_params["path_gurobi_license"] == "lukas":
+        logging.info(f"Hostname: {socket.gethostname()}")
+        gpu_str = socket.gethostname()
+        gurobi_path = "/ceph/ssd/staff/gosl/gurobi/"
+        gurobi_license = "gurobi_" + gpu_str + ".lic"
+        os.environ["GRB_LICENSE_FILE"] = gurobi_path + gurobi_license
+    elif other_params["path_gurobi_license"] != "":
+        os.environ["GRB_LICENSE_FILE"] = other_params["path_gurobi_license"] 
+    elif other_params["path_gurobi_license"] == "":
+        logging.info("No known gurobi license provided. Trying default.")
+    else:
+        assert False
+
+
 def configure_hardware(
     other_params: Dict[str, Any], seed: int
 ) -> Union[torch.device, str]:
@@ -147,8 +163,7 @@ def configure_hardware(
         assert False, "Given dtype not supported."
 
     # Gurobi
-    if other_params["path_gurobi_license"] != "":
-        os.environ["GRB_LICENSE_FILE"] = other_params["path_gurobi_license"]
+    choose_gurobi_license(other_params)
 
     # Hardware
     torch.backends.cuda.matmul.allow_tf32 = bool(other_params["allow_tf32"])

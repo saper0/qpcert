@@ -743,21 +743,17 @@ class NTK(torch.nn.Module):
                 #u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
                 #                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
                 u_ub_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u]  \
-                                        / torch.sqrt(q_lb[mask_abs_u] * q_lb[mask_abs_u])
+                u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] / q_lb[mask_abs_u]
                 u_ub_sq[mask_abs_u] *= u_ub_sq[mask_abs_u]
-                u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] \
-                                        / torch.sqrt(q_lb[mask_abs_l] * q_lb[mask_abs_l])
+                u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] / q_lb[mask_abs_l]
                 u_ub_sq[mask_abs_l] *= u_ub_sq[mask_abs_l]
                 u_ub_sq[u_ub_sq > 1] = 1
                 u_ub_sq[u_ub_sq < 0] = 0
                 u_ub_sq[torch.isnan(u_ub_sq)] = 0
                 u_lb_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] \
-                                    / torch.sqrt(q_ub[mask_abs_u] * q_ub[mask_abs_u])
+                u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] / q_ub[mask_abs_u]
                 u_lb_sq[mask_abs_u] *= u_lb_sq[mask_abs_u]
-                u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] \
-                                    / torch.sqrt(q_ub[mask_abs_l] * q_ub[mask_abs_l])
+                u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] / q_ub[mask_abs_l]
                 u_lb_sq[mask_abs_l] *= u_lb_sq[mask_abs_l]
                 u_lb_sq[u_lb_sq > 1] = 1
                 u_lb_sq[u_lb_sq < 0] = 0

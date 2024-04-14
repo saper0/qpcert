@@ -272,6 +272,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 print('Optimization status ', m.Status)
             else:
                 m.optimize(callback)
+                logging.info(f"Optimization status: {m.Status}")
 
             if m.Status == GRB.INFEASIBLE:
                 # WARNING: not a good sign to be here as our model will have feasible region for sure.
