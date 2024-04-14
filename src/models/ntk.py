@@ -604,7 +604,7 @@ class NTK(torch.nn.Module):
         else:
             assert False, "Only l0 perturbation model implemented."
 
-    def _calc_gcn_relu_expectations_lb_ub(self, 
+    def _calc_relu_expectations_lb_ub(self, 
                        Sig_lb: Float[torch.Tensor, "n n"],
                        Sig_ub: Float[torch.Tensor, "n n"],
                        E: Float[torch.Tensor, "n n"],
@@ -799,7 +799,7 @@ class NTK(torch.nn.Module):
             ######################
             if self.model_dict["activation"] == 'relu':
                 E_lb, E_ub, E_der_lb, E_der_ub, sig_dot_E_der_lb, sig_dot_E_der_ub = \
-                    self._calc_gcn_relu_expectations_lb_ub(
+                    self._calc_relu_expectations_lb_ub(
                         Sig_lb, Sig_ub, E, E_der, u, idx_adv, perturbation_model
                     )
             elif self.model_dict["activation"] == 'linear': 
@@ -893,7 +893,7 @@ class NTK(torch.nn.Module):
         ntk += S.matmul(E+B).matmul(S.T)
 
         E_lb, E_ub, E_der_lb, E_der_ub, sig_dot_E_der_lb, sig_dot_E_der_ub = \
-                    self.calc_relu_expectations_lb_ub(Sig_lb, Sig_ub, E, E_der, u, idx_adv, perturbation_model)
+                    self._calc_relu_expectations_lb_ub(Sig_lb, Sig_ub, E, E_der, u, idx_adv, perturbation_model)
         ntk_lb += S.matmul(sig_dot_E_der_lb).matmul(S.T)
         ntk_lb += S.matmul(E_lb+B).matmul(S.T)
         ntk_ub += S.matmul(sig_dot_E_der_ub).matmul(S.T)
