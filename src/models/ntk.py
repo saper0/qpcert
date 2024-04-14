@@ -604,7 +604,7 @@ class NTK(torch.nn.Module):
         else:
             assert False, "Only l0 perturbation model implemented."
 
-    def calc_relu_expectations_lb_ub(self, 
+    def _calc_gcn_relu_expectations_lb_ub(self, 
                        Sig_lb: Float[torch.Tensor, "n n"],
                        Sig_ub: Float[torch.Tensor, "n n"],
                        E: Float[torch.Tensor, "n n"],
@@ -658,21 +658,17 @@ class NTK(torch.nn.Module):
         #u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
         #                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
         u_ub_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-        u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u]  \
-                                        / torch.sqrt(q_lb[mask_abs_u] * q_lb[mask_abs_u])
+        u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] / q_lb[mask_abs_u]
         u_ub_sq[mask_abs_u] *= u_ub_sq[mask_abs_u]
-        u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] \
-                                        / torch.sqrt(q_lb[mask_abs_l] * q_lb[mask_abs_l])
+        u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] / q_lb[mask_abs_l]
         u_ub_sq[mask_abs_l] *= u_ub_sq[mask_abs_l]
         u_ub_sq[u_ub_sq > 1] = 1
         u_ub_sq[u_ub_sq < 0] = 0
         u_ub_sq[torch.isnan(u_ub_sq)] = 0
         u_lb_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-        u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] \
-                                    / torch.sqrt(q_ub[mask_abs_u] * q_ub[mask_abs_u])
+        u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] / q_ub[mask_abs_u]
         u_lb_sq[mask_abs_u] *= u_lb_sq[mask_abs_u]
-        u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] \
-                                    / torch.sqrt(q_ub[mask_abs_l] * q_ub[mask_abs_l])
+        u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] / q_ub[mask_abs_l]
         u_lb_sq[mask_abs_l] *= u_lb_sq[mask_abs_l]
         u_lb_sq[u_lb_sq > 1] = 1
         u_lb_sq[u_lb_sq < 0] = 0
@@ -802,113 +798,10 @@ class NTK(torch.nn.Module):
                 ntk_sub[j] = S.matmul((ntk_sub[j].float() * E_der).matmul(S.T))
             ######################
             if self.model_dict["activation"] == 'relu':
-                p = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
-                Diag_Sig_lb = torch.diagonal(Sig_lb) 
-                assert (Diag_Sig_lb < 0).sum() == 0
-                Diag_Sig_ub = torch.diagonal(Sig_ub) 
-                assert (Diag_Sig_ub == 0).sum() == 0
-                Sig_i_lb = p + Diag_Sig_lb.reshape(1, -1)
-                Sig_j_lb = p + Diag_Sig_lb.reshape(-1, 1)
-                Sig_i_ub = p + Diag_Sig_ub.reshape(1, -1)
-                Sig_j_ub = p + Diag_Sig_ub.reshape(-1, 1)
-                q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb) #+ 1e-7 q_lb_{ij} = Sigma_ii * Sigma_jj
-                q_ub = torch.sqrt(Sig_i_ub * Sig_j_ub)
-                assert (q_lb < 0).sum() == 0
-                assert (q_ub <= 0).sum() == 0
-                mask_pos = Sig_lb >= 0
-                mask_neg = ~mask_pos
-                u_lb = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                u_lb[mask_pos] = Sig_lb[mask_pos]/q_ub[mask_pos]
-                u_lb[mask_neg] = Sig_lb[mask_neg]/q_lb[mask_neg]
-                u_lb[u_lb < -1] = -1
-                u_lb[u_lb > 1] = 1
-                assert (u_lb > u).sum() == 0
-                assert torch.isnan(u_lb).sum() == 0
-                u_ub = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                mask_pos = Sig_ub >= 0
-                mask_neg = ~mask_pos
-                u_ub[mask_pos] = Sig_ub[mask_pos]/q_lb[mask_pos] 
-                u_ub[mask_neg] = Sig_ub[mask_neg]/q_ub[mask_neg]
-                u_ub[u_ub > 1] = 1
-                u_ub[u_ub < -1] = -1
-                u_ub[torch.isnan(u_ub)] = 0
-                assert (u_ub < u).sum() == 0
-                mask_abs_u = torch.abs(Sig_ub) >= torch.abs(Sig_lb)
-                mask_abs_l = ~mask_abs_u
-                #For u_ub_sq use same calculation scheme as for NTK
-                #Sligthly better (numerically on a scale of 1e-16 & faster) would 
-                #be the following, however - then NTK would need more storage!
-                #u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] * Sig_ub[mask_abs_u] \
-                #                        / q_lb[mask_abs_u] * q_lb[mask_abs_u])
-                #u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] * Sig_lb[mask_abs_l] \
-                #                        / (q_lb[mask_abs_l] * q_lb[mask_abs_l])
-                #u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] * Sig_lb[mask_abs_u] \
-                #                    / (q_ub[mask_abs_u] * q_ub[mask_abs_u])
-                #u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] * Sig_ub[mask_abs_l] \
-                #                    / (q_ub[mask_abs_l] * q_ub[mask_abs_l])
-                u_ub_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                u_ub_sq[mask_abs_u] = Sig_ub[mask_abs_u] / q_lb[mask_abs_u]
-                u_ub_sq[mask_abs_u] *= u_ub_sq[mask_abs_u]
-                u_ub_sq[mask_abs_l] = Sig_lb[mask_abs_l] / q_lb[mask_abs_l]
-                u_ub_sq[mask_abs_l] *= u_ub_sq[mask_abs_l]
-                u_ub_sq[u_ub_sq > 1] = 1
-                u_ub_sq[u_ub_sq < 0] = 0
-                u_ub_sq[torch.isnan(u_ub_sq)] = 0
-                u_lb_sq = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                u_lb_sq[mask_abs_u] = Sig_lb[mask_abs_u] / q_ub[mask_abs_u]
-                u_lb_sq[mask_abs_u] *= u_lb_sq[mask_abs_u]
-                u_lb_sq[mask_abs_l] = Sig_ub[mask_abs_l] / q_ub[mask_abs_l]
-                u_lb_sq[mask_abs_l] *= u_lb_sq[mask_abs_l]
-                u_lb_sq[u_lb_sq > 1] = 1
-                u_lb_sq[u_lb_sq < 0] = 0
-                u_lb_sq[torch.isnan(u_lb_sq)] = 0
-                assert (u_ub_sq < u_lb_sq).sum() == 0
-                if perturbation_model == "l0":
-                    assert (Sig_lb < 0).sum() == 0
-                    assert (Sig_ub < 0).sum() == 0
-                E_lb = (q_lb * self.kappa_1_lb(u_lb, u_ub_sq)) * csigma
-                E_lb[E_lb < 0] = 0
-                E_ub = (q_ub * self.kappa_1_ub(u_ub, u_lb_sq)) * csigma
-                assert (E_ub < E_lb).sum() == 0
-                assert (E_lb > E).sum() == 0
-                assert (E_ub < E).sum() == 0
-                self.empty_gpu_memory()
-                E_der_lb = self.kappa_0_lb(u_lb)
-                assert (E_der_lb < 0).sum() == 0
-                assert (E_der_lb > 1).sum() == 0
-                E_der_lb = E_der_lb * csigma
-                E_der_ub = self.kappa_0_ub(u_ub) 
-                assert (E_der_ub < 0).sum() == 0
-                assert (E_der_ub > 1).sum() == 0
-                E_der_ub = E_der_ub * csigma
-                assert (E_der_ub < E_der).sum() == 0
-                assert (E_der_lb > E_der).sum() == 0
-                assert (E_der_ub < E_der_lb).sum() == 0
-                if globals.debug:
-                    print(f"E_der.mean(): {E_der.mean()}")
-                    print(f"E_der.min(): {E_der.min()}")
-                    print(f"E_der.max(): {E_der.max()}")
-                    print(f"E_der[:,idx_adv]: {E_der[:,idx_adv].mean()}")
-                    print(f"E_der_lb.mean(): {E_der_lb.mean()}")
-                    print(f"E_der_lb.min(): {E_der_lb.min()}")
-                    print(f"E_der_lb.max(): {E_der_lb.max()}")
-                    print(f"E_der_lb[:,idx_adv]: {E_der_lb[:,idx_adv].mean()}")
-                    print(f"E_der_ub.mean(): {E_der_ub.mean()}")
-                    print(f"E_der_ub.min(): {E_der_ub.min()}")
-                    print(f"E_der_ub.max(): {E_der_ub.max()}")
-                    print(f"E_der_ub[:,idx_adv]: {E_der_ub[:,idx_adv].mean()}")
-                self.empty_gpu_memory()
-                assert (Sig_lb > Sig_ub).sum() == 0
-                mask_pos = Sig_ub >= 0
-                mask_neg = ~mask_pos
-                sig_dot_E_der_ub = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                sig_dot_E_der_ub[mask_pos] = (Sig_ub * E_der_ub)[mask_pos]
-                sig_dot_E_der_ub[mask_neg] = (Sig_ub * E_der_lb)[mask_neg]
-                mask_pos = Sig_lb >= 0
-                mask_neg = ~mask_pos
-                sig_dot_E_der_lb = torch.zeros(Sig_lb.shape, device=self.device, dtype=self.dtype)
-                sig_dot_E_der_lb[mask_pos] = (Sig_lb * E_der_lb)[mask_pos]
-                sig_dot_E_der_lb[mask_neg] = (Sig_lb * E_der_ub)[mask_neg]
+                E_lb, E_ub, E_der_lb, E_der_ub, sig_dot_E_der_lb, sig_dot_E_der_ub = \
+                    self._calc_gcn_relu_expectations_lb_ub(
+                        Sig_lb, Sig_ub, E, E_der, u, idx_adv, perturbation_model
+                    )
             elif self.model_dict["activation"] == 'linear': 
                 E_lb = Sig_lb
                 E_ub = Sig_ub
