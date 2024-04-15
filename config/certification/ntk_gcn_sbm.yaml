@@ -11,7 +11,7 @@ slurm:
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
-    cpus-per-task: 1  # num cores
+    cpus-per-task: 2  # num cores
     time: 4-20:30     # max time, D-HH:MM
 
 fixed:
@@ -28,10 +28,10 @@ fixed:
       avg_between_class_degree: 0.74
 
   model_params:
-    label: GCN
+    label: GCN_depth4
     model: GCN
     normalization: row_normalization
-    depth: 1
+    depth: 4
     pred_method: svm
     activation: relu
     solver: qplayer
@@ -61,8 +61,8 @@ grid:
       options:
       - 0.001
       - 0.01
-      - 0.1
-      - 1
+      #- 0.1
+      #- 1
 
   certificate_params:
     n_adversarial:

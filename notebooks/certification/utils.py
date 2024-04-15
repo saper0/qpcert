@@ -153,7 +153,7 @@ class Experiment:
 
     def get_result(self, key: str) -> Tuple[float, float]:
         """Return average & std of metric 'key' over all seeds."""
-        return np.mean(self.results["key"]).item(), np.std(self.results["key"]).item()
+        return np.mean(self.results[key]).item(), np.std(self.results[key]).item()
     
     def get_robust_accuracy(self) -> Tuple[float, float]:
         n_robust_acc_l = []
@@ -346,9 +346,12 @@ class ExperimentManager:
                 y_err_l = []
                 y_l = []
                 for delta in delta_l:
-                    exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
-                    y, y_std = exp.get_robust_accuracy()
-                    print(y)
+                    if delta == 0.:
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta_l[1]]
+                        y, y_std = exp.get_result("accuracy_test")
+                    else:
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
+                        y, y_std = exp.get_robust_accuracy()
                     y_l.append(y)
                     y_err_l.append(y_std)
                 x = [i for i in range(len(delta_l))]
@@ -358,8 +361,39 @@ class ExperimentManager:
                 self.set_xaxis_labels(ax, x, delta_l)
         ax.set_ylabel("Robust Accuracy", fontsize=20)
         ax.set_xlabel(r"$\delta$", fontsize=17, fontweight="bold")
-        #ax.set_yticklabels([f"{round(i, 2):.2f}" for i in ax.get_yticks()], fontsize=13)
-        #ax.set_yticklabels([f"{round(i, 1):.1f}" for i in ax.get_yticks()], fontsize=15, fontweight="bold")
+        ax.yaxis.grid()
+        ax.xaxis.grid()
+        ax.legend()
+        plt.show()
+
+
+    def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
+                              attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
+                              width=1, ratio=1.618):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        self.set_color_cycler(ax)
+        for label in models:
+            for C in C_l:
+                for n_adv in n_adv_l:
+                    y_err_l = []
+                    y_l = []
+                    for delta in delta_l:
+                        if delta == 0.:
+                            exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta_l[1]]
+                            y, y_std = exp.get_result("accuracy_test")
+                        else:
+                            exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
+                            y, y_std = exp.get_robust_accuracy()
+                        y_l.append(y)
+                        y_err_l.append(y_std)
+                    x = [i for i in range(len(delta_l))]
+                    label_str = label + " " + str(C) + f" n_adv {n_adv}"
+                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                                capsize=3, linewidth=1, markersize=4)
+                    self.set_xaxis_labels(ax, x, delta_l)
+        ax.set_ylabel("Robust Accuracy", fontsize=20)
+        ax.set_xlabel(r"$\delta$", fontsize=17, fontweight="bold")
         ax.yaxis.grid()
         ax.xaxis.grid()
         ax.legend()

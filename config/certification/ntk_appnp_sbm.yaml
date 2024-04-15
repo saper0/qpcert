@@ -11,7 +11,7 @@ slurm:
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
-    cpus-per-task: 2  # num cores
+    cpus-per-task: 4  # num cores
     time: 4-20:30     # max time, D-HH:MM
 
 fixed:
@@ -28,7 +28,6 @@ fixed:
       avg_between_class_degree: 0.74
 
   model_params:
-    label: APPNP
     model: APPNP
     normalization: sym_normalization
     iteration: 10
@@ -57,14 +56,25 @@ fixed:
 grid:
 
   model_params:
+    label:
+      type: choice
+      options:
+      - APPNP_alpha0
+      - APPNP_alpha0.3
+      - APPNP_alpha0.5
+      - APPNP_alpha1
+      zip_id: alphas
+
     alpha:
       type: choice
       options:
       #- 0.2
-      - 0.1
-      #- 0
-      #- 0.5
-      #- 1
+      #- 0.1
+      - 0
+      - 0.3
+      - 0.5
+      - 1
+      zip_id: alphas
       
     regularizer:
       type: choice
