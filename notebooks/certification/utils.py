@@ -27,7 +27,7 @@ def append_dict(source: Dict[str, Any], target: Dict[str, Any],
                 exclude_keys: List[str] = []):
     """Appends each element in source-dict to same key-element in target. 
     
-    Assumes source-dict has as element a single number or again a dict. 
+    Assumes source-dict has as elements a single number, list, or a dict. 
     Possibility to ignore keys given in exclude_keys.
     """
     for key, item in source.items():
@@ -36,6 +36,10 @@ def append_dict(source: Dict[str, Any], target: Dict[str, Any],
                 if key not in target:
                     target[key] = {}
                 append_dict(item, target[key])
+            elif isinstance(item, list):
+                if key not in target:
+                    target[key] = []
+                target[key].extend(item)
             else: 
                 if key not in target:
                     target[key] = []
@@ -111,10 +115,12 @@ class Experiment:
         self.hyperparameters = experiment_list[0]["config"]
         self.label = self.hyperparameters["model_params"]["label"]
         self.K = self.hyperparameters["data_params"]["specification"]["K"]
-        self.C = self.hyperparameters["model_params"]["regularizer"]
+        self.C = float(self.hyperparameters["model_params"]["regularizer"])
+        self.delta = float(self.hyperparameters["certificate_params"]["delta"])
+        self.n_adv = int(self.hyperparameters["certificate_params"]["n_adversarial"])
+        self.attack_nodes = self.hyperparameters["certificate_params"]["attack_nodes"]
         Experiment.assert_same_hyperparameters(self.individual_experiments)
         self.average_result_statistics()
-        self.calculate_robustness_metrics()
 
     @staticmethod
     def assert_same_hyperparameters(
@@ -126,389 +132,66 @@ class Experiment:
         model_params_l = []
         certificate_params_l = []
         for experiment in individual_experiments:
+            data_params = experiment["config"]["data_params"]
+            del data_params["specification"]["seed"]
             data_params_l.append(experiment["config"]["data_params"])
             model_params_l.append(experiment["config"]["model_params"])
-            certificate_params_l.append(experiment["config"]["train_params"])
+            certificate_params_l.append(experiment["config"]["certificate_params"])
         for i in range(1, len(individual_experiments)):
             assert_equal_dicts(data_params_l[0], data_params_l[i])
             assert_equal_dicts(data_params_l[0], data_params_l[i])
             assert_equal_dicts(model_params_l[0], model_params_l[i])
-            assert_equal_dicts(certificate_params_l[0]["specification"], 
-                               certificate_params_l[i]["specification"])
     
     def average_result_statistics(self):
         """Average prediction statistics and robustness statistics calculated 
         from the raw data for each seed."""
-        self.prediction_statistics = {}
-        self.robustness_statistics = {}
-        final_training_loss_l = []
-        final_training_accuracy_l = []
-        final_validation_loss_l = []
-        final_validation_accuracy_l = []
+        self.results = {}
         for experiment in self.individual_experiments:
             result = experiment["result"]
-            append_dict(result["prediction_statistics"], 
-                        self.prediction_statistics)
-            exclude_keys = ["c_bayes_robust", "c_gnn_robust", 
-                            "c_gnn_wrt_bayes_robust", "c_bayes_robust_when_both",
-                            "c_gnn_robust_when_both", "c_degree_total"]
-            append_dict(result["robustness_statistics"], 
-                        self.robustness_statistics, exclude_keys)
-            exclude_keys = exclude_keys[:-1]
-            extend_dict(result["robustness_statistics"],
-                        self.robustness_statistics, include_keys=exclude_keys)
-            final_training_loss_l.append(result["final_training_loss"])
-            final_training_accuracy_l.append(result["final_training_accuracy"])
-            final_validation_loss_l.append(result["final_validation_loss"])
-            final_validation_accuracy_l.append(result["final_validation_accuracy"])
-        average_dict(self.prediction_statistics)
-        average_dict(self.robustness_statistics)
-        self.avg_training_loss = np.mean(final_training_loss_l)
-        self.std_training_loss = scipy.stats.sem(final_training_loss_l)
-        self.avg_training_accuracy = np.mean(final_training_accuracy_l)
-        self.std_training_accuracy = scipy.stats.sem(final_training_accuracy_l)
-        self.avg_validation_loss = np.mean(final_validation_loss_l)
-        self.validation_loss = final_validation_loss_l
-        self.std_validation_loss = scipy.stats.sem(final_validation_loss_l)
-        self.avg_validation_accuracy = np.mean(final_validation_accuracy_l)
-        self.std_validation_accuracy = scipy.stats.sem(final_validation_accuracy_l)
-        self.validation_accuracy = final_validation_accuracy_l
-          
-    def calculate_robustness_metrics(self):
-        self.count_zero_degree_nodes(verbose=False)
-        self.measure_robustness(verbose=False)
+            append_dict(result, self.results)
+        average_dict(self.results)
 
-    def count_zero_degree_nodes(self, verbose):
-        """Count how many 0-degree nodes in V'.
-        
-        0-degree nodes have to be removes from calculation of robustness 
-        metrics.
-        """
-        count_deg_0 = 0
-        count_total = 0
+    def get_result(self, key: str) -> Tuple[float, float]:
+        """Return average & std of metric 'key' over all seeds."""
+        return np.mean(self.results["key"]).item(), np.std(self.results["key"]).item()
+    
+    def get_robust_accuracy(self) -> Tuple[float, float]:
+        n_robust_acc_l = []
         for experiment in self.individual_experiments:
             result = experiment["result"]
-            robustness_stats = result["robustness_statistics"]
-            for key, item in robustness_stats["c_bayes_robust_when_both"].items():
-                if key == "0":
-                    count_deg_0 += len(item)
-                count_total += len(item)
-        count_deg_0 = count_deg_0 / len(self.individual_experiments)
-        count_total = count_total / len(self.individual_experiments)
-        if verbose:
-            print(f"{self.label} on K={self.K} has {count_deg_0}/{count_total}"
-                    f" ({count_deg_0/count_total*100:.1f}%) deg 0 nodes removed"
-                    f" for robustness metric calculation")
-
-    def measure_robustness(self, verbose):
-        """Calculate over-robustness metrics and average over seeds."""
-        rob_f_wrt_y_l = []
-        rob_g_wrt_y_l = []
-        rob_f_wrt_g_l = []
-        over_robustness_l = []
-        over_robustness_v2_l = []
-        min_changes_to_flip_overrob_l = []
-        min_changes_to_flip_overrob_v2_l = []
-        min_changes_to_flip_advrob_l = []
-        min_changes_to_flip_underrob_l = []
-        adv_robustness_l = []
-        under_robustness_l = []
-        f1_robustness_l = []
-        f1_robustness_v2_l = []
-        f1_min_changes_l = []
-        f1_min_changes_v2_l = []
+            n_robust_acc = 0
+            for y_true, y_pred, y_worst in zip(result["y_true_cls"],
+                                               result["y_pred_logit"],
+                                               result["y_worst_obj"]):
+                if y_pred > 0 and y_true > 0 and y_worst > 0:
+                    n_robust_acc += 1
+                if y_pred < 0 and y_true < 0 and y_worst < 0:
+                    n_robust_acc += 1
+            n_robust_acc_l.append(n_robust_acc)
+        return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
+    
+    def get_certified_ratio(self) -> Tuple[float, float]:
+        n_robust_l = []
         for experiment in self.individual_experiments:
             result = experiment["result"]
-            robustness_stats = result["robustness_statistics"]
-            g_wrt_y = robustness_stats["c_bayes_robust_when_both"]
-            f_wrt_y = robustness_stats["c_gnn_robust_when_both"]
-            f_wrt_g = robustness_stats["c_gnn_wrt_bayes_robust"]
-            over_robustness = 0
-            #adv_robustness = 0
-            rob_f_wrt_y = 0
-            rob_g_wrt_y = 0
-            rob_f_wrt_g = 0
-            min_changes_to_flip_overrob = 0 
-            min_changes_to_flip_overrob_v2 = 0
-            min_changes_to_flip_advrob = 0
-            min_changes_to_flip_underrob = 0
-            c_nodes = 0
-            for deg in g_wrt_y:
-                if deg == "0":
-                    continue
-                for g_wrt_y_i, f_wrt_y_i, f_wrt_g_i in \
-                    zip(g_wrt_y[deg], f_wrt_y[deg], f_wrt_g[deg]):
-                    rob_f_wrt_y += f_wrt_y_i / int(deg)
-                    rob_g_wrt_y += g_wrt_y_i / int(deg)
-                    rob_f_wrt_g += f_wrt_g_i / int(deg)
-                    over_robustness += (f_wrt_y_i - g_wrt_y_i) / int(deg)
-                    #adv_robustness += (g_wrt_y_i - f_wrt_g_i) / int(deg)
-                    min_changes_to_flip_overrob += (f_wrt_y_i + 1) / (g_wrt_y_i + 1)
-                    min_changes_to_flip_overrob_v2 += 1 - (f_wrt_g_i + 1) / (f_wrt_y_i + 1)
-                    min_changes_to_flip_advrob += (f_wrt_g_i + 1) / (g_wrt_y_i + 1)
-                    min_changes_to_flip_underrob += 1 - min_changes_to_flip_advrob
-                c_nodes += len(f_wrt_g[deg])
-            over_robustness_l.append(over_robustness / c_nodes)
-            over_robustness_v2_l.append(1 - rob_f_wrt_g / rob_f_wrt_y)
-            adv_robustness_l.append(rob_f_wrt_g / rob_g_wrt_y)
-            under_robustness_l.append(1 - rob_f_wrt_g / rob_g_wrt_y)
-            rob_f_wrt_y_l.append(rob_f_wrt_y / c_nodes)
-            rob_g_wrt_y_l.append(rob_g_wrt_y / c_nodes)
-            rob_f_wrt_g_l.append(rob_f_wrt_g / c_nodes)
-            min_changes_to_flip_overrob_l.append(min_changes_to_flip_overrob / c_nodes) 
-            min_changes_to_flip_overrob_v2_l.append(min_changes_to_flip_overrob_v2 / c_nodes)
-            min_changes_to_flip_advrob_l.append(min_changes_to_flip_advrob / c_nodes) 
-            min_changes_to_flip_underrob_l.append(min_changes_to_flip_underrob / c_nodes)
-            # f1 robustness
-            Rover = min(rob_g_wrt_y_l[-1] / rob_f_wrt_y_l[-1], 1)
-            Radv = rob_f_wrt_g_l[-1] / rob_g_wrt_y_l[-1]
-            f1_robustness_l.append(2 * Rover * Radv / (Rover + Radv))
-            # f1 robustness v2
-            Rover = 1 - over_robustness_v2_l[-1]
-            Radv = adv_robustness_l[-1]
-            f1_robustness_v2_l.append(2 * Rover * Radv / (Rover + Radv))
-            # f1 min changes
-            Rover = min((rob_g_wrt_y_l[-1] + 1)/(rob_f_wrt_y_l[-1] + 1), 1)
-            Radv = min_changes_to_flip_advrob_l[-1]
-            f1_min_changes_l.append(2 * Rover * Radv / (Rover + Radv))
-            # f1 min changes v2
-            Rover = min_changes_to_flip_overrob_v2_l[-1]
-            Radv = 1 - min_changes_to_flip_underrob_l[-1]
-            f1_min_changes_v2_l.append(2 * Rover * Radv / (Rover + Radv))
-        # All Robustness Statistics Attributes
-        self.avg_robustness_f_wrt_y = np.mean(rob_f_wrt_y_l)
-        self.std_robustness_f_wrt_y = scipy.stats.sem(rob_f_wrt_y_l)
-        self.avg_robustness_g_wrt_y = np.mean(rob_g_wrt_y_l)
-        self.std_robustness_g_wrt_y = scipy.stats.sem(rob_g_wrt_y_l)
-        self.avg_robustness_f_wrt_g = np.mean(rob_f_wrt_g_l)
-        self.std_robustness_f_wrt_g = scipy.stats.sem(rob_f_wrt_g_l)
-        self.avg_over_robustness = np.mean(over_robustness_l)
-        self.std_over_robustness = scipy.stats.sem(over_robustness_l)
-        self.avg_over_robustness_v2 = np.mean(over_robustness_v2_l)
-        self.std_over_robustness_v2 = scipy.stats.sem(over_robustness_v2_l)
-        self.relative_over_robustness = self.avg_robustness_f_wrt_y / self.avg_robustness_g_wrt_y
-        # see https://www.geol.lsu.edu/jlorenzo/geophysics/uncertainties/Uncertaintiespart2.html#muldiv
-        self.std_relative_over_robustness = \
-            (self.std_robustness_f_wrt_y / self.avg_robustness_f_wrt_y 
-             + self.std_robustness_g_wrt_y / self.avg_robustness_g_wrt_y) \
-                * self.relative_over_robustness 
-        self.avg_adv_robustness = np.mean(adv_robustness_l)
-        self.std_adv_robustness = scipy.stats.sem(adv_robustness_l)
-        self.avg_under_robustness = np.mean(under_robustness_l)
-        self.std_under_robustness = scipy.stats.sem(under_robustness_l)
-        self.relative_adv_robustness = self.avg_robustness_f_wrt_g / self.avg_robustness_g_wrt_y
-        self.std_relative_adv_robustness = \
-            (self.std_robustness_f_wrt_g / self.avg_robustness_f_wrt_g
-             + self.std_robustness_g_wrt_y / self.avg_robustness_g_wrt_y) \
-                * self.relative_adv_robustness
-        self.avg_min_changes_to_flip_overrob = np.mean(min_changes_to_flip_overrob_l)
-        self.std_min_changes_to_flip_overrob = scipy.stats.sem(min_changes_to_flip_overrob_l)
-        self.avg_min_changes_to_flip_overrob_v2 = np.mean(min_changes_to_flip_overrob_v2_l)
-        self.std_min_changes_to_flip_overrob_v2 = scipy.stats.sem(min_changes_to_flip_overrob_v2_l)
-        self.avg_min_changes_to_flip_advrob = np.mean(min_changes_to_flip_advrob_l)
-        self.std_min_changes_to_flip_advrob = scipy.stats.sem(min_changes_to_flip_advrob_l)
-        self.avg_min_changes_to_flip_underrob = np.mean(min_changes_to_flip_underrob_l)
-        self.std_min_changes_to_flip_underrob = scipy.stats.sem(min_changes_to_flip_underrob_l)
-        self.avg_f1_robustness = np.mean(f1_robustness_l)
-        self.std_f1_robustness = scipy.stats.sem(f1_robustness_l)
-        self.avg_f1_min_changes = np.mean(f1_min_changes_l)
-        self.std_f1_min_changes = scipy.stats.sem(f1_min_changes_l)
-        self.avg_f1_robustness_v2 = np.mean(f1_robustness_v2_l)
-        self.std_f1_robustness_v2 = scipy.stats.sem(f1_robustness_v2_l)
-        self.avg_f1_min_changes_v2 = np.mean(f1_min_changes_v2_l)
-        self.std_f1_min_changes_v2 = scipy.stats.sem(f1_min_changes_v2_l)
-        # Raw Robustness Metrics for each Seed:
-        self.rob_f_wrt_y_l = np.array(rob_f_wrt_y_l)
-        self.rob_g_wrt_y_l = np.array(rob_g_wrt_y_l)
-        self.rob_f_wrt_g_l = np.array(rob_f_wrt_g_l)
-        self.min_changes_to_flip_overrob_v2_l = np.array(min_changes_to_flip_overrob_v2_l)
-        self.min_changes_to_flip_advrob_l = np.array(min_changes_to_flip_advrob_l)
-      
-    def get_measurement(self, name: str, budget: str=None) -> Tuple[float, float]:
-        """Return tuple: averaged measurement, std-measurement.
-        
-        Budget can be None, deg+2 or int
-        """
-        if name == "over-robustness":
-            return self.avg_over_robustness.item(), self.std_over_robustness.item()
-        if name == "over-robustness-v2":
-            if budget is None:
-                return self.avg_over_robustness_v2.item(), self.std_over_robustness_v2.item()
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "relative-over-robustness":
-            return self.relative_over_robustness.item(), self.std_relative_over_robustness.item()
-        if name == "f_wrt_y":
-            if budget is None:
-                return self.avg_robustness_f_wrt_y.item(), self.std_robustness_f_wrt_y.item()
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "g_wrt_y":
-            if budget is None:
-                return self.avg_robustness_g_wrt_y.item(), self.std_robustness_g_wrt_y.item()
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "f_wrt_g":
-            return self.avg_robustness_f_wrt_g.item(), self.std_robustness_f_wrt_g.item()
-        if name == "adversarial-robustness":
-            if budget is None:
-                return self.avg_adv_robustness.item(), self.std_adv_robustness.item()
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "relative-adversarial-robustness":
-            return self.relative_adv_robustness.item(), self.std_adv_robustness.item()
-        if name == "under-robustness":
-            return self.avg_under_robustness.item(), self.std_under_robustness.item()
-        if name == "validation-accuracy":
-            return self.avg_validation_accuracy.item(), self.std_validation_accuracy.item()
-        if name == "test-accuracy":
-            n = self.hyperparameters["data_params"]["inductive_samples"]
-            gnn_test_acc = self.prediction_statistics["avg_c_acc_gnn"] / n
-            gnn_test_acc_std = self.prediction_statistics["sem_c_acc_gnn"] / n
-            return gnn_test_acc, gnn_test_acc_std
-        if name == "test-accuracy-bayes":
-            n = self.hyperparameters["data_params"]["inductive_samples"]
-            bayes_test_acc = self.prediction_statistics["avg_c_acc_bayes"] / n
-            bayes_test_acc_std = self.prediction_statistics["sem_c_acc_bayes"] / n
-            return bayes_test_acc, bayes_test_acc_std
-        if name == "relative-changes-to-flip-overrobust":
-            return self.avg_min_changes_to_flip_overrob.item(), self.std_min_changes_to_flip_overrob.item()
-        if name == "min-changes-to-flip-overrobust-v2":
-            return self.avg_min_changes_to_flip_overrob_v2.item(), self.std_min_changes_to_flip_overrob_v2.item()
-        if name == "relative-changes-to-flip-advrobust":
-            return self.avg_min_changes_to_flip_advrob.item(), self.std_min_changes_to_flip_advrob.item()
-        if name == "min-changes-to-flip-underrobust":
-            return self.avg_min_changes_to_flip_underrob.item(), self.std_min_changes_to_flip_underrob.item()
-        if name == "f1-robustness":
-            return self.avg_f1_robustness.item(), self.std_f1_robustness.item()
-        if name == "f1-robustness-v2":
-            if budget is None:
-                return self.avg_f1_robustness_v2.item(), self.std_f1_robustness_v2.item()
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "f1-min-changes":
-            return self.avg_f1_min_changes.item(), self.std_f1_min_changes.item()
-        if name == "f1-min-changes-2":
-            return self.avg_f1_min_changes_v2.item(), self.std_f1_min_changes_v2.item()
-        if name == "rob_f_wrt_y_l":
-            if budget is None:
-                return self.rob_f_wrt_y_l
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "rob_g_wrt_y_l":
-            if budget is None:
-                return self.rob_g_wrt_y_l
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "rob_f_wrt_g_l":
-            if budget is None:
-                return self.rob_f_wrt_g_l
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "adversarial_accuracy":
-            if budget is None:
-                assert False, "Not implemented without budget."
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "adversarial_error":
-            if budget is None:
-                assert False, "Not implemented without budget."
-            else:
-                return self.calc_robustness_measure(name, local_budget=budget)
-        if name == "c_acc_bayes_feature":
-            n = self.hyperparameters["data_params"]["inductive_samples"]
-            return self.prediction_statistics["avg_c_acc_bayes_feature"] / n, \
-                self.prediction_statistics["std_c_acc_bayes_feature"] / n
-        if name == "c_acc_bayes_structure":
-            n = self.hyperparameters["data_params"]["inductive_samples"]
-            return self.prediction_statistics["avg_c_acc_bayes_structure"] / n, \
-                self.prediction_statistics["std_c_acc_bayes_structure"] / n
-        if name == "c_acc_bayes":
-            n = self.hyperparameters["data_params"]["inductive_samples"]
-            return self.prediction_statistics["avg_c_acc_bayes"] / n, \
-                self.prediction_statistics["std_c_acc_bayes"] / n
-
-    def calc_robustness_measure(self, name, local_budget: str):
-        rob_f_wrt_y_l = []
-        rob_g_wrt_y_l = []
-        rob_f_wrt_g_l = []
-        over_robustness_l = []
-        adv_robustness_l = []
-        f1_robustness_l = []
-        adversarial_accuracy_l = []
-        for experiment in self.individual_experiments:
-            result = experiment["result"]
-            robustness_statistics = result["robustness_statistics"]
-            f_wrt_y = robustness_statistics["c_gnn_robust_when_both"]
-            g_wrt_y = robustness_statistics["c_bayes_robust_when_both"]
-            f_wrt_g = robustness_statistics["c_gnn_wrt_bayes_robust"]
-            rob_f_wrt_y = 0
-            rob_g_wrt_y = 0
-            rob_f_wrt_g = 0
-            wrong_robust_examples = 0
-            c_nodes = 0
-            for deg in f_wrt_y:
-                if deg == "0":
-                    continue
-                #print(self.label, self.K)
-                #print(len(f_wrt_g[deg]), len(g_wrt_y[deg]), len(f_wrt_y[deg]))
-                #if self.label == "MLP":
-                #    if len(f_wrt_g[deg]) < len(g_wrt_y[deg]):
-                #        n = len(g_wrt_y[deg]) - len(f_wrt_g[deg])
-                #        for i in range(n):
-                #            f_wrt_g[deg].append(100)
-                #assert len(g_wrt_y[deg]) == len(f_wrt_y[deg])
-                #assert len(f_wrt_g[deg]) == len(f_wrt_y[deg])
-                for g_wrt_y_i, f_wrt_y_i, f_wrt_g_i in \
-                    zip(g_wrt_y[deg], f_wrt_y[deg], f_wrt_g[deg]):
-                    if type(local_budget) == str:
-                        budget = int(deg)+int(local_budget[4])
-                    else:
-                        budget = local_budget
-                    if f_wrt_y_i > budget:
-                        f_wrt_y_i = budget
-                    if g_wrt_y_i > budget:
-                        g_wrt_y_i = budget
-                    if f_wrt_g_i > budget:
-                        f_wrt_g_i = budget
-                    if f_wrt_y_i > g_wrt_y_i:
-                        wrong_robust_examples += 1
-                    rob_f_wrt_y += f_wrt_y_i / int(deg)
-                    rob_g_wrt_y += g_wrt_y_i / int(deg)
-                    rob_f_wrt_g += f_wrt_g_i / int(deg)
-                c_nodes += len(f_wrt_g[deg])
-            adversarial_accuracy_l.append(wrong_robust_examples / c_nodes)
-            over_robustness_l.append(1 - rob_f_wrt_g / rob_f_wrt_y)
-            adv_robustness_l.append(rob_f_wrt_g / rob_g_wrt_y)
-            rob_f_wrt_y_l.append(rob_f_wrt_y / c_nodes)
-            rob_g_wrt_y_l.append(rob_g_wrt_y / c_nodes)
-            rob_f_wrt_g_l.append(rob_f_wrt_g / c_nodes)
-            # f1 robustness v2
-            Rover = 1 - over_robustness_l[-1]
-            Radv = adv_robustness_l[-1]
-            f1_robustness_l.append(2 * Rover * Radv / (Rover + Radv))
-        if name=="over-robustness-v2":
-            return np.mean(over_robustness_l), scipy.stats.sem(over_robustness_l)
-        if name=="adversarial-robustness":
-            return np.mean(adv_robustness_l), scipy.stats.sem(adv_robustness_l)
-        if name=="f1-robustness-v2":
-            return np.mean(f1_robustness_l), scipy.stats.sem(f1_robustness_l)
-        if name=="rob_f_wrt_y_l":
-            return np.array(rob_f_wrt_y_l)
-        if name=="rob_g_wrt_y_l":
-            return np.array(rob_g_wrt_y_l)
-        if name=="rob_f_wrt_g_l":
-            return np.array(rob_f_wrt_g_l)
-        if name=="f_wrt_y":
-            return np.mean(rob_f_wrt_y_l), scipy.stats.sem(rob_f_wrt_y_l)
-        if name=="g_wrt_y":
-            return np.mean(rob_g_wrt_y_l), scipy.stats.sem(rob_g_wrt_y_l)
-        if name=="adversarial_accuracy":
-            return 1-np.mean(adversarial_accuracy_l), scipy.stats.sem(adversarial_accuracy_l)
-        if name=="adversarial_error":
-            return np.mean(adversarial_accuracy_l), scipy.stats.sem(adversarial_accuracy_l)
-
-
+            n_robust = 0
+            for y_true, y_pred, y_worst in zip(result["y_true_cls"],
+                                               result["y_pred_logit"],
+                                               result["y_worst_obj"]):
+                if y_true > 0 and y_worst > 0:
+                    n_robust += 1
+                if y_true < 0 and y_worst < 0:
+                    n_robust += 1
+            n_robust_l.append(n_robust)
+        return np.mean(n_robust_l).item(), np.std(n_robust_l).item()
+    
+    def __str__(self):
+        my_str = self.label
+        my_str += f" K: {self.K:.1f}, C: {self.C:.5f}, delta: {self.delta:.2f},"
+        my_str += f" n_adv: {self.n_adv}, attack_nodes: {self.attack_nodes}"
+        return my_str
+  
+    
 class ExperimentManager:
     """Administrates access and visualization of robustness experiments.
     
@@ -577,11 +260,17 @@ class ExperimentManager:
                                                  exp_spec["label"],
                                                  exp_spec["collection"])
                 for exp in exp_list:
-                    if exp.attack not in self.experiments_dict:
-                        self.experiments_dict[exp.attack] = {}
-                    if exp.label not in self.experiments_dict[exp.attack]:
-                        self.experiments_dict[exp.attack][exp.label] = {}
-                    self.experiments_dict[exp.attack][exp.label][exp.K] = exp
+                    if exp.label not in self.experiments_dict:
+                        self.experiments_dict[exp.label] = {}
+                    if exp.K not in self.experiments_dict[exp.label]:
+                        self.experiments_dict[exp.label][exp.K] = {}
+                    if exp.C not in self.experiments_dict[exp.label][exp.K]:
+                        self.experiments_dict[exp.label][exp.K][exp.C] = {}
+                    if exp.attack_nodes not in self.experiments_dict[exp.label][exp.K][exp.C]:
+                        self.experiments_dict[exp.label][exp.K][exp.C][exp.attack_nodes] = {}
+                    if exp.n_adv not in self.experiments_dict[exp.label][exp.K][exp.C][exp.attack_nodes]:
+                        self.experiments_dict[exp.label][exp.K][exp.C][exp.attack_nodes][exp.n_adv] = {}
+                    self.experiments_dict[exp.label][exp.K][exp.C][exp.attack_nodes][exp.n_adv][exp.delta] = exp
 
     def get_style(self, label: str):
         color_dict = {
@@ -622,6 +311,57 @@ class ExperimentManager:
                     if len(sep_labels) == 2 or sep_labels[0] == "LP":
                         linestyle = "--"
         return use_color, linestyle
+    
+    def set_color_cycler(self, ax):
+        color_list = ['r', 
+                      'tab:green', 
+                      'b', 
+                      'lime', 
+                      'slategrey', 
+                      'k', 
+                      "lightsteelblue",
+                      "antiquewhite",
+                      ]
+        linestyle_list = ['-', '--', ':', '-.']
+        ax.set_prop_cycle(cycler('linestyle', linestyle_list)*
+                          cycler('color', color_list))
+
+    def set_xaxis_labels(self, ax, x_ticks, x_labels):
+        ax.xaxis.get_major_formatter()._usetex = False
+        ax.xaxis.set_ticks(x_ticks, minor=False)
+        xticks = [f"{label}" for label in x_labels]
+        ax.xaxis.set_ticklabels(xticks, fontsize=12, fontweight="bold")
+        ax.set_xlim(left=-0.3)
+
+    def plot_robust_acc_delta(self, K: float, models: List[str], C_l: List[float], 
+                              attack_nodes: str, n_adv: int, delta_l: List[float],
+                              width=1, ratio=1.618):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        self.set_color_cycler(ax)
+        for label in models:
+            for C in C_l:
+                y_err_l = []
+                y_l = []
+                for delta in delta_l:
+                    exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
+                    y, y_std = exp.get_robust_accuracy()
+                    y_l.append(y)
+                    y_err_l.append(y_std)
+                x = [i for i in range(len(delta_l))]
+                label_str = label + " " + str(C)
+                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                            capsize=3, linewidth=1, markersize=4)
+                self.set_xaxis_labels(ax, x, delta_l)
+        ax.set_ylabel("Robust Accuracy", fontsize=20)
+        ax.set_xlabel(r"$\delta$", fontsize=17, fontweight="bold")
+        #ax.set_yticklabels([f"{round(i, 2):.2f}" for i in ax.get_yticks()], fontsize=13)
+        #ax.set_yticklabels([f"{round(i, 1):.1f}" for i in ax.get_yticks()], fontsize=15, fontweight="bold")
+        ax.yaxis.grid()
+        ax.xaxis.grid()
+        ax.legend()
+        plt.show()
+
 
     def plot(self, name: str, attack: str, models: List[str], 
              errorbars: bool=True, ylabel: str=None, title: str=None,
@@ -880,30 +620,4 @@ class ExperimentManager:
         #plt.grid(axis="both")
         plt.show()
 
-    def model_iterator(
-        self, attack: str, models: List[str]
-    ) -> Iterator[Tuple[str, Dict[float, Experiment]]]:
-        """Provide iterator over stored models of a specific attack.
-        
-        Returns a tuple with model-label and associated stored (K, Experiment)
-        pairs.
-        """
-        for attack_, exp_by_label in self.experiments_dict.items():
-            if attack_ != attack:
-                continue
-            for label, exp_by_k in exp_by_label.items():
-                if label not in models:
-                    continue
-                yield (label, exp_by_k)
-
-    def experiment_iterator(
-        self, attack: str, models: List[str], 
-        K_l: List[float]=[0.1, 0.5, 1, 1.5, 2, 5]
-    ) -> Iterator[Tuple[str, float, Experiment]]:
-        """Provide iterator over the requested experiments."""
-        for label, exp_by_k in self.model_iterator(attack, models):
-            for K, exp in exp_by_k.items():
-                if float(K) not in K_l:
-                    continue
-                yield (label, K, exp)
 
