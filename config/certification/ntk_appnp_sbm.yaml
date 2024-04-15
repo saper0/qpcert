@@ -8,12 +8,11 @@ slurm:
   experiments_per_job: 1
   sbatch_options:
     qos: phdcpu      
-    partition: cpu
+    partition: cpu,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
-    cpus-per-task: 1  # num cores
-    time: 0-20:30     # max time, D-HH:MM
-    exclude: gpu12
+    cpus-per-task: 2  # num cores
+    time: 4-20:30     # max time, D-HH:MM
 
 fixed:
   data_params:
@@ -32,7 +31,6 @@ fixed:
     label: APPNP
     model: APPNP
     normalization: sym_normalization
-    alpha: 0.2
     iteration: 10
     depth: 1
     pred_method: svm
@@ -54,17 +52,26 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: /nfs/homedirs/sabanaya/gurobi.lic
+    path_gurobi_license: lukas
 
 grid:
-  
+
   model_params:
+    alpha:
+      type: choice
+      options:
+      #- 0.2
+      - 0.1
+      #- 0
+      #- 0.5
+      #- 1
+      
     regularizer:
       type: choice
       options:
       #- 0.001
       - 0.01
-      - 0.1
+      #- 0.1
       #- 1
 
   certificate_params:
@@ -98,14 +105,14 @@ seeds:
         seed:
           type: range
           min: 0
-          max: 3
+          max: 5
           step: 1
           zip_id: seed_opt
     
     seed:
       type: range
       min: 0
-      max: 3
+      max: 5
       step: 1
       zip_id: seed_opt
 

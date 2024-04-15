@@ -893,7 +893,7 @@ class NTK(torch.nn.Module):
         ntk += S.matmul(E+B).matmul(S.T)
 
         E_lb, E_ub, E_der_lb, E_der_ub, sig_dot_E_der_lb, sig_dot_E_der_ub = \
-                    self.calc_relu_expectations_lb_ub(Sig_lb, Sig_ub, E, E_der, u, idx_adv, perturbation_model)
+                    self._calc_gcn_relu_expectations_lb_ub(Sig_lb, Sig_ub, E, E_der, u, idx_adv, perturbation_model)
         ntk_lb += S.matmul(sig_dot_E_der_lb).matmul(S.T)
         ntk_lb += S.matmul(E_lb+B).matmul(S.T)
         ntk_ub += S.matmul(sig_dot_E_der_ub).matmul(S.T)
