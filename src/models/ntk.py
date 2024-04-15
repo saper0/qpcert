@@ -315,12 +315,23 @@ class NTK(torch.nn.Module):
             print(f"Sig.mean(): {Sig.mean()}")
             print(f"Sig.min(): {Sig.min()}")
             print(f"Sig.max(): {Sig.max()}")
-        del XXT
+        # del XXT
         self.empty_gpu_memory()
         kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
         depth = self.model_dict["depth"]
         kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
                                 dtype=self.dtype).to(self.device)
+        if "skip_connection" in self.model_dict:
+            # compute Sig and Sig_skip for the residual component
+            if self.model_dict["skip_connection"] == "skip_pc_relu":
+                E_skip, _, _ = self.calc_relu_expectations(XXT)
+                Sig = S.matmul((E_skip).matmul(S.T))
+                Sig_skip = Sig
+            elif self.model_dict["skip_connection"] == "skip_pc_linear": 
+                Sig_skip = Sig
+            else:
+                assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
+        del XXT
         for i in range(depth):
             if globals.debug:
                 print(f"Depth {i}")
@@ -337,6 +348,12 @@ class NTK(torch.nn.Module):
             self.empty_gpu_memory()
             kernel_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
             Sig = S.matmul(E.matmul(S.T))
+            if "skip_connection" in self.model_dict:
+                if self.model_dict["skip_connection"] == "skip_pc_linear" or \
+                self.model_dict["skip_connection"] == "skip_pc_relu"  :
+                    Sig += Sig_skip
+                else:
+                    assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
             if globals.debug:
                 print(f"Sig.mean(): {Sig.mean()}")
                 print(f"Sig.min(): {Sig.min()}")
@@ -779,6 +796,33 @@ class NTK(torch.nn.Module):
                                 dtype=self.dtype).to(self.device)
         ntk_sub = torch.zeros((depth, S.shape[0], S.shape[1]), # only for debug
                                 dtype=self.dtype).to(self.device)
+        if "skip_connection" in self.model_dict:
+            # compute Sig and Sig_skip for the residual component
+            if self.model_dict["skip_connection"] == "skip_pc_relu":
+                E_skip, E_der_skip, u_skip = self.calc_relu_expectations(XXT)
+                Sig = S.matmul((E_skip).matmul(S.T))
+                Sig_skip = Sig
+                E_skip_lb, E_skip_ub, _, _, _, _ = \
+                    self._calc_relu_expectations_lb_ub(
+                        XXT_lb, XXT_ub, E_skip, E_der_skip, u_skip, idx_adv, perturbation_model
+                    )
+                if method == "XXT":
+                    Sig_skip_lb = S.matmul(E_skip_lb.matmul(S.T))
+                    diag = Sig_skip_lb.diag()
+                    diag[diag < 0] = 0
+                    mask = torch.eye(diag.shape[0], dtype=bool, device=self.device)
+                    Sig_skip_lb[mask] = diag
+                    Sig_skip_ub = S.matmul(E_skip_ub.matmul(S.T))
+                    Sig_lb = Sig_skip_lb
+                    Sig_ub = Sig_skip_ub
+                else:
+                    assert False, "Perturbation method evaluation verified completely only for XXT."
+            elif self.model_dict["skip_connection"] == "skip_pc_linear": 
+                Sig_skip = Sig
+                Sig_skip_lb = Sig_lb
+                Sig_skip_ub = Sig_ub
+            else:
+                assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
         for i in range(depth):
             if globals.debug:
                 print(f"Depth {i}")
@@ -794,6 +838,12 @@ class NTK(torch.nn.Module):
                 assert False, f"'linear' and 'relu' GCNs are supported. Please update activation in the model_dict."
             ntk_sub[i] = S.matmul((Sig * E_der).matmul(S.T))
             Sig = S.matmul(E.matmul(S.T))
+            if "skip_connection" in self.model_dict:
+                if self.model_dict["skip_connection"] == "skip_pc_linear" or \
+                self.model_dict["skip_connection"] == "skip_pc_relu"  :
+                    Sig += Sig_skip
+                else:
+                    assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
             for j in range(i):
                 ntk_sub[j] = S.matmul((ntk_sub[j].float() * E_der).matmul(S.T))
             ######################
@@ -816,6 +866,14 @@ class NTK(torch.nn.Module):
             assert (ntk_lb_sub[i] > ntk_ub_sub[i]).sum() == 0
             Sig_lb = S.matmul(E_lb.matmul(S.T))
             Sig_ub = S.matmul(E_ub.matmul(S.T))
+            assert (Sig_lb > Sig_ub).sum() == 0
+            if "skip_connection" in self.model_dict:
+                if self.model_dict["skip_connection"] == "skip_pc_linear" or \
+                self.model_dict["skip_connection"] == "skip_pc_relu"  :
+                    Sig_lb += Sig_skip_lb
+                    Sig_ub += Sig_skip_ub
+                else:
+                    assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
             assert (Sig_lb > Sig_ub).sum() == 0
             if globals.debug:
                 print(f"Sig.mean(): {Sig.mean()}")
