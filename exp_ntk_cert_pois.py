@@ -137,6 +137,12 @@ def choose_gurobi_license(other_params: Dict[str, Any]):
         gurobi_path = "/ceph/ssd/staff/gosl/gurobi/"
         gurobi_license = "gurobi_" + gpu_str + ".lic"
         os.environ["GRB_LICENSE_FILE"] = gurobi_path + gurobi_license
+    elif other_params["path_gurobi_license"] == "sabanaya":
+        logging.info(f"Hostname: {socket.gethostname()}")
+        gpu_str = socket.gethostname()
+        gurobi_path = "/ceph/ssd/students/sabanaya/gurobi/"
+        gurobi_license = "gurobi_" + gpu_str + ".lic"
+        os.environ["GRB_LICENSE_FILE"] = gurobi_path + gurobi_license
     elif other_params["path_gurobi_license"] != "":
         os.environ["GRB_LICENSE_FILE"] = other_params["path_gurobi_license"] 
     elif other_params["path_gurobi_license"] == "":
