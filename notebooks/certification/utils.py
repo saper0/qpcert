@@ -157,9 +157,10 @@ class Experiment:
     
     def get_robust_accuracy(self) -> Tuple[float, float]:
         n_robust_acc_l = []
+        self.n_test = self.hyperparameters["data_params"]["specification"]["n_test"]
         for experiment in self.individual_experiments:
-            result = experiment["result"]
             n_robust_acc = 0
+            result = experiment["result"]
             for y_true, y_pred, y_worst in zip(result["y_true_cls"],
                                                result["y_pred_logit"],
                                                result["y_worst_obj"]):
@@ -167,11 +168,12 @@ class Experiment:
                     n_robust_acc += 1
                 if y_pred < 0 and y_true < 0 and y_worst < 0:
                     n_robust_acc += 1
-            n_robust_acc_l.append(n_robust_acc)
+            n_robust_acc_l.append(n_robust_acc / self.n_test)
         return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
     
     def get_certified_ratio(self) -> Tuple[float, float]:
         n_robust_l = []
+        self.n_test = self.hyperparameters["data_params"]["specification"]["n_test"]
         for experiment in self.individual_experiments:
             result = experiment["result"]
             n_robust = 0
@@ -182,7 +184,7 @@ class Experiment:
                     n_robust += 1
                 if y_true < 0 and y_worst < 0:
                     n_robust += 1
-            n_robust_l.append(n_robust)
+            n_robust_l.append(n_robust / self.n_test)
         return np.mean(n_robust_l).item(), np.std(n_robust_l).item()
     
     def __str__(self):
@@ -190,8 +192,8 @@ class Experiment:
         my_str += f" K: {self.K:.1f}, C: {self.C:.5f}, delta: {self.delta:.2f},"
         my_str += f" n_adv: {self.n_adv}, attack_nodes: {self.attack_nodes}"
         return my_str
-  
-    
+
+
 class ExperimentManager:
     """Administrates access and visualization of robustness experiments.
     
@@ -346,6 +348,7 @@ class ExperimentManager:
                 for delta in delta_l:
                     exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
                     y, y_std = exp.get_robust_accuracy()
+                    print(y)
                     y_l.append(y)
                     y_err_l.append(y_std)
                 x = [i for i in range(len(delta_l))]
@@ -361,7 +364,6 @@ class ExperimentManager:
         ax.xaxis.grid()
         ax.legend()
         plt.show()
-
 
     def plot(self, name: str, attack: str, models: List[str], 
              errorbars: bool=True, ylabel: str=None, title: str=None,
