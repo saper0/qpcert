@@ -309,6 +309,7 @@ class NTK(torch.nn.Module):
 
     def _calc_ntk_gcn(self, X: Float[torch.Tensor, "n d"], 
                       S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
+        csigma = 1 
         XXT = NTK._calc_XXT(X)
         Sig = S.matmul(XXT.matmul(S.T))
         if globals.debug:
@@ -322,15 +323,32 @@ class NTK(torch.nn.Module):
         kernel_sub = torch.zeros((depth, S.shape[0], S.shape[1]), 
                                 dtype=self.dtype).to(self.device)
         if "skip_connection" in self.model_dict:
+            # get skip_alpha, if not given then set it to 0.2
+            if self.model_dict["skip_connection"] == "skip_alpha_linear" or \
+                self.model_dict["skip_connection"] == "skip_alpha_relu":
+                self.skip_alpha = self.model_dict["skip_alpha"] if "skip_alpha" in self.model_dict \
+                    else 0.2
             # compute Sig and Sig_skip for the residual component
-            if self.model_dict["skip_connection"] == "skip_pc_relu":
+            if self.model_dict["skip_connection"] == "skip_pc_relu" or \
+                self.model_dict["skip_connection"] == "skip_alpha_relu":
                 E_skip, _, _ = self.calc_relu_expectations(XXT)
                 Sig = S.matmul((E_skip).matmul(S.T))
-                Sig_skip = Sig
+                if self.model_dict["skip_connection"] == "skip_pc_relu":
+                    Sig_skip = Sig
+                else:
+                    Sig = ((1-self.skip_alpha)**2 * Sig + \
+                        (1-self.skip_alpha)*self.skip_alpha*(E_skip.matmul(S.T) + S.matmul(E_skip)) + \
+                        self.skip_alpha**2 * E_skip) * csigma
+                    Sig_skip = E_skip
             elif self.model_dict["skip_connection"] == "skip_pc_linear": 
                 Sig_skip = Sig
+            elif self.model_dict["skip_connection"] == "skip_alpha_linear":
+                Sig = ((1-self.skip_alpha)**2 * Sig + \
+                        (1-self.skip_alpha)*self.skip_alpha*(XXT.matmul(S.T) + S.matmul(XXT)) + \
+                        self.skip_alpha**2 * XXT) * csigma
+                Sig_skip = XXT
             else:
-                assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
+                assert False, f"'skip_pc_linear', 'skip_pc_relu', 'skip_alpha_linear' and 'skip_alpha_relu' are only supported. "
         del XXT
         for i in range(depth):
             if globals.debug:
@@ -352,8 +370,11 @@ class NTK(torch.nn.Module):
                 if self.model_dict["skip_connection"] == "skip_pc_linear" or \
                 self.model_dict["skip_connection"] == "skip_pc_relu"  :
                     Sig += Sig_skip
+                elif self.model_dict["skip_connection"] == "skip_alpha_linear" or \
+                self.model_dict["skip_connection"] == "skip_alpha_relu":
+                    Sig = (1-self.skip_alpha)**2 * Sig + self.skip_alpha**2 * Sig_skip 
                 else:
-                    assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
+                    assert False, f"'skip_pc_linear', 'skip_pc_relu', 'skip_alpha_linear' and 'skip_alpha_relu' are only supported. "
             if globals.debug:
                 print(f"Sig.mean(): {Sig.mean()}")
                 print(f"Sig.min(): {Sig.min()}")
@@ -797,32 +818,69 @@ class NTK(torch.nn.Module):
         ntk_sub = torch.zeros((depth, S.shape[0], S.shape[1]), # only for debug
                                 dtype=self.dtype).to(self.device)
         if "skip_connection" in self.model_dict:
+            # skip_alpha should be set, otherwise do
+            # get skip_alpha, if not given then set it to 0.2
+            if self.model_dict["skip_connection"] == "skip_alpha_linear" or \
+                self.model_dict["skip_connection"] == "skip_alpha_relu":
+                self.skip_alpha = self.model_dict["skip_alpha"] if "skip_alpha" in self.model_dict \
+                    else 0.2
             # compute Sig and Sig_skip for the residual component
-            if self.model_dict["skip_connection"] == "skip_pc_relu":
+            if self.model_dict["skip_connection"] == "skip_pc_relu" or \
+                self.model_dict["skip_connection"] == "skip_alpha_relu":
                 E_skip, E_der_skip, u_skip = self.calc_relu_expectations(XXT)
                 Sig = S.matmul((E_skip).matmul(S.T))
-                Sig_skip = Sig
                 E_skip_lb, E_skip_ub, _, _, _, _ = \
                     self._calc_relu_expectations_lb_ub(
                         XXT_lb, XXT_ub, E_skip, E_der_skip, u_skip, idx_adv, perturbation_model
                     )
                 if method == "XXT":
-                    Sig_skip_lb = S.matmul(E_skip_lb.matmul(S.T))
-                    diag = Sig_skip_lb.diag()
+                    Sig_lb = S.matmul(E_skip_lb.matmul(S.T))
+                    diag = Sig_lb.diag()
                     diag[diag < 0] = 0
                     mask = torch.eye(diag.shape[0], dtype=bool, device=self.device)
-                    Sig_skip_lb[mask] = diag
-                    Sig_skip_ub = S.matmul(E_skip_ub.matmul(S.T))
-                    Sig_lb = Sig_skip_lb
-                    Sig_ub = Sig_skip_ub
+                    Sig_lb[mask] = diag
+                    Sig_ub = S.matmul(E_skip_ub.matmul(S.T))
                 else:
                     assert False, "Perturbation method evaluation verified completely only for XXT."
+                if self.model_dict["skip_connection"] == "skip_pc_relu":
+                    Sig_skip = Sig
+                    Sig_skip_lb = Sig_lb
+                    Sig_skip_ub = Sig_ub
+                elif self.model_dict["skip_connection"] == "skip_alpha_relu":
+                    Sig = ((1-self.skip_alpha)**2 * Sig + \
+                        (1-self.skip_alpha)*self.skip_alpha*(E_skip.matmul(S.T) + S.matmul(E_skip)) + \
+                        self.skip_alpha**2 * E_skip) * csigma
+                    Sig_lb = ((1-self.skip_alpha)**2 * Sig_lb + \
+                        (1-self.skip_alpha)*self.skip_alpha*(E_skip_lb.matmul(S.T) + S.matmul(E_skip_lb)) + \
+                        self.skip_alpha**2 * E_skip_lb) * csigma
+                    Sig_ub = ((1-self.skip_alpha)**2 * Sig_ub + \
+                        (1-self.skip_alpha)*self.skip_alpha*(E_skip_ub.matmul(S.T) + S.matmul(E_skip_ub)) + \
+                        self.skip_alpha**2 * E_skip_ub) * csigma
+                    Sig_skip = E_skip
+                    Sig_skip_lb = E_skip_lb
+                    Sig_skip_ub = E_skip_ub
             elif self.model_dict["skip_connection"] == "skip_pc_linear": 
                 Sig_skip = Sig
                 Sig_skip_lb = Sig_lb
                 Sig_skip_ub = Sig_ub
+            elif self.model_dict["skip_connection"] == "skip_alpha_linear":
+                Sig = ((1-self.skip_alpha)**2 * Sig + \
+                        (1-self.skip_alpha)*self.skip_alpha*(XXT.matmul(S.T) + S.matmul(XXT)) + \
+                        self.skip_alpha**2 * XXT) * csigma
+                Sig_lb = ((1-self.skip_alpha)**2 * Sig_lb + \
+                        (1-self.skip_alpha)*self.skip_alpha*(XXT_lb.matmul(S.T) + S.matmul(XXT_lb)) + \
+                        self.skip_alpha**2 * XXT_lb) * csigma
+                Sig_ub = ((1-self.skip_alpha)**2 * Sig_ub + \
+                        (1-self.skip_alpha)*self.skip_alpha*(XXT_ub.matmul(S.T) + S.matmul(XXT_ub)) + \
+                        self.skip_alpha**2 * XXT_ub) * csigma
+                Sig_skip = XXT
+                Sig_skip_lb = XXT_lb
+                Sig_skip_ub = XXT_ub
             else:
-                assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
+                assert False, f"'skip_pc_linear', 'skip_pc_relu', 'skip_alpha_linear' and 'skip_alpha_relu' are only supported. "
+            assert (Sig_skip_lb > Sig_skip_ub).sum() == 0
+            assert (Sig_skip_lb > Sig_skip).sum() == 0
+            assert (Sig_skip_ub < Sig_skip).sum() == 0
         for i in range(depth):
             if globals.debug:
                 print(f"Depth {i}")
@@ -842,8 +900,11 @@ class NTK(torch.nn.Module):
                 if self.model_dict["skip_connection"] == "skip_pc_linear" or \
                 self.model_dict["skip_connection"] == "skip_pc_relu"  :
                     Sig += Sig_skip
+                elif self.model_dict["skip_connection"] == "skip_alpha_linear" or \
+                self.model_dict["skip_connection"] == "skip_alpha_relu":
+                    Sig = (1-self.skip_alpha)**2 * Sig + self.skip_alpha**2 * Sig_skip 
                 else:
-                    assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
+                    assert False, f"'skip_pc_linear', 'skip_pc_relu', 'skip_alpha_linear' and 'skip_alpha_relu' are only supported. "
             for j in range(i):
                 ntk_sub[j] = S.matmul((ntk_sub[j].float() * E_der).matmul(S.T))
             ######################
@@ -872,8 +933,12 @@ class NTK(torch.nn.Module):
                 self.model_dict["skip_connection"] == "skip_pc_relu"  :
                     Sig_lb += Sig_skip_lb
                     Sig_ub += Sig_skip_ub
+                elif self.model_dict["skip_connection"] == "skip_alpha_linear" or \
+                self.model_dict["skip_connection"] == "skip_alpha_relu":
+                    Sig_lb = (1-self.skip_alpha)**2 * Sig_lb + self.skip_alpha**2 * Sig_skip_lb 
+                    Sig_ub = (1-self.skip_alpha)**2 * Sig_ub + self.skip_alpha**2 * Sig_skip_ub 
                 else:
-                    assert False, f"'skip_pc_linear' and 'skip_pc_relu' are only supported for now. "
+                    assert False, f"'skip_pc_linear', 'skip_pc_relu', 'skip_alpha_linear' and 'skip_alpha_relu' are only supported. "
             assert (Sig_lb > Sig_ub).sum() == 0
             if globals.debug:
                 print(f"Sig.mean(): {Sig.mean()}")
