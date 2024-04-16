@@ -11,6 +11,7 @@ from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 import pandas as pd
 import scipy.stats
+import seaborn as sns
 
 
 URI = "mongodb://sabanaya:bAvQwbOp@fs.kdd.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
@@ -397,6 +398,40 @@ class ExperimentManager:
         ax.yaxis.grid()
         ax.xaxis.grid()
         ax.legend()
+        plt.show()
+
+    def plot_nadv_delta_heatmap(self, K: float, models: str, C: float, 
+                              attack_nodes: str, n_adv_l: List[str], delta_l: List[float],
+                              width=1, ratio=1.618, cbar_normalized = True):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        self.set_color_cycler(ax)
+        
+        for label in models:
+            nadv_delta = np.zeros((len(delta_l), len(n_adv_l)))
+            for i in range(len(delta_l)):
+                for j in range(len(n_adv_l)):
+                    delta = delta_l[i]
+                    n_adv = int(n_adv_l[j])
+                    if delta == 0:
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][0.01]
+                        y, y_std = exp.get_result("accuracy_test")
+                    else:
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
+                        y, y_std = exp.get_certified_ratio()
+                    nadv_delta[i][j] = y
+        cmap = matplotlib.cm.get_cmap('Greys')
+        if cbar_normalized:
+            sns.heatmap(nadv_delta, cmap=cmap, linewidths=0.5, cbar=True, 
+                    cbar_kws={'label': 'Certified ratio'}, vmin=0, vmax=1)
+        else:
+            sns.heatmap(nadv_delta, cmap=cmap, linewidths=0.5, cbar=True, 
+                    cbar_kws={'label': 'Certified ratio'})
+        ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=n_adv_l)
+        ax.set_yticks(np.arange(nadv_delta.shape[0])+0.5, labels=delta_l, rotation=0)
+        ax.set_ylabel("Perturbation budget")
+        ax.set_xlabel("Number of adversaries")
+        ax.set_title(models[0])
         plt.show()
 
     def plot(self, name: str, attack: str, models: List[str], 
