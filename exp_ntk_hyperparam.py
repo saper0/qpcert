@@ -172,7 +172,7 @@ def run(data_params: Dict[str, Any],
     device, dtype = setup_experiment(data_params, model_params, verbosity_params, 
                               other_params, seed)
     
-    X, A, y = get_graph(data_params, sort=True)
+    X, A, y, _, _, _ = get_graph(data_params, sort=True)
     utils.empty_gpu_memory(device)
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
     X = torch.tensor(X, dtype=dtype, device=device)
@@ -200,15 +200,16 @@ def run(data_params: Dict[str, Any],
                                               y=y[idx_labeled].cpu().numpy()):
             idx_trn_split = idx_labeled[trn_split]
             idx_val_split = idx_labeled[val_split]
-            idx_known = np.concatenate((idx_trn_split, idx_unlabeled))
-            idx_known_labeled = np.array([i for i in range(len(idx_trn_split))]) #actually is just 0 to len(idx_labeled)
             if data_params["learning_setting"] == "transductive":
                 A_trn = A
                 X_trn = X
+                idx_known_labeled = idx_trn_split
             else:
+                idx_known = np.concatenate((idx_labeled, idx_unlabeled)) 
                 A_trn = A[idx_known, :]
                 A_trn = A_trn[:, idx_known]
                 X_trn = X[idx_known, :]
+                idx_known_labeled = np.nonzero(np.isin(idx_known, idx_labeled))[0] #actually is just 0 to len(idx_labeled)
             ntk = NTK(model_params, X_trn=X_trn, A_trn=A_trn, n_classes=n_classes, 
                     idx_trn_labeled=idx_known_labeled, y_trn=y[idx_trn_split],
                     learning_setting=data_params["learning_setting"],
@@ -242,15 +243,16 @@ def run(data_params: Dict[str, Any],
             del y_pred
             utils.empty_gpu_memory(device)
         # Test
-        idx_known = np.concatenate((idx_labeled, idx_unlabeled))
-        idx_known_labeled = np.array([i for i in range(len(idx_labeled))]) #actually is just 0 to len(idx_labeled)
         if data_params["learning_setting"] == "transductive":
             A_trn = A
             X_trn = X
+            idx_known_labeled = idx_labeled
         else:
+            idx_known = np.concatenate((idx_labeled, idx_unlabeled))
             A_trn = A[idx_known, :]
             A_trn = A_trn[:, idx_known]
             X_trn = X[idx_known, :]
+            idx_known_labeled = np.array([i for i in range(len(idx_labeled))]) #actually is just 0 to len(idx_labeled)
         ntk = NTK(model_params, X_trn=X_trn, A_trn=A_trn, n_classes=n_classes, 
                 idx_trn_labeled=idx_known_labeled, y_trn=y[idx_labeled],
                 learning_setting=data_params["learning_setting"],

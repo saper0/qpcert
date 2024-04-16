@@ -11,8 +11,8 @@ slurm:
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
-    cpus-per-task: 4  # num cores
-    time: 4-20:30     # max time, D-HH:MM
+    cpus-per-task: 2  # num cores
+    time: 0-10:30     # max time, D-HH:MM
 
 fixed:
   data_params:

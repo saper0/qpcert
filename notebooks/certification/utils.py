@@ -367,7 +367,6 @@ class ExperimentManager:
         ax.legend()
         plt.show()
 
-
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
                               width=1, ratio=1.618):
