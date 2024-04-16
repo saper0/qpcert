@@ -853,6 +853,10 @@ class NTK(torch.nn.Module):
                     Sig_lb = ((1-self.skip_alpha)**2 * Sig_lb + \
                         (1-self.skip_alpha)*self.skip_alpha*(E_skip_lb.matmul(S.T) + S.matmul(E_skip_lb)) + \
                         self.skip_alpha**2 * E_skip_lb) * csigma
+                    diag = Sig_lb.diag()
+                    diag[diag < 0] = 0
+                    mask = torch.eye(diag.shape[0], dtype=bool, device=self.device)
+                    Sig_lb[mask] = diag
                     Sig_ub = ((1-self.skip_alpha)**2 * Sig_ub + \
                         (1-self.skip_alpha)*self.skip_alpha*(E_skip_ub.matmul(S.T) + S.matmul(E_skip_ub)) + \
                         self.skip_alpha**2 * E_skip_ub) * csigma
@@ -870,6 +874,10 @@ class NTK(torch.nn.Module):
                 Sig_lb = ((1-self.skip_alpha)**2 * Sig_lb + \
                         (1-self.skip_alpha)*self.skip_alpha*(XXT_lb.matmul(S.T) + S.matmul(XXT_lb)) + \
                         self.skip_alpha**2 * XXT_lb) * csigma
+                diag = Sig_lb.diag()
+                diag[diag < 0] = 0
+                mask = torch.eye(diag.shape[0], dtype=bool, device=self.device)
+                Sig_lb[mask] = diag
                 Sig_ub = ((1-self.skip_alpha)**2 * Sig_ub + \
                         (1-self.skip_alpha)*self.skip_alpha*(XXT_ub.matmul(S.T) + S.matmul(XXT_ub)) + \
                         self.skip_alpha**2 * XXT_ub) * csigma
