@@ -12,7 +12,7 @@ from sklearn.model_selection import StratifiedKFold
 import seml
 import torch
 
-from src import utils
+from src import utils, globals
 from src.attacks import create_attack
 from src.data import get_graph, split
 from src.models.ntk import NTK
@@ -70,10 +70,13 @@ def config():
         label = "GCN",
         model = "GCN",
         normalization = "row_normalization",
+        activation = "relu",
         depth = 1,
-        regularizer = 1e-8,
-        pred_method = "krr",
-        solver = "LU"
+        regularizer = 0.1,
+        pred_method = "svm",
+        solver = "qplayer",
+        alpha_tol = 1e-4,
+        bias = False,
     )
 
     verbosity_params = dict(
@@ -157,6 +160,7 @@ def setup_experiment(data_params: Dict[str, Any], model_params: Dict[str, Any],
     Returns the device.
     """
     set_debug_lvl(verbosity_params["debug_lvl"])
+    globals.init(other_params)
     log_configuration(data_params, model_params, verbosity_params,
                       other_params, seed)
     return configure_hardware(other_params, seed)
@@ -174,7 +178,7 @@ def run(data_params: Dict[str, Any],
     
     X, A, y, _, _, _ = get_graph(data_params, sort=True)
     utils.empty_gpu_memory(device)
-    idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
+    idx_trn, _, idx_val, idx_test = split(data_params, y)
     X = torch.tensor(X, dtype=dtype, device=device)
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
@@ -205,6 +209,7 @@ def run(data_params: Dict[str, Any],
                 X_trn = X
                 idx_known_labeled = idx_trn_split
             else:
+                assert False
                 idx_known = np.concatenate((idx_labeled, idx_unlabeled)) 
                 A_trn = A[idx_known, :]
                 A_trn = A_trn[:, idx_known]
@@ -215,6 +220,10 @@ def run(data_params: Dict[str, Any],
                     learning_setting=data_params["learning_setting"],
                     pred_method=model_params["pred_method"],
                     regularizer=model_params["regularizer"],
+                    bias=bool(model_params["bias"]),
+                    solver=model_params["solver"],
+                    alpha_tol=model_params["alpha_tol"],
+                    device=device,
                     dtype=dtype)
             
             y_pred, ntk_test = ntk(idx_labeled=idx_trn_split, 
@@ -248,6 +257,7 @@ def run(data_params: Dict[str, Any],
             X_trn = X
             idx_known_labeled = idx_labeled
         else:
+            assert False, "Wait, there is a bug! Fix it!"
             idx_known = np.concatenate((idx_labeled, idx_unlabeled))
             A_trn = A[idx_known, :]
             A_trn = A_trn[:, idx_known]
@@ -258,17 +268,17 @@ def run(data_params: Dict[str, Any],
                 learning_setting=data_params["learning_setting"],
                 pred_method=model_params["pred_method"],
                 regularizer=model_params["regularizer"],
+                bias=bool(model_params["bias"]),
+                solver=model_params["solver"],
+                alpha_tol=model_params["alpha_tol"],
                 dtype=dtype)
         
-        y_pred, ntk_test = ntk(idx_labeled=idx_labeled, 
-                               idx_test=np.concatenate((idx_labeled, idx_test)),
+        y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
                                y_test=y, X_test=X, A_test=A, return_ntk=True)
-        if len(y_pred.shape) == 1:
-            y_pred = y_pred.reshape(-1,1)
-        y_pred_trn = y_pred[:len(idx_labeled), :]
-        y_pred_test = y_pred[len(idx_labeled):, :]
-        trn_acc = utils.accuracy(y_pred_trn, y[idx_labeled])
-        test_acc = utils.accuracy(y_pred_test, y[idx_test])
+        y_pred_trn, _ = ntk(idx_labeled=idx_labeled, idx_test=idx_labeled,
+                               y_test=y, X_test=X, A_test=A, return_ntk=True)
+        acc = utils.accuracy(y_pred, y[idx_test])
+        acc_trn = utils.accuracy(y_pred_trn, y[idx_labeled])
         # Some Statistics
         ntk_labeled = ntk.ntk[idx_known_labeled, :]
         ntk_labeled = ntk_labeled[:, idx_known_labeled]
@@ -277,8 +287,8 @@ def run(data_params: Dict[str, Any],
         ntk_unlabeled_test = ntk_test[idx_test,:][:,idx_labeled]
         ntk_unlabeled_trn = ntk_test[idx_labeled,:][:,idx_labeled]
         cond = torch.linalg.cond(ntk_labeled).cpu().item()
-        min_ypred_test = torch.min(y_pred_test).cpu().item()
-        max_ypred_test = torch.max(y_pred_test).cpu().item()
+        min_ypred_test = torch.min(y_pred).cpu().item()
+        max_ypred_test = torch.max(y_pred).cpu().item()
         min_ypred_trn = torch.min(y_pred_trn).cpu().item()
         max_ypred_trn = torch.max(y_pred_trn).cpu().item()
         min_ntklabeled = torch.min(ntk_labeled).cpu().item()
@@ -289,9 +299,9 @@ def run(data_params: Dict[str, Any],
         max_ntkunlabeled_trn = torch.max(ntk_unlabeled_trn).cpu().item()
 
     return dict(
-        trn_acc = trn_acc,
+        trn_acc = acc_trn,
         val_acc_l = val_acc_l,
-        test_acc = test_acc,
+        test_acc = acc,
         trn_min_ypred = min_ypred_trn,
         trn_max_ypred = max_ypred_trn,
         trn_min_ntkunlabeled = min_ntkunlabeled_trn,

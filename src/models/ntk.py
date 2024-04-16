@@ -207,8 +207,8 @@ class NTK(torch.nn.Module):
                 b = torch.zeros(1, dtype=self.dtype)
                 alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
             else:
-                A = torch.Tensor([], device=self.device)
-                b = torch.Tensor([], device=self.device)
+                A = torch.tensor([], device=self.device)
+                b = torch.tensor([], device=self.device)
                 alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
             alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
             alphas_non_zero = alphas[0] > self.alpha_tol
