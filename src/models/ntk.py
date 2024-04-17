@@ -301,6 +301,7 @@ class NTK(torch.nn.Module):
         self.empty_gpu_memory()
         q = torch.sqrt(Sig_i * Sig_j)
         u = M/q 
+        u = u.fill_diagonal_(1)
         E = (q * self.kappa_1(u)) * csigma
         del q
         self.empty_gpu_memory()
