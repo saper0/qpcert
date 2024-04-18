@@ -1,7 +1,3 @@
-# Collective feature perturbation certificate.
-# Experiment chooses r nodes at random from the test nodes and certifies the
-# rest.
-
 import logging
 from typing import Any, Dict, Union, Tuple
 import os
