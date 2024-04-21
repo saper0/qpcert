@@ -529,6 +529,36 @@ class NTK(torch.nn.Module):
             XXT_lb = XXT+Delta_l
             XXT_ub = XXT+Delta_u
             return XXT_lb, XXT_ub
+        elif perturbation_model == "l2":
+            XXT = NTK._calc_XXT(X)
+            X_2norm = torch.linalg.vector_norm(X,ord=2,dim=1)
+            Delta_l = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
+            Delta_u = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
+            # D^TD Interaction Term
+            DD_l = Delta_l[idx_adv, :]
+            DD_l[:, idx_adv] = -delta*delta
+            Delta_l[idx_adv, :] = DD_l
+            assert (Delta_l != Delta_l.T).sum() == 0
+            DD_u = Delta_u[idx_adv, :]
+            DD_u[:, idx_adv] = delta*delta
+            Delta_u[idx_adv, :] = DD_u
+            assert (Delta_u != Delta_u.T).sum() == 0
+            # D^TX and X^TD Terms
+            delta_times_X_2norm = delta*X_2norm
+            Delta_l[idx_adv, :] -= delta_times_X_2norm.view(1,-1)
+            Delta_l[:, idx_adv] -= delta_times_X_2norm.view(-1,1)
+            Delta_l.fill_diagonal_(0.)
+            Delta_l = torch.tril(Delta_l) + torch.tril(Delta_l, diagonal=-1).T
+            Delta_u[idx_adv, :] += delta_times_X_2norm.view(1,-1)
+            Delta_u[:, idx_adv] += delta_times_X_2norm.view(-1,1)
+            Delta_u = torch.tril(Delta_u) + torch.tril(Delta_u, diagonal=-1).T
+            assert (Delta_l != Delta_l.T).sum() == 0
+            assert (Delta_u != Delta_u.T).sum() == 0
+            assert (XXT != XXT.T).sum() == 0
+            # Symmetrice (due to numerical issues)
+            XXT_lb = XXT+Delta_l
+            XXT_ub = XXT+Delta_u
+            return XXT_lb, XXT_ub
         else:
             assert False, f"Perturbation model {perturbation_model} not supported"
 
