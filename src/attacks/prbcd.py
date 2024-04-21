@@ -15,10 +15,10 @@ from torch_sparse import SparseTensor
 
 # from robust_diffusion.models import MODEL_TYPE
 from src import utils
-from src.attacks.base_attack import Attack, SparseAttack
+from src.attacks.base_structure_attack import StructureAttack, SparseStructureAttack
 
 
-class PRBCD(SparseAttack):
+class PRBCD(SparseStructureAttack):
     """Sampled and hence scalable PGD attack for graph data.
     """
 
@@ -126,7 +126,7 @@ class PRBCD(SparseAttack):
                 # For monitoring
                 probability_mass_update = self.perturbed_edge_weight.sum().item()
                 # Projection to stay within relaxed `L_0` budget (Algorithm 1, line 8)
-                self.perturbed_edge_weight = Attack.project(
+                self.perturbed_edge_weight = StructureAttack.project(
                     n_perturbations, self.perturbed_edge_weight, self.eps)
                 # For monitoring
                 probability_mass_projected = self.perturbed_edge_weight.sum().item()

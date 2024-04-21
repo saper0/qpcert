@@ -11,7 +11,7 @@ import seml
 import torch
 
 from src import utils
-from src.attacks import create_attack
+from src.attacks import create_structure_attack
 from src.data import get_graph, split
 from src.models.ntk import NTK
 from common import count_edges_for_idx
@@ -213,7 +213,7 @@ def run(data_params: Dict[str, Any],
         idx_target = np.concatenate((idx_trn, idx_val, idx_test)) 
     else:
         idx_target = idx_test
-    attack = create_attack(idx_target, X, A, y, 
+    attack = create_structure_attack(idx_target, X, A, y, 
                            idx_labeled=idx_labeled, 
                            idx_unlabeled=idx_test, #TODO
                            attack_params=attack_params, 

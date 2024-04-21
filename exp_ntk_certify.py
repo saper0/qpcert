@@ -15,7 +15,7 @@ import seml
 import torch
 
 from src import utils, globals
-from src.attacks import create_attack
+from src.attacks import create_structure_attack
 from src.data import get_graph, split
 from src.models.ntk import NTK
 from common import count_edges_for_idx

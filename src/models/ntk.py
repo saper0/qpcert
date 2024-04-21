@@ -135,6 +135,8 @@ class NTK(torch.nn.Module):
         if "cache_size" in self.model_dict:
             cache_size = self.model_dict["cache_size"]
         gram_matrix = self.ntk.detach().cpu().numpy()
+        if type(idx_trn_labeled) == torch.Tensor:
+            idx_trn_labeled = idx_trn_labeled.numpy(force=True)
         if idx_trn_labeled is not None:
             gram_matrix = gram_matrix[idx_trn_labeled, :]
             gram_matrix = gram_matrix[:, idx_trn_labeled]
@@ -212,7 +214,7 @@ class NTK(torch.nn.Module):
                 alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
             alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
             alphas_non_zero = alphas[0] > self.alpha_tol
-            print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
+            #print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
             return alphas[0]
         else:
             assert False, "Solver not found"
