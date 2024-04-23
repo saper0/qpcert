@@ -226,23 +226,17 @@ class NTK(torch.nn.Module):
                 l_ = K*y.shape[0]
                 I = torch.eye(n=K, dtype=self.dtype).to(self.device)
                 Q = torch.kron(I, gram_matrix)
-                print('Q ', Q.shape, Q[0,:])
                 p = -torch.nn.functional.one_hot(y, num_classes=K).reshape(-1)
-                print('p ', p.shape, p[:K])
-                print('y ', y.shape, y[0])
                 b = torch.zeros(y.shape[0], dtype=self.dtype).to(self.device)
                 I_nn = torch.eye(n=y.shape[0], dtype=self.dtype).to(self.device) 
                 I_1k = torch.ones((1,K), dtype=self.dtype).to(self.device)
                 A = torch.kron(I_nn,I_1k)
-                print('A ', A.shape, A[0,:])
                 G = torch.eye(n=l_, dtype=self.dtype)
                 h = -p*self.regularizer
-                q = ~p+2
-                l = torch.ones((l_), dtype=self.dtype).to(self.device)*float("-inf")*q
+                l = torch.ones((l_), dtype=self.dtype).to(self.device)*float("-inf")
                 alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
                 alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
-                alphas_non_zero = alphas[0] > self.alpha_tol
-                print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
+                print(f"alphas found: {alphas_str}")
                 alpha_matrix = alphas[0].reshape((y.shape[0],K))
                 return alpha_matrix
         else:
@@ -1257,15 +1251,7 @@ class NTK(torch.nn.Module):
             else:
                 if self.solver == "qplayer":
                     alpha = self.svm
-                    print('alp shape ', alpha.shape)
-                    print(' ntk_unlabeled ', ntk_unlabeled.shape)
-                    print('y test ', y_test)
-                    y_train_one_hot = torch.nn.functional.one_hot(y_test[idx_labeled], num_classes=self.n_classes)
-                    y_train_one_hot[y_train_one_hot==0] = -1
-                    alpha = alpha * y_train_one_hot
                     y_pred = ntk_unlabeled @ alpha
-                    print('y pred ', y_pred)
-                    print('y test ', y_test[idx_test])
                 elif self.solver == "sklearn":
                     y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
                     idx_sup_set = set()
