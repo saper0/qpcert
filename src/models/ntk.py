@@ -113,6 +113,10 @@ class NTK(torch.nn.Module):
         self.idx_trn_labeled = idx_trn_labeled
         self.n_classes = n_classes
         self.solver = solver
+        if "multiclass_svm_method" in model_dict:
+            self.multiclass_svm_method = model_dict["multiclass_svm_method"]
+        else:
+            self.multiclass_svm_method = "simMSVM"
         self.alpha_tol = alpha_tol
         self.bias = bias
         if pred_method == "svm":
@@ -223,22 +227,42 @@ class NTK(torch.nn.Module):
                 else:
                     gram_matrix = self.ntk
                 K = self.n_classes
-                l_ = K*y.shape[0]
-                I = torch.eye(n=K, dtype=self.dtype).to(self.device)
-                Q = torch.kron(I, gram_matrix)
-                p = -torch.nn.functional.one_hot(y, num_classes=K).reshape(-1)
-                b = torch.zeros(y.shape[0], dtype=self.dtype).to(self.device)
-                I_nn = torch.eye(n=y.shape[0], dtype=self.dtype).to(self.device) 
-                I_1k = torch.ones((1,K), dtype=self.dtype).to(self.device)
-                A = torch.kron(I_nn,I_1k)
-                G = torch.eye(n=l_, dtype=self.dtype)
-                h = -p*self.regularizer
-                l = torch.ones((l_), dtype=self.dtype).to(self.device)*float("-inf")
-                alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
-                alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
-                print(f"alphas found: {alphas_str}")
-                alpha_matrix = alphas[0].reshape((y.shape[0],K))
-                return alpha_matrix
+                if self.multiclass_svm_method == "MSVM":
+                    l_ = K*y.shape[0]
+                    I = torch.eye(n=K, dtype=self.dtype).to(self.device)
+                    Q = torch.kron(I, gram_matrix)
+                    p = -torch.nn.functional.one_hot(y, num_classes=K).reshape(-1)
+                    b = torch.zeros(y.shape[0], dtype=self.dtype).to(self.device)
+                    I_nn = torch.eye(n=y.shape[0], dtype=self.dtype).to(self.device) 
+                    I_1k = torch.ones((1,K), dtype=self.dtype).to(self.device)
+                    A = torch.kron(I_nn,I_1k)
+                    G = torch.eye(n=l_, dtype=self.dtype)
+                    h = -p*self.regularizer
+                    l = torch.ones((l_), dtype=self.dtype).to(self.device)*float("-inf")
+                    alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+                    alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+                    print(f"alphas found: {alphas_str}")
+                    alpha_matrix = alphas[0].reshape((y.shape[0],K))
+                    return alpha_matrix
+                elif self.multiclass_svm_method == "simMSVM":
+                    l_ = y.shape[0]
+                    Q = gram_matrix
+                    y_onehot = torch.nn.functional.one_hot(y, num_classes=K).type(self.dtype)
+                    Kernel = (y_onehot.matmul(y_onehot.t()))*(K-1)
+                    Kernel[Kernel==0] = -1
+                    Q = Q*Kernel
+                    p = -torch.ones(l_, dtype=self.dtype).to(self.device)
+                    G = torch.eye(n=l_, dtype=self.dtype)
+                    h = -(p*self.regularizer*K)/((K-1)*(K-1))
+                    l = torch.zeros(l_, dtype=self.dtype).to(self.device)
+                    A = torch.tensor([], device=self.device)
+                    b = torch.tensor([], device=self.device)
+                    alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+                    alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+                    print(f"alphas found: {alphas_str}")
+                    alpha_matrix = alphas[0]
+                    print("alpha shape ", alpha_matrix.shape)
+                    return alpha_matrix
         else:
             assert False, "Solver not found"
 
@@ -1251,6 +1275,10 @@ class NTK(torch.nn.Module):
             else:
                 if self.solver == "qplayer":
                     alpha = self.svm
+                    if self.multiclass_svm_method == "simMSVM":
+                        alpha_ = alpha.reshape(-1,1) @ torch.ones((1,self.n_classes), dtype=self.dtype).to(device=self.device)
+                        y_labeled_onehot = torch.nn.functional.one_hot(y_test[idx_labeled], num_classes=self.n_classes)
+                        alpha = alpha_ * y_labeled_onehot
                     y_pred = ntk_unlabeled @ alpha
                 elif self.solver == "sklearn":
                     y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
