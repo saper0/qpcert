@@ -187,35 +187,64 @@ class NTK(torch.nn.Module):
             #print(f_.intercept_)
             return alphas
         elif self.solver == "qplayer":
-            assert self.n_classes == 2
-            y_ = y * 2 - 1
-            l = y.shape[0]
-            Y = torch.outer(y_, y_)
-            if idx_trn_labeled is not None:
-                gram_matrix = self.ntk[idx_trn_labeled, :]
-                gram_matrix = gram_matrix[:, idx_trn_labeled]
+            if self.n_classes == 2:
+                y_ = y * 2 - 1
+                l = y.shape[0]
+                Y = torch.outer(y_, y_)
+                if idx_trn_labeled is not None:
+                    gram_matrix = self.ntk[idx_trn_labeled, :]
+                    gram_matrix = gram_matrix[:, idx_trn_labeled]
+                else:
+                    gram_matrix = self.ntk
+                Q = Y*gram_matrix
+                p = -torch.ones((l,), dtype=self.dtype)
+                I = torch.eye(n=l, dtype=self.dtype)
+                I_neg = -torch.eye(n=l, dtype=self.dtype)
+                G = torch.eye(n=l, dtype=self.dtype)
+                h = torch.zeros((l,), dtype=self.dtype)
+                h[:l] = self.regularizer
+                l = torch.zeros((l,), dtype=self.dtype)
+                if self.bias:
+                    A = y_.reshape((1, -1))
+                    b = torch.zeros(1, dtype=self.dtype)
+                    alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+                else:
+                    A = torch.tensor([], device=self.device)
+                    b = torch.tensor([], device=self.device)
+                    alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+                alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+                alphas_non_zero = alphas[0] > self.alpha_tol
+                print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
+                return alphas[0]
             else:
-                gram_matrix = self.ntk
-            Q = Y*gram_matrix
-            p = -torch.ones((l,), dtype=self.dtype)
-            I = torch.eye(n=l, dtype=self.dtype)
-            I_neg = -torch.eye(n=l, dtype=self.dtype)
-            G = torch.eye(n=l, dtype=self.dtype)
-            h = torch.zeros((l,), dtype=self.dtype)
-            h[:l] = self.regularizer
-            l = torch.zeros((l,), dtype=self.dtype)
-            if self.bias:
-                A = y_.reshape((1, -1))
-                b = torch.zeros(1, dtype=self.dtype)
+                if idx_trn_labeled is not None:
+                    gram_matrix = self.ntk[idx_trn_labeled, :]
+                    gram_matrix = gram_matrix[:, idx_trn_labeled]
+                else:
+                    gram_matrix = self.ntk
+                K = self.n_classes
+                l_ = K*y.shape[0]
+                I = torch.eye(n=K, dtype=self.dtype).to(self.device)
+                Q = torch.kron(I, gram_matrix)
+                print('Q ', Q.shape, Q[0,:])
+                p = -torch.nn.functional.one_hot(y, num_classes=K).reshape(-1)
+                print('p ', p.shape, p[:K])
+                print('y ', y.shape, y[0])
+                b = torch.zeros(y.shape[0], dtype=self.dtype).to(self.device)
+                I_nn = torch.eye(n=y.shape[0], dtype=self.dtype).to(self.device) 
+                I_1k = torch.ones((1,K), dtype=self.dtype).to(self.device)
+                A = torch.kron(I_nn,I_1k)
+                print('A ', A.shape, A[0,:])
+                G = torch.eye(n=l_, dtype=self.dtype)
+                h = -p*self.regularizer
+                q = ~p+2
+                l = torch.ones((l_), dtype=self.dtype).to(self.device)*float("-inf")*q
                 alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
-            else:
-                A = torch.tensor([], device=self.device)
-                b = torch.tensor([], device=self.device)
-                alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
-            alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
-            alphas_non_zero = alphas[0] > self.alpha_tol
-            #print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
-            return alphas[0]
+                alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+                alphas_non_zero = alphas[0] > self.alpha_tol
+                print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
+                alpha_matrix = alphas[0].reshape((y.shape[0],K))
+                return alpha_matrix
         else:
             assert False, "Solver not found"
 
@@ -1226,25 +1255,39 @@ class NTK(torch.nn.Module):
                 else:
                     assert False
             else:
-                y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
-                idx_sup_set = set()
-                alpha_mean = 0
-                for i, svm in enumerate(self.svm.estimators_):
-                    # Implementation of the following scikit-learn function in PyTorch:
-                    # - pred = svm.decision_function(ntk_u_cpu) 
-                    alpha = torch.tensor(svm.dual_coef_, dtype=self.dtype, device=self.device)
-                    alpha_mean += alpha.mean()
-                    b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
-                    idx_sup = svm.support_
-                    idx_sup_set.update(idx_sup)
-                    #if i == 0:
-                    #    print((alpha.reshape(1,-1) * ntk_unlabeled[:,idx_sup]).sum(dim=1))
-                    #    print((alpha.reshape(1,-1) * ntk_unlabeled[:,idx_sup]).sum(dim=1).shape)
-                    pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
-                    y_pred[:, i] = pred
-                print("#Number of Support Vectors")
-                print(len(idx_sup_set))
-                print(f"alpha_mean: {alpha_mean / len(self.svm.estimators_)}")
+                if self.solver == "qplayer":
+                    alpha = self.svm
+                    print('alp shape ', alpha.shape)
+                    print(' ntk_unlabeled ', ntk_unlabeled.shape)
+                    print('y test ', y_test)
+                    y_train_one_hot = torch.nn.functional.one_hot(y_test[idx_labeled], num_classes=self.n_classes)
+                    y_train_one_hot[y_train_one_hot==0] = -1
+                    alpha = alpha * y_train_one_hot
+                    y_pred = ntk_unlabeled @ alpha
+                    print('y pred ', y_pred)
+                    print('y test ', y_test[idx_test])
+                elif self.solver == "sklearn":
+                    y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                    idx_sup_set = set()
+                    alpha_mean = 0
+                    for i, svm in enumerate(self.svm.estimators_):
+                        # Implementation of the following scikit-learn function in PyTorch:
+                        # - pred = svm.decision_function(ntk_u_cpu) 
+                        alpha = torch.tensor(svm.dual_coef_, dtype=self.dtype, device=self.device)
+                        alpha_mean += alpha.mean()
+                        b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
+                        idx_sup = svm.support_
+                        idx_sup_set.update(idx_sup)
+                        #if i == 0:
+                        #    print((alpha.reshape(1,-1) * ntk_unlabeled[:,idx_sup]).sum(dim=1))
+                        #    print((alpha.reshape(1,-1) * ntk_unlabeled[:,idx_sup]).sum(dim=1).shape)
+                        pred = (alpha * ntk_unlabeled[:,idx_sup]).sum(dim=1) + b
+                        y_pred[:, i] = pred
+                    print("#Number of Support Vectors")
+                    print(len(idx_sup_set))
+                    print(f"alpha_mean: {alpha_mean / len(self.svm.estimators_)}")
+                else:
+                    assert False
         if return_ntk:
             return y_pred, ntk_test 
         return y_pred
