@@ -12,6 +12,7 @@ from torch_geometric.datasets.wikics import WikiCS
 import torch_geometric.transforms as T
 from torch_sparse import SparseTensor
 import scipy.sparse as sp
+from transformers import BertTokenizer, BertModel
 
 from src.graph_models.csbm import CSBM
 from src import globals
@@ -94,7 +95,7 @@ def get_cora_ml(specification: Dict[str, Any]):
     return X, A, y
 
 
-def get_cora_ml_cont(dataset: str, specification: Dict[str, Any]):
+def get_cora_ml_cont(dataset: str, specification: Dict[str, Any], load_binary_feature: bool = False):
     """Loads cora_ml and makes it undirected."""
     directory = specification["data_dir"]
     if isinstance(directory, str):
@@ -102,21 +103,22 @@ def get_cora_ml_cont(dataset: str, specification: Dict[str, Any]):
     path_to_file = directory / (dataset + ".npz")
     with np.load(path_to_file, allow_pickle=True) as loader:
         loader = dict(loader)
-        for key in loader:
-            print(key)
-        print(len(loader["attr_text"]))
-        print(loader["attr_text"])
-        assert False, "Not implemented"
-        adj_matrix = sp.csr_matrix((loader['adj_matrix.data'], 
-                                    loader['adj_matrix.indices'],
-                                    loader['adj_matrix.indptr']), 
-                                    shape=loader['adj_matrix.shape'])
-        attr_matrix = sp.csr_matrix((loader['attr_matrix.data'], 
-                                     loader['attr_matrix.indices'],
-                                     loader['attr_matrix.indptr']), 
-                                     shape=loader['attr_matrix.shape'])
+        adj_matrix = sp.csr_matrix((loader['adj_data'], 
+                                    loader['adj_indices'],
+                                    loader['adj_indptr']), 
+                                    shape=loader['adj_shape'])
+        if load_binary_feature:
+            attr_matrix = sp.csr_matrix((loader['attr_data'], 
+                                        loader['attr_indices'],
+                                        loader['attr_indptr']), 
+                                        shape=loader['attr_shape'])
+        else:
+            attr_matrix = loader["attr_bert_embedding"]
         A = adj_matrix.toarray()
-        X = (attr_matrix.toarray() > 0).astype("float32")
+        if load_binary_feature:
+            X = (attr_matrix.toarray() > 0).astype("float32")
+        else:
+            X = attr_matrix
         y = np.array(loader["labels"])
         del loader
 
@@ -154,11 +156,13 @@ def get_graph(
         X, A, y = get_wikics(data_params["specification"])
     elif data_params["dataset"] == "cora_ml":
         X, A, y = get_cora_ml(data_params["specification"])
-    elif data_params["dataset"] in ["cora_ml_cont", "dblp", "cora_cont", "cora_full"]:
+    elif data_params["dataset"] in ["cora_ml_cont", "dblp", "cora_cont", "cora_full", "cora_ml_cont_binary"]:
         dataset = data_params["dataset"]
-        if dataset.endswith("_cont"):
-            dataset = dataset[:-5]
-        X, A, y = get_cora_ml_cont(dataset, data_params["specification"])
+        if dataset.endswith("_binary"):
+            dataset = dataset[:-7]
+            X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = True)
+        else:
+            X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False)
     if data_params["dataset"] in ["citeseer", "wikics", "cora_ml"]:
         G = nx.from_numpy_array(A)
         idx_lcc = list(max(nx.connected_components(G), key=len))
@@ -304,3 +308,33 @@ def split(
         )
 
     return idx_trn, idx_unlabeled, idx_val, idx_test
+
+def get_bert_embeddings(text):
+    # Load BERT tokenizer and model
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    model = BertModel.from_pretrained('bert-base-uncased')
+    
+    # Tokenize and encode text using batch_encode_plus
+    # The function returns a dictionary containing the token IDs and attention masks
+    encoding = tokenizer.batch_encode_plus(
+        text,				        # List of input texts
+        padding=True,			    # Pad to the maximum sequence length
+        truncation=True,		    # Truncate to the maximum sequence length if necessary
+        return_tensors='pt',	    # Return PyTorch tensors
+        add_special_tokens=True     # Add special tokens CLS and SEP
+    )
+
+    input_ids = encoding['input_ids'] # Token IDs
+    attention_mask = encoding['attention_mask'] # Attention mask
+
+    # Generate embeddings using BERT model
+    with torch.no_grad():
+        outputs = model(input_ids, attention_mask=attention_mask)
+        word_embeddings = outputs.last_hidden_state # This contains the embeddings
+    print(f"Shape of Word Embeddings: {word_embeddings.shape}")
+
+    # Compute the average of word embeddings to get the sentence embedding
+    sentence_embedding = word_embeddings.mean(dim=1) # Average pooling along the sequence length dimension
+    print(f"Shape of Sentence Embedding: {sentence_embedding.shape}")
+    return sentence_embedding
+    
