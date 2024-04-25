@@ -39,7 +39,8 @@ class NTK(torch.nn.Module):
                  solver: str = "sklearn",
                  alpha_tol: float = 1e-4,
                  device: Union[torch.device, str] = None,
-                 dtype: torch.dtype = torch.float64):
+                 dtype: torch.dtype = torch.float64,
+                 print_alphas: bool = True):
         """ In the forward pass, the here calculated NTK will be considered
             as calculated from the training graph. 
 
@@ -115,6 +116,7 @@ class NTK(torch.nn.Module):
         self.solver = solver
         self.alpha_tol = alpha_tol
         self.bias = bias
+        self.print_alphas = print_alphas
         if pred_method == "svm":
             self.svm = self.fit_svm(X_trn, A_trn, y_trn, idx_trn_labeled)
         else:
@@ -145,8 +147,9 @@ class NTK(torch.nn.Module):
                         cache_size=cache_size)
             if self.n_classes == 2:
                 f.fit(gram_matrix, y.detach().cpu().numpy())
-                alphas_str = [f"{alpha:.04f}" for alpha in f.dual_coef_[0]]
-                print(f"{len(alphas_str)} alphas found: {alphas_str}")
+                if self.print_alphas:
+                    alphas_str = [f"{alpha:.04f}" for alpha in f.dual_coef_[0]]
+                    print(f"{len(alphas_str)} alphas found: {alphas_str}")
             else:
                 f = OneVsRestClassifier(f, n_jobs=1).fit(gram_matrix, y.detach().cpu().numpy())
             return f
@@ -175,8 +178,9 @@ class NTK(torch.nn.Module):
                 solution = cvxopt.solvers.qp(P, q, G, h)
             #print(solution)
             alphas = np.array(solution["x"]).reshape(-1,)
-            alphas_str = [f"{alpha:.04f}" for alpha in alphas]
-            print(f"{len(alphas_str)} alphas found: {alphas_str}")
+            if self.print_alphas:
+                alphas_str = [f"{alpha:.04f}" for alpha in alphas]
+                print(f"{len(alphas_str)} alphas found: {alphas_str}")
             #y = (y + 1) / 2
             #f_ = svm.SVC(C=self.regularizer, kernel="precomputed", 
             #            cache_size=cache_size)
@@ -187,15 +191,15 @@ class NTK(torch.nn.Module):
             #print(f_.intercept_)
             return alphas
         elif self.solver == "qplayer":
+            if idx_trn_labeled is not None:
+                gram_matrix = self.ntk[idx_trn_labeled, :]
+                gram_matrix = gram_matrix[:, idx_trn_labeled]
+            else:
+                gram_matrix = self.ntk
             if self.n_classes == 2:
                 y_ = y * 2 - 1
                 l = y.shape[0]
                 Y = torch.outer(y_, y_)
-                if idx_trn_labeled is not None:
-                    gram_matrix = self.ntk[idx_trn_labeled, :]
-                    gram_matrix = gram_matrix[:, idx_trn_labeled]
-                else:
-                    gram_matrix = self.ntk
                 Q = Y*gram_matrix
                 p = -torch.ones((l,), dtype=self.dtype)
                 I = torch.eye(n=l, dtype=self.dtype)
@@ -213,15 +217,11 @@ class NTK(torch.nn.Module):
                     b = torch.tensor([], device=self.device)
                     alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
                 alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
-                alphas_non_zero = alphas[0] > self.alpha_tol
-                print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
+                if self.print_alphas:
+                    alphas_non_zero = alphas[0] > self.alpha_tol
+                    print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
                 return alphas[0]
             else:
-                if idx_trn_labeled is not None:
-                    gram_matrix = self.ntk[idx_trn_labeled, :]
-                    gram_matrix = gram_matrix[:, idx_trn_labeled]
-                else:
-                    gram_matrix = self.ntk
                 K = self.n_classes
                 l_ = K*y.shape[0]
                 I = torch.eye(n=K, dtype=self.dtype).to(self.device)
@@ -234,11 +234,49 @@ class NTK(torch.nn.Module):
                 G = torch.eye(n=l_, dtype=self.dtype)
                 h = -p*self.regularizer
                 l = torch.ones((l_), dtype=self.dtype).to(self.device)*float("-inf")
-                alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
-                alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
-                print(f"alphas found: {alphas_str}")
+                alphas, _, _ = QPFunction(maxIter=1000)(Q, p, A, b, G, l, h)
+                if self.print_alphas:
+                    alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+                    print(f"alphas found: {alphas_str}")
                 alpha_matrix = alphas[0].reshape((y.shape[0],K))
                 return alpha_matrix
+        elif self.solver == "qplayer_one_vs_all":
+            assert self.n_classes > 2
+            if idx_trn_labeled is not None:
+                gram_matrix = self.ntk[idx_trn_labeled, :]
+                gram_matrix = gram_matrix[:, idx_trn_labeled]
+            else:
+                gram_matrix = self.ntk
+            alphas = []
+            for k in range(self.n_classes):
+                y_mask = y == k
+                y_ = y.clone()
+                y_[y_mask] = 1
+                y_[~y_mask] = -1
+                l = y.shape[0]
+                Y = torch.outer(y_, y_)
+                Q = Y*gram_matrix
+                p = -torch.ones((l,), dtype=self.dtype)
+                I = torch.eye(n=l, dtype=self.dtype)
+                I_neg = -torch.eye(n=l, dtype=self.dtype)
+                G = torch.eye(n=l, dtype=self.dtype)
+                h = torch.zeros((l,), dtype=self.dtype)
+                h[:l] = self.regularizer
+                l = torch.zeros((l,), dtype=self.dtype)
+                if self.bias:
+                    A = y_.reshape((1, -1))
+                    b = torch.zeros(1, dtype=self.dtype)
+                    alphas_, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+                else:
+                    A = torch.tensor([], device=self.device)
+                    b = torch.tensor([], device=self.device)
+                    alphas_, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+                alphas.append(alphas_[0])
+                alphas_str = [f"{alpha:.04f}" for alpha in alphas_[0]]
+                if self.print_alphas:
+                    alphas_non_zero = alphas[0] > self.alpha_tol
+                    print(f"Class {k}: {alphas_non_zero.sum()} alphas found: {alphas_str}")
+            return alphas
         else:
             assert False, "Solver not found"
 
@@ -1272,6 +1310,30 @@ class NTK(torch.nn.Module):
                     print("#Number of Support Vectors")
                     print(len(idx_sup_set))
                     print(f"alpha_mean: {alpha_mean / len(self.svm.estimators_)}")
+                elif self.solver == "qplayer_one_vs_all":
+                    y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                    alpha_l = self.svm
+                    for k, alpha in enumerate(alpha_l):
+                        idx_sup = (alpha > self.alpha_tol)
+                        y_sup = y_test[idx_labeled][idx_sup]
+                        y_mask = y_sup == k
+                        y_sup[y_mask] = 1
+                        y_sup[~y_mask] = -1
+                        alpha_sup = alpha[idx_sup]
+                        w = y_sup * alpha_sup
+                        bias_tol = max(self.alpha_tol, 1e-10)
+                        bias_mask = alpha_sup < (self.regularizer - bias_tol)
+                        ntk_sup = ntk_labeled[idx_sup, :]
+                        ntk_sup = ntk_sup[:, idx_sup]
+                        pred = (y_sup * alpha_sup * ntk_unlabeled[:,idx_sup]).sum(dim=1) 
+                        if self.bias:
+                            if bias_mask.sum() == 0:
+                                raise NotImplementedError("All alpha = C, calculating"
+                                    " bias not supported by cvxopt implementaiton")
+                            b = y_sup[bias_mask] - (y_sup * alpha_sup * ntk_sup[bias_mask, :]).sum(dim=1)
+                            b = b.mean()
+                            pred += b
+                        y_pred[:, k] = pred
                 else:
                     assert False
         if return_ntk:
@@ -1426,38 +1488,70 @@ class NTK(torch.nn.Module):
                 else:
                     assert False
             else:
-                y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
-                alpha_pos_mean = 0
-                alpha_neg_mean = 0
-                n_alpha_pos_mean = 0
-                n_alpha_neg_mean = 0
-                for i, svm in enumerate(self.svm.estimators_):
-                    # Implementation of the following scikit-learn function in PyTorch:
-                    # - pred = svm.decision_function(ntk_u_cpu) 
-                    alpha_pos_mask = svm.dual_coef_ > 0
-                    alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
-                                         dtype=self.dtype, device=self.device)
-                    alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
-                                         dtype=self.dtype, device=self.device)
-                    b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
-                    alpha_pos_mask = alpha_pos_mask.reshape(-1)
-                    idx_sup_pos = svm.support_[alpha_pos_mask]
-                    idx_sup_neg = svm.support_[~alpha_pos_mask]
-                    n_alpha_pos_mean += len(idx_sup_pos)
-                    n_alpha_neg_mean += len(idx_sup_neg)
-                    alpha_pos_mean += alpha_pos.mean()
-                    alpha_neg_mean += alpha_neg.mean()
-                    #if i == 0:
-                    #    print((alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
-                    #    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1))
-                    pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
-                        + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1) \
-                        + b
-                    y_pred[:, i] = pred
-                print(f"n_alpha_pos_mean: {n_alpha_pos_mean / len(self.svm.estimators_)}")
-                print(f"n_alpha_neg_mean: {n_alpha_neg_mean / len(self.svm.estimators_)}")
-                print(f"alpha_pos_mean: {alpha_pos_mean / len(self.svm.estimators_)}")
-                print(f"alpha_neg_mean: {alpha_neg_mean / len(self.svm.estimators_)}")
+                if self.solver == "sklearn":
+                    y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                    alpha_pos_mean = 0
+                    alpha_neg_mean = 0
+                    n_alpha_pos_mean = 0
+                    n_alpha_neg_mean = 0
+                    for i, svm in enumerate(self.svm.estimators_):
+                        # Implementation of the following scikit-learn function in PyTorch:
+                        # - pred = svm.decision_function(ntk_u_cpu) 
+                        alpha_pos_mask = svm.dual_coef_ > 0
+                        alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
+                                            dtype=self.dtype, device=self.device)
+                        alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
+                                            dtype=self.dtype, device=self.device)
+                        b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
+                        alpha_pos_mask = alpha_pos_mask.reshape(-1)
+                        idx_sup_pos = svm.support_[alpha_pos_mask]
+                        idx_sup_neg = svm.support_[~alpha_pos_mask]
+                        n_alpha_pos_mean += len(idx_sup_pos)
+                        n_alpha_neg_mean += len(idx_sup_neg)
+                        alpha_pos_mean += alpha_pos.mean()
+                        alpha_neg_mean += alpha_neg.mean()
+                        #if i == 0:
+                        #    print((alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
+                        #    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1))
+                        pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_pos]).sum(dim=1) \
+                            + (alpha_neg.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_neg]).sum(dim=1) \
+                            + b
+                        y_pred[:, i] = pred
+                    print(f"n_alpha_pos_mean: {n_alpha_pos_mean / len(self.svm.estimators_)}")
+                    print(f"n_alpha_neg_mean: {n_alpha_neg_mean / len(self.svm.estimators_)}")
+                    print(f"alpha_pos_mean: {alpha_pos_mean / len(self.svm.estimators_)}")
+                    print(f"alpha_neg_mean: {alpha_neg_mean / len(self.svm.estimators_)}")
+                elif self.solver == "qplayer_one_vs_all":
+                    y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                    alpha_l = self.svm
+                    for k, alpha in enumerate(alpha_l):
+                        idx_sup = (alpha > self.alpha_tol)
+                        y_sup = y_test[idx_labeled][idx_sup]
+                        y_mask = y_sup == k
+                        y_sup[y_mask] = 1
+                        y_sup[~y_mask] = -1
+                        y_sup_pos_mask = y_sup > 0
+                        y_sup_pos = y_sup[y_sup_pos_mask]
+                        y_sup_neg = y_sup[~y_sup_pos_mask]
+                        alpha_sup = alpha[idx_sup]
+                        alpha_sup_pos = alpha_sup[y_sup_pos_mask]
+                        alpha_sup_neg = alpha_sup[~y_sup_pos_mask]
+                        bias_tol = max(self.alpha_tol, 1e-10)
+                        idx_bias = alpha_sup < (self.regularizer - bias_tol)
+                        ntk_sup = ntk_labeled[idx_sup, :]
+                        ntk_sup = ntk_sup[:, idx_sup]
+                        ntk_unlabeled_sup_ub = ntk_unlabeled_ub[:,idx_sup]
+                        ntk_unlabeled_sup_lb = ntk_unlabeled_lb[:,idx_sup]
+                        
+                        pred = (y_sup_pos * alpha_sup_pos * ntk_unlabeled_sup_ub[:,y_sup_pos_mask]).sum(dim=1) \
+                            + (y_sup_neg * alpha_sup_neg * ntk_unlabeled_sup_lb[:,~y_sup_pos_mask]).sum(dim=1)
+                        if self.bias:
+                            b = y_sup[idx_bias] - (y_sup * alpha_sup * ntk_sup[idx_bias, :]).sum(dim=1)
+                            b = b.mean()
+                            pred += b
+                        y_pred[:, k] = pred
+                else:
+                    assert False
         if return_ntk:
             return y_pred, ntk_test_ub 
         return y_pred
@@ -1607,28 +1701,59 @@ class NTK(torch.nn.Module):
                     y_pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
                         + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1) \
                         + b
-
             else:
-                y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
-                for i, svm in enumerate(self.svm.estimators_):
-                    # Implementation of the following scikit-learn function in PyTorch:
-                    # - pred = svm.decision_function(ntk_u_cpu) 
-                    alpha_pos_mask = svm.dual_coef_ > 0
-                    alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
-                                         dtype=self.dtype, device=self.device)
-                    alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
-                                         dtype=self.dtype, device=self.device)
-                    b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
-                    alpha_pos_mask = alpha_pos_mask.reshape(-1)
-                    idx_sup_pos = svm.support_[alpha_pos_mask]
-                    idx_sup_neg = svm.support_[~alpha_pos_mask]
-                    #if i == 0:
-                    #    print((alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
-                    #    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1))
-                    pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
-                        + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1) \
-                        + b
-                    y_pred[:, i] = pred
+                if self.solver == "sklearn":
+                    y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                    for i, svm in enumerate(self.svm.estimators_):
+                        # Implementation of the following scikit-learn function in PyTorch:
+                        # - pred = svm.decision_function(ntk_u_cpu) 
+                        alpha_pos_mask = svm.dual_coef_ > 0
+                        alpha_pos = torch.tensor(svm.dual_coef_[alpha_pos_mask], 
+                                            dtype=self.dtype, device=self.device)
+                        alpha_neg = torch.tensor(svm.dual_coef_[~alpha_pos_mask], 
+                                            dtype=self.dtype, device=self.device)
+                        b = torch.tensor(svm.intercept_, dtype=self.dtype, device=self.device)
+                        alpha_pos_mask = alpha_pos_mask.reshape(-1)
+                        idx_sup_pos = svm.support_[alpha_pos_mask]
+                        idx_sup_neg = svm.support_[~alpha_pos_mask]
+                        #if i == 0:
+                        #    print((alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
+                        #    + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1))
+                        pred = (alpha_pos.reshape(1,-1) * ntk_unlabeled_lb[:,idx_sup_pos]).sum(dim=1) \
+                            + (alpha_neg.reshape(1,-1) * ntk_unlabeled_ub[:,idx_sup_neg]).sum(dim=1) \
+                            + b
+                        y_pred[:, i] = pred
+                elif self.solver == "qplayer_one_vs_all":
+                    y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                    alpha_l = self.svm
+                    for k, alpha in enumerate(alpha_l):
+                        idx_sup = (alpha > self.alpha_tol)
+                        y_sup = y_test[idx_labeled][idx_sup]
+                        y_mask = y_sup == k
+                        y_sup[y_mask] = 1
+                        y_sup[~y_mask] = -1
+                        y_sup_pos_mask = y_sup > 0
+                        y_sup_pos = y_sup[y_sup_pos_mask]
+                        y_sup_neg = y_sup[~y_sup_pos_mask]
+                        alpha_sup = alpha[idx_sup]
+                        alpha_sup_pos = alpha_sup[y_sup_pos_mask]
+                        alpha_sup_neg = alpha_sup[~y_sup_pos_mask]
+                        bias_tol = max(self.alpha_tol, 1e-10)
+                        idx_bias = alpha_sup < (self.regularizer - bias_tol)
+                        ntk_sup = ntk_labeled[idx_sup, :]
+                        ntk_sup = ntk_sup[:, idx_sup]
+                        ntk_unlabeled_sup_ub = ntk_unlabeled_ub[:,idx_sup]
+                        ntk_unlabeled_sup_lb = ntk_unlabeled_lb[:,idx_sup]
+                            
+                        pred = (y_sup_pos * alpha_sup_pos * ntk_unlabeled_sup_lb[:,y_sup_pos_mask]).sum(dim=1) \
+                            + (y_sup_neg * alpha_sup_neg * ntk_unlabeled_sup_ub[:,~y_sup_pos_mask]).sum(dim=1)
+                        if self.bias:
+                            b = y_sup[idx_bias] - (y_sup * alpha_sup * ntk_sup[idx_bias, :]).sum(dim=1)
+                            b = b.mean()
+                            pred += b
+                        y_pred[:, k] = pred
+                else:
+                    assert False
 
         if return_ntk:
             return y_pred, ntk_test_lb

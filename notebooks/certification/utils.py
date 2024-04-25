@@ -117,9 +117,15 @@ class Experiment:
         self.label = self.hyperparameters["model_params"]["label"]
         self.K = self.hyperparameters["data_params"]["specification"]["K"]
         self.C = float(self.hyperparameters["model_params"]["regularizer"])
-        self.delta = float(self.hyperparameters["certificate_params"]["delta"])
-        self.n_adv = int(self.hyperparameters["certificate_params"]["n_adversarial"])
-        self.attack_nodes = self.hyperparameters["certificate_params"]["attack_nodes"]
+        if "certificate_params" in self.hyperparameters:
+            self.attack = False
+            params = self.hyperparameters["certificate_params"]
+        else:
+            self.attack = True
+            params = self.hyperparameters["attack_params"]
+        self.delta = float(params["delta"])
+        self.n_adv = int(params["n_adversarial"])
+        self.attack_nodes = params["attack_nodes"]
         Experiment.assert_same_hyperparameters(self.individual_experiments)
         self.average_result_statistics()
 
@@ -137,7 +143,10 @@ class Experiment:
             del data_params["specification"]["seed"]
             data_params_l.append(experiment["config"]["data_params"])
             model_params_l.append(experiment["config"]["model_params"])
-            certificate_params_l.append(experiment["config"]["certificate_params"])
+            if "certificate_params" in experiment["config"]:
+                certificate_params_l.append(experiment["config"]["certificate_params"])
+            else:
+                certificate_params_l.append(experiment["config"]["attack_params"])
         for i in range(1, len(individual_experiments)):
             assert_equal_dicts(data_params_l[0], data_params_l[i])
             assert_equal_dicts(data_params_l[0], data_params_l[i])
@@ -157,6 +166,10 @@ class Experiment:
         return np.mean(self.results[key]).item(), np.std(self.results[key]).item()
     
     def get_robust_accuracy(self) -> Tuple[float, float]:
+        """
+        For certificates returns certified accuracy.
+        For attacks returns roubst accuracy.
+        """
         n_robust_acc_l = []
         self.n_test = self.hyperparameters["data_params"]["specification"]["n_test"]
         for experiment in self.individual_experiments:
@@ -173,6 +186,10 @@ class Experiment:
         return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
     
     def get_certified_ratio(self) -> Tuple[float, float]:
+        """
+        For certificates returns certified robustness (independent of correct class.)
+        For attacks returns robust predictions (independent of correct class.)
+        """
         n_robust_l = []
         self.n_test = self.hyperparameters["data_params"]["specification"]["n_test"]
         for experiment in self.individual_experiments:
@@ -181,9 +198,9 @@ class Experiment:
             for y_true, y_pred, y_worst in zip(result["y_true_cls"],
                                                result["y_pred_logit"],
                                                result["y_worst_obj"]):
-                if y_true > 0 and y_worst > 0:
+                if y_pred > 0 and y_worst > 0:
                     n_robust += 1
-                if y_true < 0 and y_worst < 0:
+                if y_pred < 0 and y_worst < 0:
                     n_robust += 1
             n_robust_l.append(n_robust / self.n_test)
         return np.mean(n_robust_l).item(), np.std(n_robust_l).item()
@@ -257,10 +274,14 @@ class ExperimentManager:
                 exp_spec["start_id"] = [exp_spec["start_id"]]
                 exp_spec["end_id"] = [exp_spec["end_id"]]
             for start_id, end_id in zip(exp_spec["start_id"], exp_spec["end_id"]):
+                if "label" in exp_spec:
+                    label = exp_spec["label"]
+                else:
+                    label = None
                 exp_list = self.load_experiments(start_id,
                                                  end_id,
                                                  exp_spec["n_seeds"],
-                                                 exp_spec["label"],
+                                                 label,
                                                  exp_spec["collection"])
                 for exp in exp_list:
                     if exp.label not in self.experiments_dict:
@@ -413,8 +434,9 @@ class ExperimentManager:
                     delta = delta_l[i]
                     n_adv = int(n_adv_l[j])
                     if delta == 0:
-                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][0.01]
-                        y, y_std = exp.get_result("accuracy_test")
+                        #exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][0.01]
+                        #y, y_std = exp.get_result("accuracy_test")
+                        y = 1
                     else:
                         exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
                         y, y_std = exp.get_certified_ratio()
