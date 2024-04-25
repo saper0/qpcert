@@ -114,10 +114,6 @@ class NTK(torch.nn.Module):
         self.idx_trn_labeled = idx_trn_labeled
         self.n_classes = n_classes
         self.solver = solver
-        if "multiclass_svm_method" in model_dict:
-            self.multiclass_svm_method = model_dict["multiclass_svm_method"]
-        else:
-            self.multiclass_svm_method = "simMSVM"
         self.alpha_tol = alpha_tol
         self.bias = bias
         self.print_alphas = print_alphas
