@@ -226,44 +226,52 @@ class NTK(torch.nn.Module):
                     print(f"{alphas_non_zero.sum()} alphas found: {alphas_str}")
                 return alphas[0]
             else:
-                K = self.n_classes
-                if self.multiclass_svm_method == "MSVM":
-                    l_ = K*y.shape[0]
-                    I = torch.eye(n=K, dtype=self.dtype).to(self.device)
-                    Q = torch.kron(I, gram_matrix)
-                    p = -torch.nn.functional.one_hot(y, num_classes=K).reshape(-1)
-                    b = torch.zeros(y.shape[0], dtype=self.dtype).to(self.device)
-                    I_nn = torch.eye(n=y.shape[0], dtype=self.dtype).to(self.device) 
-                    I_1k = torch.ones((1,K), dtype=self.dtype).to(self.device)
-                    A = torch.kron(I_nn,I_1k)
-                    G = torch.eye(n=l_, dtype=self.dtype)
-                    h = -p*self.regularizer
-                    l = torch.ones((l_), dtype=self.dtype).to(self.device)*float("-inf")
-                    alphas, _, _ = QPFunction(maxIter=1000)(Q, p, A, b, G, l, h)
-                    if self.print_alphas:
-                    alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
-                        print(f"alphas found: {alphas_str}")
-                    alpha_matrix = alphas[0].reshape((y.shape[0],K))
-                    return alpha_matrix
-                elif self.multiclass_svm_method == "simMSVM":
-                    l_ = y.shape[0]
-                    Q = gram_matrix
-                    y_onehot = torch.nn.functional.one_hot(y, num_classes=K).type(self.dtype)
-                    Kernel = (y_onehot.matmul(y_onehot.t()))*(K-1)
-                    Kernel[Kernel==0] = -1
-                    Q = Q*Kernel
-                    p = -torch.ones(l_, dtype=self.dtype).to(self.device)
-                    G = torch.eye(n=l_, dtype=self.dtype)
-                    h = -(p*self.regularizer*K)/((K-1)*(K-1))
-                    l = torch.zeros(l_, dtype=self.dtype).to(self.device)
-                    A = torch.tensor([], device=self.device)
-                    b = torch.tensor([], device=self.device)
-                    alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
-                    alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
-                    print(f"alphas found: {alphas_str}")
-                    alpha_matrix = alphas[0]
-                    print("alpha shape ", alpha_matrix.shape)
-                    return alpha_matrix
+                assert False, "qplayer only for binary class"
+        elif self.solver == "MSVM":
+            assert self.n_classes > 2
+            if idx_trn_labeled is not None:
+                gram_matrix = self.ntk[idx_trn_labeled, :]
+                gram_matrix = gram_matrix[:, idx_trn_labeled]
+            else:
+                gram_matrix = self.ntk
+            K = self.n_classes
+            l_ = K*y.shape[0]
+            I = torch.eye(n=K, dtype=self.dtype).to(self.device)
+            Q = torch.kron(I, gram_matrix)
+            p = -torch.nn.functional.one_hot(y, num_classes=K).reshape(-1)
+            b = torch.zeros(y.shape[0], dtype=self.dtype).to(self.device)
+            I_nn = torch.eye(n=y.shape[0], dtype=self.dtype).to(self.device) 
+            I_1k = torch.ones((1,K), dtype=self.dtype).to(self.device)
+            A = torch.kron(I_nn,I_1k)
+            G = torch.eye(n=l_, dtype=self.dtype)
+            h = -p*self.regularizer
+            l = torch.ones((l_), dtype=self.dtype).to(self.device)*float("-inf")
+            alphas, _, _ = QPFunction(maxIter=1000)(Q, p, A, b, G, l, h)
+            if self.print_alphas:
+                alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+                print(f"alphas found: {alphas_str}")
+            alpha_matrix = alphas[0].reshape((y.shape[0],K))
+            return alpha_matrix
+        elif self.solver == "simMSVM":
+            l_ = y.shape[0]
+            Q = gram_matrix
+            y_onehot = torch.nn.functional.one_hot(y, num_classes=K).type(self.dtype)
+            Kernel = (y_onehot.matmul(y_onehot.t()))*(K-1)
+            Kernel[Kernel==0] = -1
+            Q = Q*Kernel
+            p = -torch.ones(l_, dtype=self.dtype).to(self.device)
+            G = torch.eye(n=l_, dtype=self.dtype)
+            h = -(p*self.regularizer*K)/((K-1)*(K-1))
+            l = torch.zeros(l_, dtype=self.dtype).to(self.device)
+            A = torch.tensor([], device=self.device)
+            b = torch.tensor([], device=self.device)
+            alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
+            alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+            if self.print_alphas:
+                print(f"alphas found: {alphas_str}")
+                print("alpha shape ", alpha_matrix.shape)
+            alpha_matrix = alphas[0]
+            return alpha_matrix
         elif self.solver == "qplayer_one_vs_all":
             assert self.n_classes > 2
             if idx_trn_labeled is not None:
