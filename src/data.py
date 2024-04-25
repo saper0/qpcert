@@ -134,12 +134,17 @@ def get_graph(
 ) -> Tuple[Float[ndarray, "n n"], Integer[ndarray, "n n"], Integer[ndarray, "n"]]:
     """Return graph sampled from a CSBM.
 
-    If sort is true, X, A and y are sorted for class.
+    If sort is true, X, A and y are sorted for class (only applied for CSBM!)
     
     Returns X, A, y."""
-
     if data_params["dataset"] == "csbm":
         X, A, y, mu, p, q = get_csbm(data_params["specification"])
+        if sort:
+            idx = np.argsort(y)
+            y = y[idx]
+            X = X[idx, :]
+            A = A[idx, :]
+            A = A[:, idx]
     elif data_params["dataset"] in ["cora", "citeseer", "pubmed"]:
         X, A, y = get_planetoid(data_params["dataset"], data_params["specification"])
     elif data_params["dataset"] in ["cora_inv"]:
@@ -170,15 +175,9 @@ def get_graph(
         logging.info(f"X_rowsum.median(): {np.median(X_rowsum)}")
         logging.info(f"X_rowsum.min(): {np.min(X_rowsum)}")
         logging.info(f"X_rowsum.max(): {np.max(X_rowsum)}")
-    if sort:
-        idx = np.argsort(y)
-        y = y[idx]
-        X = X[idx, :]
-        A = A[idx, :]
-        A = A[:, idx]
     if data_params["dataset"] == "csbm":
         return X, A, y, mu, p, q
-    return X, A, y
+    return X, A, y, None, None, None
 
 
 def split_csbm(

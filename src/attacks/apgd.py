@@ -101,7 +101,8 @@ class APGD(Attack):
                    bias=bool(self.model_params["bias"]),
                    solver=self.model_params["solver"],
                    alpha_tol=self.model_params["alpha_tol"],
-                   dtype=self.dtype)
+                   dtype=self.dtype,
+                   print_alphas=False)
         return ntk(idx_labeled=self.idx_labeled, idx_test=idx_target,
                    y_test=self.y, X_test=X, A_test=self.A)
 

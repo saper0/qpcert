@@ -217,7 +217,8 @@ def run(data_params: Dict[str, Any],
                   bias=bool(model_params["bias"]),
                   solver=model_params["solver"],
                   alpha_tol=model_params["alpha_tol"],
-                  dtype=dtype)
+                  dtype=dtype,
+                  print_alphas=False)
         
         y_pred_clean, _ = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
                                y_test=y, X_test=X, A_test=A, return_ntk=True)
