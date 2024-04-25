@@ -178,13 +178,15 @@ def run(data_params: Dict[str, Any],
     
     X, A, y, _, _, _ = get_graph(data_params, sort=True)
     utils.empty_gpu_memory(device)
-    idx_trn, _, idx_val, idx_test = split(data_params, y)
+    idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
     X = torch.tensor(X, dtype=dtype, device=device)
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
     n_classes = int(y.max() + 1)
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
+    if len(idx_unlabeled) > 0 and data_params["learning_setting"] == "transductive":
+        idx_test = np.concatenate((idx_unlabeled, idx_test))
     split_seed = seed
     if "seed" in data_params["specification"]:
         split_seed = data_params["specification"]["seed"]

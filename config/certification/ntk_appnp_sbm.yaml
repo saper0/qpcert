@@ -1,6 +1,6 @@
 seml:
   name: ntk_appnp_cert
-  executable: exp_ntk_cert_pois.py
+  executable: exp_ntk_certify.py
   project_root_dir: ../..
   output_dir: log/certification/
 
@@ -12,7 +12,7 @@ slurm:
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 2  # num cores
-    time: 0-10:30     # max time, D-HH:MM
+    time: 0-20:30     # max time, D-HH:MM
 
 fixed:
   data_params:
@@ -40,7 +40,7 @@ fixed:
 
   certificate_params:
     method: XXT
-    perturbation_model: linf
+    perturbation_model: l2
     attack_nodes: test
     delta_absolute: False
 
@@ -59,27 +59,19 @@ grid:
     label:
       type: choice
       options:
-      - APPNP_alpha0
-      - APPNP_alpha0.3
-      - APPNP_alpha0.5
-      - APPNP_alpha1
+      - APPNP
       zip_id: alphas
 
     alpha:
       type: choice
       options:
-      #- 0.2
-      #- 0.1
-      - 0
-      - 0.3
-      - 0.5
-      - 1
+      - 0.2
       zip_id: alphas
       
     regularizer:
       type: choice
       options:
-      #- 0.001
+      - 0.001
       - 0.01
       #- 0.1
       #- 1
