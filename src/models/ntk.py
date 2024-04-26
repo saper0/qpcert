@@ -249,6 +249,13 @@ class NTK(torch.nn.Module):
             alpha_matrix = alphas[0].reshape((y.shape[0],K))
             return alpha_matrix
         elif self.solver == "simMSVM":
+            assert self.n_classes > 2
+            if idx_trn_labeled is not None:
+                gram_matrix = self.ntk[idx_trn_labeled, :]
+                gram_matrix = gram_matrix[:, idx_trn_labeled]
+            else:
+                gram_matrix = self.ntk
+            K = self.n_classes
             l_ = y.shape[0]
             Q = gram_matrix
             y_onehot = torch.nn.functional.one_hot(y, num_classes=K).type(self.dtype)
@@ -263,10 +270,10 @@ class NTK(torch.nn.Module):
             b = torch.tensor([], device=self.device)
             alphas, _, _ = QPFunction()(Q, p, A, b, G, l, h)
             alphas_str = [f"{alpha:.04f}" for alpha in alphas[0]]
+            alpha_matrix = alphas[0]
             if self.print_alphas:
                 print(f"alphas found: {alphas_str}")
                 print("alpha shape ", alpha_matrix.shape)
-            alpha_matrix = alphas[0]
             return alpha_matrix
         elif self.solver == "qplayer_one_vs_all":
             assert self.n_classes > 2
@@ -383,10 +390,16 @@ class NTK(torch.nn.Module):
     
     def calc_relu_expectations(self, M: Float[torch.Tensor, "n n"]):
         csigma = 1
+        # ensure M is symmetric to avoid numerical issues
+        if not (M.transpose(0, 1) == M).all():
+            M = torch.tril(M) + torch.tril(M, diagonal=-1).T
         p = torch.zeros((M.shape), dtype=self.dtype).to(self.device)
         Diag_Sig = torch.diagonal(M) 
         Sig_i = p + Diag_Sig.reshape(1, -1)
         Sig_j = p + Diag_Sig.reshape(-1, 1)
+        # ensure covariance_ij <= max{var_i, var_j} : could happen otherwise because of numerical precision issues
+        cov_gr_var = torch.logical_and((M>Sig_i), (M>Sig_j))
+        M[cov_gr_var] = torch.max(Sig_i[cov_gr_var], Sig_j[cov_gr_var])
         del p
         del Diag_Sig
         self.empty_gpu_memory()
@@ -1366,6 +1379,14 @@ class NTK(torch.nn.Module):
                             b = b.mean()
                             pred += b
                         y_pred[:, k] = pred
+                elif self.solver == "MSVM" or self.solver == "simMSVM":
+                    y_pred = torch.zeros((len(idx_test), self.n_classes), device=self.device)
+                    alpha = self.svm
+                    if self.solver == "simMSVM":
+                        alpha_ = alpha.reshape(-1,1) @ torch.ones((1,self.n_classes), dtype=self.dtype).to(device=self.device)
+                        y_labeled_onehot = torch.nn.functional.one_hot(y_test[idx_labeled], num_classes=self.n_classes)
+                        alpha = alpha_ * y_labeled_onehot
+                    y_pred = ntk_unlabeled @ alpha
                 else:
                     assert False
         if return_ntk:
