@@ -6,6 +6,7 @@ import logging
 from typing import Any, Dict, Union, Tuple
 import os
 import socket
+import time
 
 import numpy as np
 from sacred import Experiment
@@ -43,28 +44,16 @@ def config():
     seed = 0
 
     data_params = dict(
-        dataset = "csbm",
-        learning_setting = "inductive", # or "transdructive"
+        dataset = "cora",
+        learning_setting = "transductive", # or "transdructive"
         specification = dict(
-            classes = 2,
-            n_trn_labeled = 600,
-            n_trn_unlabeled = 0,
-            n_val = 200,
-            n_test = 200,
-            sigma = 1,
-            avg_within_class_degree = 1.58 * 2,
-            avg_between_class_degree = 0.37 * 2,
-            K = 1.5,
-            seed = 0 # used to generate the dataset & data split
-        ),
-        #specification = dict(
-        #    n_per_class = 20,
-        #    fraction_test = 0.1,
-        #    data_dir = "./data",
-        #    make_undirected = True,
-        #    binary_attr = False,
-        #    balance_test = True,
-        #)
+            n_per_class = 20,
+            fraction_test = 0.1,
+            data_dir = "./data",
+            make_undirected = True,
+            binary_attr = False,
+            balance_test = True,
+        )
     )
     
     model_params = dict(
@@ -80,6 +69,8 @@ def config():
     )
 
     certificate_params = dict(
+        target_idx = 0, #0-based!
+        n_targets_per_class = 10,
         n_adversarial = 10, # number adversarial nodes
         method = "XXT",
         perturbation_model = "linf",
@@ -228,7 +219,14 @@ def run(data_params: Dict[str, Any],
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
     idx_unlabeled = np.concatenate((idx_unlabeled, idx_test))
-    # idx of labeled nodes in nodes known during training (for semi-supervised)
+    # Pick target node
+    target_idx = certificate_params["target_idx"] 
+    n_targets_per_class = certificate_params["n_targets_per_class"]
+    target_class = int(target_idx / n_targets_per_class)
+    y_mask_target_cls = y[idx_unlabeled] == target_class
+    idx_targets = rng.permutation(idx_unlabeled[y_mask_target_cls])
+    idx_test = idx_targets[target_idx % n_targets_per_class]
+    idx_test = torch.Tensor([idx_test], device=device).to(torch.long)
     if not data_params["learning_setting"] == "transductive":
         assert False, "Only transductive setting supported"
 
@@ -322,12 +320,14 @@ def run(data_params: Dict[str, Any],
 
     # Poisoning Certificate
     svm_alpha = ntk.svm
+    start_time = time.process_time()
     if model_params["solver"] == "qplayer_one_vs_all":
-        is_robust_l, obj_l, opt_status_l = utils.certify_one_vs_all_milp(
+        is_robust_l = utils.certify_one_vs_all_milp(
                 idx_labeled, idx_test, ntk_test, ntk_lb, ntk_ub, y, y_pred,
                 svm_alpha, certificate_params=certificate_params,
                 C=model_params["regularizer"], M=1e3, Mprime=1e3,
         )
+    end_time = time.process_time()
     acc_cert = sum(is_robust_l) / y_pred.shape[0]
     acc_cert_u = 0 #not implemented
     logging.info(f"Certified accuracy (poisoning): {acc_cert}")
@@ -375,12 +375,11 @@ def run(data_params: Dict[str, Any],
         accuracy_cert_pois_robust = acc_cert,
         accuracy_cert_pois_unrobust = acc_cert_u,
         delta_absolute = delta,
+        process_time = end_time - start_time, #Unit: seconds
         # node-wise pois. robustness statistics
-        y_true_cls = (y[idx_test] * 2 - 1).numpy(force=True).tolist(),
-        y_pred_logit = y_pred.numpy(force=True).tolist(),
-        y_worst_obj = obj_l,
-        y_is_robust = is_robust_l,
-        y_opt_status = opt_status_l,
+        y_true_cls = y[idx_test].numpy(force=True).tolist()[0],
+        y_pred_logit = y_pred[0].numpy(force=True).tolist(),
+        y_is_robust = is_robust_l[0],
         # split statistics
         idx_train = idx_trn.tolist(),
         idx_val = idx_val.tolist(),
@@ -388,9 +387,6 @@ def run(data_params: Dict[str, Any],
         idx_test = idx_test.tolist(),
         idx_adv = idx_adv.tolist(),
         # data statistics
-        csbm_mu = mu[0].item(),
-        csbm_p = p,
-        csbm_q = q,
         data_dim = X.shape[1],
         # other statistics ntk / pred
         min_ypred = min_ypred,

@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 
-URI = "mongodb://gosl:Wuyg6KTV@fs.kdd.in.tum.de:27017/gosl0?authMechanism=SCRAM-SHA-1"
+URI = "mongodb://sabanaya:bAvQwbOp@fs.kdd.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
 
 
 def assert_equal_dicts(d1: Dict[str, Any], d2: Dict[str, Any]):
@@ -161,7 +161,7 @@ class ExperimentLoader:
     def __init__(self, collection="runs", uri=URI):
         """Establish connection to a given mongodb collection."""
         self.client = MongoClient(uri)
-        self.db = self.client.gosl0
+        self.db = self.client.sabanaya
         self.collection = self.db[collection]
 
     def load_experiment_dict(self, id: int) -> Dict[str, Any]:

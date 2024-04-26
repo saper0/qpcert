@@ -12,7 +12,10 @@ from torch_geometric.datasets.wikics import WikiCS
 import torch_geometric.transforms as T
 from torch_sparse import SparseTensor
 import scipy.sparse as sp
-from transformers import BertTokenizer, BertModel
+try:
+    from transformers import BertTokenizer, BertModel
+except ImportError:
+    pass
 
 from src.graph_models.csbm import CSBM
 from src import globals

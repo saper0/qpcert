@@ -130,8 +130,47 @@ def grad_with_checkpoint(outputs: Union[torch.Tensor, Sequence[torch.Tensor]],
     return grad_outputs
 
 
+def _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub) -> Tuple[np.ndarray, np.ndarray]:
+    # Set big M for nodes i with y_i = 1 (or -1 if ~y_mask given)
+    y_pos_rows_mask = np.zeros(ntk_labeled_lb.shape, dtype=bool)
+    y_pos_rows_mask[y_mask] = True
+    y_pos_cols_mask = np.transpose(y_pos_rows_mask)
+    # y=1 nodes connected to y=1 nodes (or y=-1 nodes connected to y=-1 if ~y_mask)
+    y_pos_mask = y_pos_rows_mask & y_pos_cols_mask
+    # y=1 nodes connected to y=-1 nodes (or y=-1 nodes connected to y=1 if ~y_mask)
+    y_neg_mask = y_pos_mask.copy()
+    y_neg_mask[y_mask] = ~y_neg_mask[y_mask]
+    ub_pos_mask = ntk_labeled_ub > 0
+    lb_neg_mask = ntk_labeled_lb < 0
+    # Zero negative Q_ij^U for y_j=1 (or y_j=-1 if ~y_mask)
+    mask = y_pos_mask & ub_pos_mask
+    ntk_labeled_ub_pos = np.copy(ntk_labeled_ub)
+    ntk_labeled_ub_pos[~mask] = 0
+    # Zero positive Q_ij^L for y_j=-1 (or y_j=1 if ~y_mask)
+    mask = (~y_pos_mask) & lb_neg_mask
+    ntk_labeled_lb_neg = np.copy(ntk_labeled_lb)
+    ntk_labeled_lb_neg[~mask] = 0
+    assert (ntk_labeled_ub_pos < 0).sum() == 0
+    assert (ntk_labeled_lb_neg < 0).sum() == 0
+    M_u[y_mask] = ntk_labeled_ub_pos[y_mask].sum(axis=1) * C \
+                - ntk_labeled_lb_neg[y_mask].sum(axis=1) * C \
+                - 1
+    M_u[M_u < 0] = 0
+    # Zero negative Q_ij^U for y_j=-1 (or y_j=1 if ~y_mask)
+    mask = (~y_pos_mask) & ub_pos_mask
+    ntk_labeled_ub_pos_yneg = np.copy(ntk_labeled_ub)
+    ntk_labeled_ub_pos_yneg[~mask] = 0
+    # Zero positive Q_ij^L for y_j=1 (or y_j=-1 if ~y_mask)
+    mask = y_pos_mask & lb_neg_mask
+    ntk_labeled_lb_neg_ypos = np.copy(ntk_labeled_lb)
+    ntk_labeled_lb_neg_ypos[~mask] = 0
+    M_v[y_mask] = -ntk_labeled_lb_neg_ypos[y_mask].sum(axis=1)*C \
+                + ntk_labeled_ub_pos_yneg[y_mask].sum(axis=1)*C \
+                + 1
+
 def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
-                            y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, 
+                            y_pred, svm_alpha, certificate_params,
+                            C=1, M=1e4, Mprime=1e4, 
                             milp=True):
     assert (ntk_lb > ntk_ub).sum() == 0
     assert (ntk_lb > ntk).sum() == 0
@@ -148,9 +187,15 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
     ntk_labeled_lb = ntk_lb[idx_labeled, :]
     ntk_labeled_lb = ntk_labeled_lb[:, idx_labeled]
     y_labeled = y[idx_labeled].detach().cpu().numpy()
-    ntk_unlabeled = ntk[idx_test,:][:,idx_labeled]
-    ntk_unlabeled_ub = ntk_ub[idx_test,:][:,idx_labeled]
-    ntk_unlabeled_lb = ntk_lb[idx_test,:][:,idx_labeled]
+    if len(idx_test) == 1:
+        ntk_unlabeled = np.reshape(ntk[idx_test,:][idx_labeled], (1,-1))
+        ntk_unlabeled_ub = np.reshape(ntk_ub[idx_test,:][idx_labeled], (1,-1))
+        ntk_unlabeled_lb = np.reshape(ntk_lb[idx_test,:][idx_labeled], (1,-1))
+        print(ntk_unlabeled.shape)
+    else:
+        ntk_unlabeled = ntk[idx_test,:][:,idx_labeled]
+        ntk_unlabeled_ub = ntk_ub[idx_test,:][:,idx_labeled]
+        ntk_unlabeled_lb = ntk_lb[idx_test,:][:,idx_labeled]
 
     # Find the initial start feasible solution
     u_start_d = {}
@@ -188,7 +233,7 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         assert (alpha<0).sum() == 0
         assert (u_start<0).sum() == 0
         assert (v_start<0).sum() == 0
-        assert ((y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1 - u_start + v_start).sum() < globals.zero_tol)
+        assert ((y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1 - u_start + v_start) < globals.zero_tol).sum()
         assert (u_start-M*s_start > globals.zero_tol).sum() == 0
         assert (alpha-C*(1-s_start) > globals.zero_tol).sum() == 0
         assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
@@ -235,13 +280,18 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 m.addConstr(z_test <= ntk_unlabeled_ub[i,:].reshape(1,-1) * alpha, "z_test_ub")
                 m.addConstr(z_test >= ntk_unlabeled_lb[i,:].reshape(1,-1) * alpha, "z_test_lb")
                 m.addConstr(y_labeled_*(z@y_labeled_) - u + v == 1, "eq_constraint")
-                if milp:
-                    #M = np.zeros((n_labeled,))
-                    #y_pos_mask = np.zeros(ntk_labeled.shape, dtype=bool)
-                    #y_pos_mask[y_mask] = True
-                    m.addConstr(u <= M*s, "u_mil1")
+                if milp:    
+                    M_u = np.zeros((y_mask.shape[0],))
+                    M_v = np.zeros((y_mask.shape[0],))
+                    # Set big M for nodes i with y_i = 1
+                    _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub)
+                    # Set big M for nodes i with y_i = -1
+                    _set_big_M(M_u, M_v, ~y_mask, C, ntk_labeled_lb, ntk_labeled_ub)
+                    assert (u_start_d[k] > M_u).sum() == 0
+                    assert (v_start_d[k] > M_v).sum() == 0
+                    m.addConstr(u <= M_u*s, "u_mil1")
                     m.addConstr(alpha <= C*(1-s), "u_mil2")
-                    m.addConstr(v <= Mprime*t, "v_mil1")
+                    m.addConstr(v <= M_v*t, "v_mil1")
                     m.addConstr(C-alpha <= C*(1-t), "v_mil2")
                 else:
                     m.addConstr(u*alpha == 0, "u_comp_slack")
@@ -267,19 +317,39 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                     m.Params.BestObjStop = stop_obj # terminate when the objective reaches 0, implies node not robust
                 m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
                 m.Params.IntFeasTol = 1e-4 # to stabilize big-M constraint (helps, works without this also) 
-                m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
-                m.params.OutputFlag=0 # to suppress branch bound search tree outputs
+                if "LogToConsole" in certificate_params:
+                    m.Params.LogToConsole = certificate_params["LogToConsole"]
+                else:
+                    m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
+                if "OutputFlag" in certificate_params:
+                    m.Params.LogToConsole = certificate_params["OutputFlag"]
+                else:
+                    m.params.OutputFlag= 0 # to suppress branch bound search tree outputs
                 m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
             
                 # Played around with the following flags to escape infeasibility solutions
                 m.Params.FeasibilityTol = 1e-4
+                if stop_obj is None and "MIPGap" in certificate_params:
+                    m.Params.MIPGap = certificate_params["MIPGap"]
                 m.Params.OptimalityTol = 1e-4
-                m.Params.NumericFocus = 3
+                if "NumericFocus" in certificate_params:
+                    m.Params.NumericFocus = certificate_params["NumericFocus"]
+                else:
+                    m.Params.NumericFocus = 3
+                if "TimeLimit" in certificate_params:
+                    m.Params.TimeLimit = certificate_params["TimeLimit"]
                 # m.Params.MIPGap = 1e-4
                 # m.Params.MIPGapAbs = 1e-4
                 # m.Params.Presolve = 0
                 # m.Params.Aggregate = 0 #aggregation level in presolve
-                # m.Params.MIPFocus = 1
+                if "MIPFocus" in certificate_params:
+                    m.Params.MIPFocus = certificate_params["MIPFocus"]
+                else:
+                    m.Params.MIPFocus = 3
+                if "Cuts" in certificate_params:
+                    m.Params.Cuts = certificate_params["Cuts"]
+                if "Heuristics" in certificate_params:
+                    m.Params.Heuristics = certificate_params["Heuristics"]
                 # m.Params.InfProofCuts = 0
 
                 def callback(model, where):
@@ -330,7 +400,7 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                             f'{m.ObjVal:.5f}, stop_obj: {stop_obj}')
                 # analyse result
                 if stop_obj is None:
-                    stop_obj = m.ObjVal
+                    stop_obj = m.ObjBound
                 else:
                     if m.ObjVal > stop_obj:
                         is_robust = False
@@ -348,7 +418,7 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         if is_robust:
             robust_count += 1
         logging.info(f'Robust count {robust_count} out of {i+1}')
-    assert False
+    return is_robust_l
 
 def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
                                y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, 
