@@ -390,16 +390,13 @@ class NTK(torch.nn.Module):
     
     def calc_relu_expectations(self, M: Float[torch.Tensor, "n n"]):
         csigma = 1
-        # ensure M is symmetric to avoid numerical issues
-        #if not (M.transpose(0, 1) == M).all():
-        #    M = torch.tril(M) + torch.tril(M, diagonal=-1).T
         p = torch.zeros((M.shape), dtype=self.dtype).to(self.device)
         Diag_Sig = torch.diagonal(M) 
         Sig_i = p + Diag_Sig.reshape(1, -1)
         Sig_j = p + Diag_Sig.reshape(-1, 1)
-        # ensure covariance_ij <= max{var_i, var_j} : could happen otherwise because of numerical precision issues
-        #cov_gr_var = torch.logical_and((M>Sig_i), (M>Sig_j))
-        #M[cov_gr_var] = torch.max(Sig_i[cov_gr_var], Sig_j[cov_gr_var])
+        # ensure covariance_ij <= min{var_i, var_j} : could happen otherwise because of numerical precision issues
+        cov_gr_var = torch.logical_or((M>Sig_i), (M>Sig_j))
+        M[cov_gr_var] = torch.min(Sig_i[cov_gr_var], Sig_j[cov_gr_var])
         del p
         del Diag_Sig
         self.empty_gpu_memory()
@@ -795,6 +792,11 @@ class NTK(torch.nn.Module):
         Sig_j_lb = p + Diag_Sig_lb.reshape(-1, 1)
         Sig_i_ub = p + Diag_Sig_ub.reshape(1, -1)
         Sig_j_ub = p + Diag_Sig_ub.reshape(-1, 1)
+        # ensure covariance_ij <= max{var_i, var_j} : could happen otherwise because of numerical precision issues
+        cov_gr_var = torch.logical_or((Sig_lb>Sig_i_lb), (Sig_lb>Sig_j_lb))
+        Sig_lb[cov_gr_var] = torch.min(Sig_i_lb[cov_gr_var], Sig_j_lb[cov_gr_var])
+        cov_gr_var = torch.logical_or((Sig_ub>Sig_i_ub), (Sig_ub>Sig_j_ub))
+        Sig_ub[cov_gr_var] = torch.min(Sig_i_ub[cov_gr_var], Sig_j_ub[cov_gr_var])
         q_lb = torch.sqrt(Sig_i_lb * Sig_j_lb) #+ 1e-7 q_lb_{ij} = Sigma_ii * Sigma_jj
         q_ub = torch.sqrt(Sig_i_ub * Sig_j_ub)
         assert (q_lb < 0).sum() == 0
