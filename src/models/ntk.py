@@ -658,6 +658,88 @@ class NTK(torch.nn.Module):
             XXT_lb = XXT+Delta_l
             XXT_ub = XXT+Delta_u
             return XXT_lb, XXT_ub
+        elif perturbation_model == "l2_binary_feature":
+            # Assumes original feature X is binary {0,1}^d
+            # Perturbation linf results in X \in [0,1] domain
+            XXT = NTK._calc_XXT(X)
+            Delta_l = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
+            Delta_u = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
+            X_adv = torch.zeros(size=X.shape, dtype=self.dtype, device=self.device)
+            X_adv[idx_adv, :] = X[idx_adv, :]
+            # D^TD Interaction Term
+            DD_l = Delta_l[idx_adv, :]
+            DD_l[:, idx_adv] = -delta*delta
+            Delta_l[idx_adv, :] = DD_l
+            assert (Delta_l != Delta_l.T).sum() == 0
+            DD_u = Delta_u[idx_adv, :]
+            DD_u[:, idx_adv] = delta*delta
+            Delta_u[idx_adv, :] = DD_u
+            assert (Delta_u != Delta_u.T).sum() == 0
+            # D^TX and X^TD Terms
+            for idx in idx_adv:
+                x_adv = (X_adv[idx]==1).type(self.dtype)
+                X_2norm = torch.linalg.vector_norm(X*x_adv,ord=2,dim=1) 
+                delta_times_X_2norm = delta*X_2norm
+                Delta_l[idx, :] -= delta_times_X_2norm
+                Delta_l[:, idx] -= delta_times_X_2norm
+                x_adv = (X_adv[idx]==0).type(self.dtype)
+                X_2norm = torch.linalg.vector_norm(X*x_adv,ord=2,dim=1) 
+                delta_times_X_2norm = delta*X_2norm
+                Delta_u[idx, :] += delta_times_X_2norm
+                Delta_u[:, idx] += delta_times_X_2norm
+            Delta_l.fill_diagonal_(0.)
+            Delta_l = torch.tril(Delta_l) + torch.tril(Delta_l, diagonal=-1).T
+            Delta_u = torch.tril(Delta_u) + torch.tril(Delta_u, diagonal=-1).T
+            assert (Delta_l != Delta_l.T).sum() == 0
+            assert (Delta_u != Delta_u.T).sum() == 0
+            assert (XXT != XXT.T).sum() == 0
+            # Symmetrice (due to numerical issues)
+            XXT_lb = XXT+Delta_l
+            XXT_ub = XXT+Delta_u
+            return XXT_lb, XXT_ub
+        elif perturbation_model == "linf_binary_feature":
+            # Assumes original feature X is binary {0,1}^d
+            # Perturbation linf results in X \in [0,1] domain
+            XXT = NTK._calc_XXT(X)
+            Delta_l = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
+            Delta_u = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
+            X_adv = torch.zeros(size=X.shape, dtype=self.dtype, device=self.device)
+            X_adv[idx_adv, :] = X[idx_adv, :]
+            # D^TD Interaction Term
+            for idx_i in idx_adv:
+                for idx_j in idx_adv:
+                    x_adv_i = X_adv[idx_i]==1
+                    x_adv_j = X_adv[idx_j]==1
+                    Delta_l[idx_i, idx_j] += -torch.logical_and(~x_adv_i, x_adv_j).sum()*delta*delta
+                    Delta_l[idx_i, idx_j] += -torch.logical_and(x_adv_i, ~x_adv_j).sum()*delta*delta
+                    Delta_l[idx_j, idx_i] = Delta_l[idx_i, idx_j]
+                    Delta_u[idx_i, idx_j] += torch.logical_and(~x_adv_i, ~x_adv_j).sum()*delta*delta
+                    Delta_u[idx_i, idx_j] += torch.logical_and(x_adv_i, x_adv_j).sum()*delta*delta
+                    Delta_u[idx_j, idx_i] = Delta_u[idx_i, idx_j]
+            assert (Delta_l != Delta_l.T).sum() == 0
+            assert (Delta_u != Delta_u.T).sum() == 0
+            # D^TX and X^TD Terms
+            for idx in idx_adv:
+                x_adv = (X_adv[idx]==1).type(self.dtype)
+                X_1norm = torch.linalg.vector_norm(X*x_adv,ord=1,dim=1) 
+                delta_times_X_1norm = delta*X_1norm
+                Delta_l[idx, :] -= delta_times_X_1norm
+                Delta_l[:, idx] -= delta_times_X_1norm
+                x_adv = (X_adv[idx]==0).type(self.dtype)
+                X_1norm = torch.linalg.vector_norm(X*x_adv,ord=1,dim=1) 
+                delta_times_X_1norm = delta*X_1norm
+                Delta_u[idx, :] += delta_times_X_1norm
+                Delta_u[:, idx] += delta_times_X_1norm
+            Delta_l.fill_diagonal_(0.)
+            Delta_l = torch.tril(Delta_l) + torch.tril(Delta_l, diagonal=-1).T
+            Delta_u = torch.tril(Delta_u) + torch.tril(Delta_u, diagonal=-1).T
+            assert (Delta_l != Delta_l.T).sum() == 0
+            assert (Delta_u != Delta_u.T).sum() == 0
+            assert (XXT != XXT.T).sum() == 0
+            # Symmetrice (due to numerical issues)
+            XXT_lb = XXT+Delta_l
+            XXT_ub = XXT+Delta_u
+            return XXT_lb, XXT_ub
         else:
             assert False, f"Perturbation model {perturbation_model} not supported"
 
