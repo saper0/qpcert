@@ -391,15 +391,15 @@ class NTK(torch.nn.Module):
     def calc_relu_expectations(self, M: Float[torch.Tensor, "n n"]):
         csigma = 1
         # ensure M is symmetric to avoid numerical issues
-        if not (M.transpose(0, 1) == M).all():
-            M = torch.tril(M) + torch.tril(M, diagonal=-1).T
+        #if not (M.transpose(0, 1) == M).all():
+        #    M = torch.tril(M) + torch.tril(M, diagonal=-1).T
         p = torch.zeros((M.shape), dtype=self.dtype).to(self.device)
         Diag_Sig = torch.diagonal(M) 
         Sig_i = p + Diag_Sig.reshape(1, -1)
         Sig_j = p + Diag_Sig.reshape(-1, 1)
         # ensure covariance_ij <= max{var_i, var_j} : could happen otherwise because of numerical precision issues
-        cov_gr_var = torch.logical_and((M>Sig_i), (M>Sig_j))
-        M[cov_gr_var] = torch.max(Sig_i[cov_gr_var], Sig_j[cov_gr_var])
+        #cov_gr_var = torch.logical_and((M>Sig_i), (M>Sig_j))
+        #M[cov_gr_var] = torch.max(Sig_i[cov_gr_var], Sig_j[cov_gr_var])
         del p
         del Diag_Sig
         self.empty_gpu_memory()

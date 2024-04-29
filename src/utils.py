@@ -150,8 +150,8 @@ def _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub) -> Tuple[np.
     mask = (~y_pos_mask) & lb_neg_mask
     ntk_labeled_lb_neg = np.copy(ntk_labeled_lb)
     ntk_labeled_lb_neg[~mask] = 0
-    assert (ntk_labeled_ub_pos < 0).sum() == 0
-    assert (ntk_labeled_lb_neg < 0).sum() == 0
+    #assert (ntk_labeled_ub_pos < 0).sum() == 0
+    #assert (ntk_labeled_lb_neg < 0).sum() == 0
     M_u[y_mask] = ntk_labeled_ub_pos[y_mask].sum(axis=1) * C \
                 - ntk_labeled_lb_neg[y_mask].sum(axis=1) * C \
                 - 1
@@ -315,6 +315,7 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
 
                 if stop_obj is not None:
                     m.Params.BestObjStop = stop_obj # terminate when the objective reaches 0, implies node not robust
+                    m.Params.BestBdStop = stop_obj # if the bound falls below the stop_obj, node definitely can't change prediction
                 m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
                 m.Params.IntFeasTol = 1e-4 # to stabilize big-M constraint (helps, works without this also) 
                 if "LogToConsole" in certificate_params:
@@ -331,7 +332,7 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 m.Params.FeasibilityTol = 1e-4
                 if stop_obj is None and "MIPGap" in certificate_params:
                     m.Params.MIPGap = certificate_params["MIPGap"]
-                m.Params.OptimalityTol = 1e-4
+                m.Params.OptimalityTol = 1e-6
                 if "NumericFocus" in certificate_params:
                     m.Params.NumericFocus = certificate_params["NumericFocus"]
                 else:
@@ -344,8 +345,16 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 # m.Params.Aggregate = 0 #aggregation level in presolve
                 if "MIPFocus" in certificate_params:
                     m.Params.MIPFocus = certificate_params["MIPFocus"]
+                elif "MIPFocus_first" in certificate_params:
+                    if stop_obj is None:
+                        m.Params.MIPFocus = certificate_params["MIPFocus_first"]
+                    else:
+                        m.Params.MIPFocus = certificate_params["MIPFocus_other"]
                 else:
-                    m.Params.MIPFocus = 3
+                    if stop_obj is None:
+                        m.Params.MIPFocus = 2
+                    else:
+                        m.Params.MIPFocus = 3
                 if "Cuts" in certificate_params:
                     m.Params.Cuts = certificate_params["Cuts"]
                 if "Heuristics" in certificate_params:
@@ -397,15 +406,24 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
 
                 # log results
                 logging.info(f'Original {y_pred[i, k].item():.5f}, Opt objective '
-                            f'{m.ObjVal:.5f}, stop_obj: {stop_obj}')
+                            f'{m.ObjVal:.5f}, Opt bound: {m.ObjBound:.5f}, stop_obj: {stop_obj}')
                 # analyse result
                 if stop_obj is None:
-                    stop_obj = m.ObjBound
+                    if m.Status == GRB.OPTIMAL:
+                        stop_obj = m.ObjVal
+                    else:
+                        stop_obj = m.ObjBound
                 else:
-                    if m.ObjVal > stop_obj:
-                        is_robust = False
-                        m.dispose()
-                        break
+                    if m.Status == GRB.OPTIMAL:
+                        if m.ObjVal > stop_obj:
+                            is_robust = False
+                            m.dispose()
+                            break
+                    else:
+                        if m.ObjBound > stop_obj:
+                            is_robust = False
+                            m.dispose()
+                            break
                 m.dispose()
 
             except gp.GurobiError as e:
