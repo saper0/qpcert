@@ -14,6 +14,7 @@ from torch_sparse import SparseTensor
 import scipy.sparse as sp
 try:
     from transformers import BertTokenizer, BertModel
+    from transformers import AutoTokenizer, AutoModel
 except ImportError:
     pass
 
@@ -98,7 +99,8 @@ def get_cora_ml(specification: Dict[str, Any]):
     return X, A, y
 
 
-def get_cora_ml_cont(dataset: str, specification: Dict[str, Any], load_binary_feature: bool = False):
+def get_cora_ml_cont(dataset: str, specification: Dict[str, Any], load_binary_feature: bool = False,
+                     load_embedding: str= "BERT"):
     """Loads cora_ml and makes it undirected."""
     directory = specification["data_dir"]
     if isinstance(directory, str):
@@ -116,7 +118,12 @@ def get_cora_ml_cont(dataset: str, specification: Dict[str, Any], load_binary_fe
                                         loader['attr_indptr']), 
                                         shape=loader['attr_shape'])
         else:
-            attr_matrix = loader["attr_bert_embedding"]
+            if load_embedding == "BERT":
+                attr_matrix = loader["attr_bert_embedding"]
+            elif load_embedding == "Auto":
+                attr_matrix = loader["attr_auto_embedding"]
+            else:
+                assert False, f"Please pass BERT or Auto as load_embedding option."
         A = adj_matrix.toarray()
         if load_binary_feature:
             X = (attr_matrix.toarray() > 0).astype("float32")
@@ -159,13 +166,16 @@ def get_graph(
         X, A, y = get_wikics(data_params["specification"])
     elif data_params["dataset"] == "cora_ml":
         X, A, y = get_cora_ml(data_params["specification"])
-    elif data_params["dataset"] in ["cora_ml_cont", "dblp", "cora_cont", "cora_full", "cora_ml_cont_binary"]:
+    elif data_params["dataset"] in ["cora_ml_cont", "dblp", "cora_cont", "cora_full", "cora_ml_cont_binary", "cora_ml_cont_auto" ]:
         dataset = data_params["dataset"]
         if dataset.endswith("_binary"):
             dataset = dataset[:-7]
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = True)
+        elif dataset == "cora_ml_cont_auto":
+            dataset = dataset[:-5]
+            X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "Auto")
         else:
-            X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False)
+            X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "BERT")
     if data_params["dataset"] in ["citeseer", "wikics", "cora_ml"]:
         G = nx.from_numpy_array(A)
         idx_lcc = list(max(nx.connected_components(G), key=len))
@@ -312,32 +322,61 @@ def split(
 
     return idx_trn, idx_unlabeled, idx_val, idx_test
 
-def get_bert_embeddings(text):
-    # Load BERT tokenizer and model
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    model = BertModel.from_pretrained('bert-base-uncased')
-    
-    # Tokenize and encode text using batch_encode_plus
-    # The function returns a dictionary containing the token IDs and attention masks
-    encoding = tokenizer.batch_encode_plus(
-        text,				        # List of input texts
-        padding=True,			    # Pad to the maximum sequence length
-        truncation=True,		    # Truncate to the maximum sequence length if necessary
-        return_tensors='pt',	    # Return PyTorch tensors
-        add_special_tokens=True     # Add special tokens CLS and SEP
-    )
+def get_bert_embeddings(text, model="BERT"):
 
-    input_ids = encoding['input_ids'] # Token IDs
-    attention_mask = encoding['attention_mask'] # Attention mask
+    # Mean Pooling - Take attention mask into account for correct averaging
+    def mean_pooling(model_output, attention_mask):
+        token_embeddings = model_output[0] #First element of model_output contains all token embeddings
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
-    # Generate embeddings using BERT model
-    with torch.no_grad():
-        outputs = model(input_ids, attention_mask=attention_mask)
-        word_embeddings = outputs.last_hidden_state # This contains the embeddings
-    print(f"Shape of Word Embeddings: {word_embeddings.shape}")
+    if model == "BERT":
+        # Load BERT tokenizer and model
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        model = BertModel.from_pretrained('bert-base-uncased')
 
-    # Compute the average of word embeddings to get the sentence embedding
-    sentence_embedding = word_embeddings.mean(dim=1) # Average pooling along the sequence length dimension
-    print(f"Shape of Sentence Embedding: {sentence_embedding.shape}")
-    return sentence_embedding
+        # Tokenize and encode text using batch_encode_plus
+        # The function returns a dictionary containing the token IDs and attention masks
+        encoding = tokenizer.batch_encode_plus(
+            text,				        # List of input texts
+            padding=True,			    # Pad to the maximum sequence length
+            truncation=True,		    # Truncate to the maximum sequence length if necessary
+            return_tensors='pt',	    # Return PyTorch tensors
+            add_special_tokens=True     # Add special tokens CLS and SEP
+        )
+
+        input_ids = encoding['input_ids'] # Token IDs
+        attention_mask = encoding['attention_mask'] # Attention mask
+
+        # Generate embeddings using BERT model
+        with torch.no_grad():
+            outputs = model(input_ids, attention_mask=attention_mask)
+            word_embeddings = outputs.last_hidden_state # This contains the embeddings
+        print(f"Shape of Word Embeddings: {word_embeddings.shape}")
+
+        # Compute the average of word embeddings to get the sentence embedding
+        sentence_embedding = word_embeddings.mean(dim=1) # Average pooling along the sequence length dimension
+        print(f"Shape of Sentence Embedding: {sentence_embedding.shape}")
+        return sentence_embedding
+    elif model == "Auto":
+        # Load model from HuggingFace Hub
+        tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+        model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+        
+        # Tokenize sentences
+        encoded_input = tokenizer(text, padding=True, truncation=True, return_tensors='pt')
+        # Compute token embeddings
+        with torch.no_grad():
+            model_output = model(**encoded_input)
+
+        # Perform pooling
+        sentence_embedding = mean_pooling(model_output, encoded_input['attention_mask'])
+
+        # Normalize embeddings
+        sentence_embedding = torch.nn.functional.normalize(sentence_embedding, p=2, dim=1)
+        print(f"Shape of Sentence Embedding: {sentence_embedding.shape}")
+        return sentence_embedding
+    else:
+        assert False, f"Mentioned model not implemented"
+        
     
