@@ -141,6 +141,7 @@ def get_cora_ml_cont(dataset: str, specification: Dict[str, Any], load_binary_fe
     A = np.logical_or(lt, ut).astype(np.int64)
     return X, A, y
 
+
 def get_us_county(specification: Dict[str, Any]):
     """Loads US_county dataset from 
     https://www.cs.cornell.edu/~arb/data/US-county-fb/
@@ -149,8 +150,9 @@ def get_us_county(specification: Dict[str, Any]):
     path_to_folder = directory+"/US-county-fb"
     path_to_edges = path_to_folder+"/US-county-fb-graph.txt"
     G = nx.read_edgelist(path_to_edges, create_using=nx.Graph, nodetype=int)
-    A =  nx.adjacency_matrix(G)
+    A = nx.adjacency_matrix(G, nodelist=np.sort(G.nodes()))
     A = A.todense()
+    #assert False
     # make undirected
     lt = np.tril(A) == 1
     ut = np.triu(A) == 1
@@ -170,6 +172,7 @@ def get_us_county(specification: Dict[str, Any]):
     y[~y_idx_mask] = 1
     y = y.astype(np.int64)
     return X, A, y
+
 
 def get_graph(
         data_params: Dict[str, Any], sort: bool=True
