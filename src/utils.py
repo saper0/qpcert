@@ -316,6 +316,10 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 if stop_obj is not None:
                     m.Params.BestObjStop = stop_obj # terminate when the objective reaches 0, implies node not robust
                     m.Params.BestBdStop = stop_obj # if the bound falls below the stop_obj, node definitely can't change prediction
+                else:
+                    assert obj_min == True
+                    secnd_best_ypred = torch.topk(y_pred, 2).values[0][-1]
+                    m.Params.BestObjStop = secnd_best_ypred.detach().cpu().item()
                 m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
                 m.Params.IntFeasTol = 1e-4 # to stabilize big-M constraint (helps, works without this also) 
                 if "LogToConsole" in certificate_params:
@@ -409,6 +413,11 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                             f'{m.ObjVal:.5f}, Opt bound: {m.ObjBound:.5f}, stop_obj: {stop_obj}')
                 # analyse result
                 if stop_obj is None:
+                    print(m.Status)
+                    if m.ObjVal < secnd_best_ypred:
+                        is_robust = False
+                        m.dispose()
+                        break
                     if m.Status == GRB.OPTIMAL:
                         stop_obj = m.ObjVal
                     else:
@@ -553,8 +562,8 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = 1e-4 # to stabilize big-M constraint (helps, works without this also) 
-            m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
-            m.params.OutputFlag=0 # to suppress branch bound search tree outputs
+            m.Params.LogToConsole = 1 # to suppress the logging in console - for better readability
+            m.params.OutputFlag=1 # to suppress branch bound search tree outputs
             m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
         
             # Played around with the following flags to escape infeasibility solutions

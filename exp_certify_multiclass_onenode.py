@@ -225,8 +225,11 @@ def run(data_params: Dict[str, Any],
     target_class = int(target_idx / n_targets_per_class)
     y_mask_target_cls = y[idx_unlabeled] == target_class
     idx_targets = rng.permutation(idx_unlabeled[y_mask_target_cls])
+    #print(idx_targets)
     idx_test = idx_targets[target_idx % n_targets_per_class]
     idx_test = torch.Tensor([idx_test], device=device).to(torch.long)
+    #print(idx_test)
+    #assert False
     if not data_params["learning_setting"] == "transductive":
         assert False, "Only transductive setting supported"
 
@@ -294,7 +297,7 @@ def run(data_params: Dict[str, Any],
         acc_u = utils.accuracy(y_pred_u, y[idx_unlabeled])
         acc_trn = utils.accuracy(y_pred_trn, y[idx_labeled])
         acc_ub = utils.accuracy(y_ub, y[idx_test])
-        acc_lb = utils.accuracy(y_lb, y[idx_test])
+        acc_lb = utils.accuracy(y_lb, y[idx_test])#
         acc_ub_trn = utils.accuracy(y_ub_trn, y[idx_labeled])
         acc_lb_trn = utils.accuracy(y_lb_trn, y[idx_labeled])
 
@@ -364,6 +367,7 @@ def run(data_params: Dict[str, Any],
     return dict(
         # general statistics
         accuracy_test = acc,
+        accuracy_test_all = acc_u,
         accuracy_trn = acc_trn,
         accuracy_ub_test = acc_ub,
         accuracy_lb_test = acc_lb,
