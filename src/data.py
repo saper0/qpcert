@@ -12,6 +12,7 @@ from torch_geometric.datasets.wikics import WikiCS
 import torch_geometric.transforms as T
 from torch_sparse import SparseTensor
 import scipy.sparse as sp
+import pandas as pd
 try:
     from transformers import BertTokenizer, BertModel
     from transformers import AutoTokenizer, AutoModel
@@ -140,6 +141,35 @@ def get_cora_ml_cont(dataset: str, specification: Dict[str, Any], load_binary_fe
     A = np.logical_or(lt, ut).astype(np.int64)
     return X, A, y
 
+def get_us_county(specification: Dict[str, Any]):
+    """Loads US_county dataset from 
+    https://www.cs.cornell.edu/~arb/data/US-county-fb/
+    """
+    directory = specification["data_dir"]
+    path_to_folder = directory+"/US-county-fb"
+    path_to_edges = path_to_folder+"/US-county-fb-graph.txt"
+    G = nx.read_edgelist(path_to_edges, create_using=nx.Graph, nodetype=int)
+    A =  nx.adjacency_matrix(G)
+    A = A.todense()
+    # make undirected
+    lt = np.tril(A) == 1
+    ut = np.triu(A) == 1
+    lt = np.logical_or(lt, lt.T)
+    ut = np.logical_or(ut, ut.T)
+    A = np.logical_or(lt, ut).astype(np.int64)
+    path_to_features = path_to_folder + "/US-county-fb-2016-feats.csv"
+    if "year" in specification:
+        if specification["year"] == "2012" or specification["year"] == "2016":
+            path_to_features = path_to_folder + "/US-county-fb-" + specification["year"] + "-feats.csv"
+    features_df = pd.read_csv(path_to_features, delimiter=',')
+    features_df = features_df.drop(["FIPS"], axis=1)
+    X = features_df.loc[:, features_df.columns != 'election'].to_numpy()
+    y = features_df.loc[:, features_df.columns == 'election'].to_numpy().reshape(-1)
+    y_idx_mask = y<=0
+    y[y_idx_mask] = 0
+    y[~y_idx_mask] = 1
+    y = y.astype(np.int64)
+    return X, A, y
 
 def get_graph(
         data_params: Dict[str, Any], sort: bool=True
@@ -176,6 +206,8 @@ def get_graph(
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "Auto")
         else:
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "BERT")
+    elif data_params["dataset"] == "us_county":
+        X, A, y = get_us_county(data_params["specification"])
     if data_params["dataset"] in ["citeseer", "wikics", "cora_ml"]:
         G = nx.from_numpy_array(A)
         idx_lcc = list(max(nx.connected_components(G), key=len))

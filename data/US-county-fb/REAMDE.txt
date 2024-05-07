@@ -1,0 +1,31 @@
+This is a network of US counties, where edges come from the Facebook Social Connectedness Index:
+https://dataforgood.fb.com/tools/social-connectedness-index/
+The edge list file is:
+US-county-fb-graph.txt
+
+The node features are constructed from USDA demographic data:
+https://www.ers.usda.gov/data-products/county-level-data-sets/
+as well as county-level U.S. presidential election statistics formatted by Tony McGovern:
+https://github.com/tonmcg/US_County_Level_Election_Results_08-16
+
+The nodes in the edge list are identified by FIPS county codes. The node
+features for 2012 and 2016 are in:
+US-county-fb-2012-feats.csv
+US-county-fb-2016-feats.csv
+
+Each feature is normalized to have zero mean and unit standard deviation. The
+features are
+sh050m, sh100m, sh500m: fraction of friends within 50, 100, 500 miles
+income
+migration
+birth rate
+death rate
+education level
+unemployment level
+election outcome: (gop votes - democratic votes) / (gop votes + democratic votes)
+
+
+If you use this data, please cite our paper:
+A Unifying Generative Model for Graph Learning Algorithms: Label Propagation, Graph Convolutions, and Combinations, Junteng Jia and Austin R. Benson, arXiv:2101.07730, 2021
+and acknowledge the above hyperlinks.
+
