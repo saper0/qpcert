@@ -442,8 +442,8 @@ class ExperimentManager:
                 ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                             color=color, linestyle=linestyle,
                             capsize=3, linewidth=1, markersize=4)
-        ax.set_ylabel("Robust Accuracy")
-        ax.set_xlabel(r"$\delta$")
+        ax.set_ylabel("Certified Accuracy")
+        ax.set_xlabel(r"Perturbation budget $\delta$")
         ax.yaxis.grid()
         ax.xaxis.grid()
         ax.legend()
@@ -486,10 +486,10 @@ class ExperimentManager:
 
     def plot_nadv_delta_robust_gain_wrt_mlp_heatmap(self, K: float, models: str, C: float, 
                               attack_nodes: str, n_adv_l: List[str], delta_l: List[float], mlp: str,
-                              width=1, ratio=1.618, savefig: str=None):
+                              title_label: str=None, width=1, ratio=1.2, savefig: str=None):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
-        self.set_color_cycler(ax)
+        # self.set_color_cycler(ax)
         for label in models:
             nadv_delta = np.zeros((len(delta_l), len(n_adv_l)))
             for i in range(len(delta_l)):
@@ -510,13 +510,16 @@ class ExperimentManager:
                         acc_diff = acc_exp-acc_mlp
                     nadv_delta[i][j] = acc_diff
         cmap = matplotlib.cm.get_cmap('coolwarm_r')
-        sns.heatmap(nadv_delta, cmap=cmap, linewidths=0.5, cbar=True, 
-                    cbar_kws={'label': 'Robustness gain'})
+        sns.heatmap(nadv_delta, cmap=cmap, center=0, linewidths=0.5, cbar=True, 
+                    cbar_kws={'label': 'Certified accuracy gain'})
         ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=n_adv_l)
         ax.set_yticks(np.arange(nadv_delta.shape[0])+0.5, labels=delta_l, rotation=0)
-        ax.set_ylabel("Perturbation budget")
+        ax.set_ylabel(r"Perturbation budget $\delta$")
         ax.set_xlabel("Number of adversaries")
-        ax.set_title(models[0])
+        if title_label:
+            ax.set_title(title_label[0])
+        else:
+            ax.set_title(models[0])
         if savefig:
             CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)
