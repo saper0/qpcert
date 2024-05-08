@@ -12,7 +12,10 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 import seaborn as sns
+from pathlib import Path
+import matplotlib as mpl
 
+CERTIFICATE_FIGURE_DIR = Path('./figures/')
 
 URI = "mongodb://sabanaya:bAvQwbOp@fs.kdd.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
 
@@ -225,6 +228,7 @@ class ExperimentManager:
         self.client = MongoClient(uri)
         self.db = self.client.sabanaya
         self.load(experiments)
+        self.init_plot_params()
 
     def load_experiment_dict(self, id: int, collection: str) -> Dict[str, Any]:
         """Return result-dict of experiment with ID id."""
@@ -256,6 +260,7 @@ class ExperimentManager:
             for experiment in experiments:
                 if experiment.label == label:
                     filtered_experiments.append(experiment)
+            print(f'{label} No. of experiments {len(filtered_experiments)}')
             return filtered_experiments
         else:
             return experiments
@@ -284,28 +289,63 @@ class ExperimentManager:
                                                  label,
                                                  exp_spec["collection"])
                 for exp in exp_list:
-                    if exp.label not in self.experiments_dict:
+                    if "relabel" in exp_spec:
+                        if exp_spec["relabel"] not in self.experiments_dict:
+                            self.experiments_dict[exp_spec["relabel"]] = {}
+                    elif exp.label not in self.experiments_dict:
                         self.experiments_dict[exp.label] = {}
-                    if exp.K not in self.experiments_dict[exp.label]:
-                        self.experiments_dict[exp.label][exp.K] = {}
-                    if exp.C not in self.experiments_dict[exp.label][exp.K]:
-                        self.experiments_dict[exp.label][exp.K][exp.C] = {}
-                    if exp.attack_nodes not in self.experiments_dict[exp.label][exp.K][exp.C]:
-                        self.experiments_dict[exp.label][exp.K][exp.C][exp.attack_nodes] = {}
-                    if exp.n_adv not in self.experiments_dict[exp.label][exp.K][exp.C][exp.attack_nodes]:
-                        self.experiments_dict[exp.label][exp.K][exp.C][exp.attack_nodes][exp.n_adv] = {}
-                    self.experiments_dict[exp.label][exp.K][exp.C][exp.attack_nodes][exp.n_adv][exp.delta] = exp
+                    label = exp_spec["relabel"] if "relabel" in exp_spec else exp.label
+                    if exp.K not in self.experiments_dict[label]:
+                        self.experiments_dict[label][exp.K] = {}
+                    if exp.C not in self.experiments_dict[label][exp.K]:
+                        self.experiments_dict[label][exp.K][exp.C] = {}
+                    if exp.attack_nodes not in self.experiments_dict[label][exp.K][exp.C]:
+                        self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes] = {}
+                    if exp.n_adv not in self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes]:
+                        self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes][exp.n_adv] = {}
+                    self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes][exp.n_adv][exp.delta] = exp
 
+    def init_plot_params(self):
+        # Matplotlib settings
+        mpl.rcParams['mathtext.fontset'] = 'cm'
+        mpl.rcParams['mathtext.rm'] = 'serif'
+        mpl.rcParams['savefig.dpi'] = 600
+        mpl.rcParams['font.size'] = 12
+        mpl.rcParams['axes.labelsize'] = 16
+        mpl.rcParams['axes.formatter.use_mathtext'] = True
+        mpl.rcParams['text.usetex'] = True
+
+        mpl.rcParams['font.family'] = 'STIXGeneral'
+        mpl.rcParams['mathtext.rm'] = 'Bitstream Vera Sans'
+        mpl.rcParams['mathtext.it'] = 'Bitstream Vera Sans:italic'
+        mpl.rcParams['mathtext.bf'] = 'Bitstream Vera Sans:bold'
+
+        mpl.rcParams['legend.fontsize'] = 12
+        # mpl.rcParams['legend.labelspacing'] = 0.3
+        # mpl.rcParams['legend.borderpad'] = 0.2
+        # mpl.rcParams['legend.handlelength'] = 1
+
+    
     def get_style(self, label: str):
         color_dict = {
-            "MLP": 'r',
+            "APPNP_alpha1": 'slategrey', #MLP
             "GCN": 'tab:green', 
-            "APPNP": 'lime', 
-            "SGC": "b",
-            "GAT": "slategrey",
-            "GATv2": "k",
-            "GraphSAGE": "lightsteelblue",
-            "LP": "wheat",
+            "APPNP_alpha0": "wheat",
+            "APPNP_alpha0.1": "tab:brown",
+            "APPNP": 'r', #lime 
+            "APPNP_alpha0.3": "tab:olive",
+            "APPNP_alpha0.5": "darkslategrey",
+            "SGC": "blue",
+            "GCN_skippc_linear": "lime", #k
+            "GCN_skippc_relu+2": "lime",
+            "GCN_skipalpha_linear_alpha0.2": "wheat",
+            "GCN_skipalpha_relu_alpha0.2+2": "wheat",
+            "GCN_skipalpha_linear_alpha0.1": "steelblue",
+            "GCN_skipalpha_relu_alpha0.1+2": "steelblue",
+            # "GAT": "slategrey",
+            # "GATv2": "k",
+            # "GraphSAGE": "lightsteelblue",
+            # "LP": "wheat",
         }
         linestyle_dict = {
             "LP": '--'
@@ -329,8 +369,8 @@ class ExperimentManager:
                 use_color = "slategrey"    
         else:
             for key, color in color_dict.items():
-                sep_labels = label.split("+")
-                if sep_labels[0] == key:
+                sep_labels = key.split("+")
+                if sep_labels[0] == label:
                     use_color = color
                     if len(sep_labels) == 2 or sep_labels[0] == "LP":
                         linestyle = "--"
@@ -356,14 +396,25 @@ class ExperimentManager:
         xticks = [f"{label}" for label in x_labels]
         ax.xaxis.set_ticklabels(xticks, fontsize=12, fontweight="bold")
         ax.set_xlim(left=-0.3)
+    
+    def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels):
+        ax.xaxis.get_major_formatter()._usetex = False
+        ax.xaxis.set_ticks(x_ticks, minor=False)
+        xticks = [f"{label}" for label in x_labels]
+        ax.xaxis.set_ticklabels(xticks)
 
     def plot_robust_acc_delta(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv: int, delta_l: List[float],
-                              width=1, ratio=1.618):
+                              legend_labels: List[str]=[],
+                              width=1, ratio=1.618, 
+                              xlogscale: bool=False,
+                              savefig: str=None):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
-        self.set_color_cycler(ax)
-        for label in models:
+        # self.set_color_cycler(ax)
+        if len(legend_labels) != len(models):
+            legend_labels = models
+        for (label, legend_label) in zip(models, legend_labels):
             for C in C_l:
                 y_err_l = []
                 y_l = []
@@ -376,16 +427,29 @@ class ExperimentManager:
                         y, y_std = exp.get_robust_accuracy()
                     y_l.append(y)
                     y_err_l.append(y_std)
-                x = [i for i in range(len(delta_l))]
-                label_str = label + " " + str(C)
+                if xlogscale:
+                    ax.set_xscale('log')
+                    x = np.array(delta_l)
+                    if x[0] == 0:
+                        x[0] = 0.005
+                    self.set_xaxis_labels_logscale(ax, x, delta_l)
+                else:
+                    x = [i for i in range(len(delta_l))]
+                    self.set_xaxis_labels(ax, x, delta_l)
+                
+                label_str = r'{0}'.format(legend_label) #+ " " + str(C)
+                color, linestyle = self.get_style(label)
                 ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                            color=color, linestyle=linestyle,
                             capsize=3, linewidth=1, markersize=4)
-                self.set_xaxis_labels(ax, x, delta_l)
-        ax.set_ylabel("Robust Accuracy", fontsize=20)
-        ax.set_xlabel(r"$\delta$", fontsize=17, fontweight="bold")
+        ax.set_ylabel("Certified Accuracy")
+        ax.set_xlabel(r"Perturbation budget $\delta$")
         ax.yaxis.grid()
         ax.xaxis.grid()
         ax.legend()
+        if savefig:
+            CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+            plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
         plt.show()
 
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
@@ -418,6 +482,47 @@ class ExperimentManager:
         ax.yaxis.grid()
         ax.xaxis.grid()
         ax.legend()
+        plt.show()
+
+    def plot_nadv_delta_robust_gain_wrt_mlp_heatmap(self, K: float, models: str, C: float, 
+                              attack_nodes: str, n_adv_l: List[str], delta_l: List[float], mlp: str,
+                              title_label: str=None, width=1, ratio=1.2, savefig: str=None):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        # self.set_color_cycler(ax)
+        for label in models:
+            nadv_delta = np.zeros((len(delta_l), len(n_adv_l)))
+            for i in range(len(delta_l)):
+                for j in range(len(n_adv_l)):
+                    delta = delta_l[i]
+                    n_adv = int(n_adv_l[j])
+                    if delta == 0:
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][0.01]
+                        acc_exp, _ = exp.get_result("accuracy_test")
+                        mlp_exp = self.experiments_dict[mlp][K][C][attack_nodes][n_adv][0.01]
+                        acc_mlp, _ = mlp_exp.get_result("accuracy_test")
+                        acc_diff = acc_exp-acc_mlp
+                    else:
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
+                        acc_exp, _ = exp.get_robust_accuracy()
+                        mlp_exp = self.experiments_dict[mlp][K][C][attack_nodes][n_adv][0.01]
+                        acc_mlp, _ = mlp_exp.get_robust_accuracy()
+                        acc_diff = acc_exp-acc_mlp
+                    nadv_delta[i][j] = acc_diff
+        cmap = matplotlib.cm.get_cmap('coolwarm_r')
+        sns.heatmap(nadv_delta, cmap=cmap, center=0, linewidths=0.5, cbar=True, 
+                    cbar_kws={'label': 'Certified accuracy gain'})
+        ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=n_adv_l)
+        ax.set_yticks(np.arange(nadv_delta.shape[0])+0.5, labels=delta_l, rotation=0)
+        ax.set_ylabel(r"Perturbation budget $\delta$")
+        ax.set_xlabel("Number of adversaries")
+        if title_label:
+            ax.set_title(title_label[0])
+        else:
+            ax.set_title(models[0])
+        if savefig:
+            CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+            plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)
         plt.show()
 
     def plot_nadv_delta_heatmap(self, K: float, models: str, C: float, 
@@ -455,6 +560,50 @@ class ExperimentManager:
         ax.set_title(models[0])
         plt.show()
 
+    def plot_collective_cert_delta(self, K: float, models: List[str], C_l: List[float], 
+                              attack_nodes: str, n_adv: int, delta_l: List[float],
+                              legend_labels: List[str]=[],
+                              width=1, ratio=1.618, 
+                              xlogscale: bool=False,
+                              savefig: str=None):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        self.set_color_cycler(ax)
+        if len(legend_labels) != len(models):
+            legend_labels = models
+        for (label, legend_label) in zip(models, legend_labels):
+            for C in C_l:
+                y_err_l = []
+                y_l = []
+                for delta in delta_l:
+                    if delta == 0.:
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta_l[1]]
+                        y, y_std = 1.0, 0
+                    else:
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
+                        y, y_std = exp.get_result("cert_node_frac")
+                    y_l.append(y)
+                    y_err_l.append(y_std)
+                if xlogscale:
+                    ax.set_xscale('log')
+                    x = np.array(delta_l)
+                else:
+                    x = [i for i in range(len(delta_l))]
+                
+                label_str = r'{0}'.format(legend_label) #+ " " + str(C)
+                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                            capsize=3, linewidth=1, markersize=4)
+                self.set_xaxis_labels(ax, x, delta_l)
+        ax.set_ylabel(r"Certified $\%$ of nodes", fontsize=20)
+        ax.set_xlabel(r"$\delta$", fontsize=17, fontweight="bold")
+        ax.yaxis.grid()
+        ax.xaxis.grid()
+        ax.legend()
+        if savefig:
+            CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+            plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)
+        plt.show()
+    
     def plot(self, name: str, attack: str, models: List[str], 
              errorbars: bool=True, ylabel: str=None, title: str=None,
              spacing: str="normal", legend_loc="best", legend_cols: int=None,
