@@ -316,9 +316,9 @@ def run(data_params: Dict[str, Any],
 
     # Poisoning Certificate
     svm_alpha = ntk.svm
-    is_robust_l, obj_l, opt_status_l = utils.certify_robust_bilevel_svm(
+    is_robust_l, obj_l, obj_bd_l, opt_status_l = utils.certify_robust_bilevel_svm(
             idx_labeled, idx_test, ntk_test, ntk_lb, ntk_ub, y, y_pred,
-            svm_alpha, C=model_params["regularizer"], M=1e3, Mprime=1e3
+            svm_alpha, certificate_params, C=model_params["regularizer"], M=1e3, Mprime=1e3
     )
     acc_cert = sum(is_robust_l) / y_pred.shape[0]
     acc_cert_u = 0 #not implemented
@@ -371,6 +371,7 @@ def run(data_params: Dict[str, Any],
         y_true_cls = (y[idx_test] * 2 - 1).numpy(force=True).tolist(),
         y_pred_logit = y_pred.numpy(force=True).tolist(),
         y_worst_obj = obj_l,
+        y_worst_obj_bd = obj_bd_l,
         y_is_robust = is_robust_l,
         y_opt_status = opt_status_l,
         # split statistics
