@@ -420,7 +420,6 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                             f'{m.ObjVal:.5f}, Opt bound: {m.ObjBound:.5f}, stop_obj: {stop_obj}')
                 # analyse result
                 if stop_obj is None:
-                    print(m.Status)
                     if m.ObjVal < secnd_best_ypred:
                         is_robust = False
                         m.dispose()
@@ -514,6 +513,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
     assert (-svm_alpha+C*t_start > globals.zero_tol).sum() == 0
 
     obj_l = []
+    obj_bd_l = []
     is_robust_l = []
     opt_status_l = []
     obj_min = None
@@ -604,6 +604,14 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 m.Params.Heuristics = certificate_params["Heuristics"]
 
             m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
+            m.Params.BestBdStop = 0
+            if obj_min:
+                m.Params.BestBdStop = MILP_OPTIMALITY_TOL + 1e-16
+                m.Params.BestObjStop = -MILP_OPTIMALITY_TOL 
+            else:
+                m.Params.BestBdStop = -MILP_OPTIMALITY_TOL - 1e-16
+                m.Params.BestObjStop = MILP_OPTIMALITY_TOL
+
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
             m.Params.LogToConsole = 1 # to suppress the logging in console - for better readability
@@ -666,15 +674,16 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             # log results
             logging.info(f'Original {y_pred[idx].item():.5f}, Opt objective '
                          f'{m.ObjVal:.5f}')
-            if obj_min and m.ObjVal > 0:
+            if obj_min and m.ObjVal > MILP_OPTIMALITY_TOL:
                 robust_count += 1
                 is_robust_l.append(True)
-            elif not obj_min and m.ObjVal < 0:
+            elif not obj_min and m.ObjVal < -MILP_OPTIMALITY_TOL:
                 robust_count += 1
                 is_robust_l.append(True)
             else:
                 is_robust_l.append(False)
             obj_l.append(m.ObjVal)
+            obj_bd_l.append(m.ObjBound)
             opt_status_l.append(m.Status)
             
             m.dispose()
@@ -686,7 +695,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         except AttributeError:
             logging.error("Encountered an attribute error")
             return
-    return is_robust_l, obj_l, opt_status_l
+    return is_robust_l, obj_l, obj_bd_l, opt_status_l
 
 
 def certify_collective_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
