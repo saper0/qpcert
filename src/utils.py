@@ -484,6 +484,7 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
 
     # Labels are learned as -1 or 1, but loaded as 0 or 1
     y_labeled = y_labeled*2 -1 
+    y_mask = y_labeled == 1
     
     # Find the initial start feasible solution
     alpha_mask = svm_alpha < globals.zero_tol
@@ -518,6 +519,8 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
     obj_min = None
     robust_count = 0
     for idx in range(y_pred.shape[0]):
+        if idx > 1:
+            break
         if y_pred[idx] < 0:
             obj_min = False
         else:
@@ -544,9 +547,19 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             m.addConstr(z_test >= ntk_unlabeled_lb[idx,:].reshape(1,-1) * alpha, "z_test_lb")
             m.addConstr(y_labeled*(z@y_labeled) - u + v == 1, "eq_constraint")
             if milp:
-                m.addConstr(u <= M*s, "u_mil1")
+                M_u = np.zeros((y_mask.shape[0],))
+                M_v = np.zeros((y_mask.shape[0],))
+                # Set big M for nodes i with y_i = 1
+                _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub)
+                # Set big M for nodes i with y_i = -1
+                _set_big_M(M_u, M_v, ~y_mask, C, ntk_labeled_lb, ntk_labeled_ub)
+                assert (u_start > M_u).sum() == 0
+                assert (v_start > M_v).sum() == 0
+                #m.addConstr(u <= M*s, "u_mil1")
+                m.addConstr(u <= M_u*s, "u_mil1")
                 m.addConstr(alpha <= C*(1-s), "u_mil2")
-                m.addConstr(v <= Mprime*t, "v_mil1")
+                #m.addConstr(v <= Mprime*t, "v_mil1")
+                m.addConstr(v <= M_v*t, "v_mil1")
                 m.addConstr(C-alpha <= C*(1-t), "v_mil2")
             else:
                 m.addConstr(u*alpha == 0, "u_comp_slack")
@@ -868,6 +881,7 @@ def certify_collective_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y
             logging.error("Encountered an attribute error")
             return
     return obj, is_robust, y_worst_obj, opt_status
+
 
 def certify_robust_label(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
                          y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, 
