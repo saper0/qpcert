@@ -519,8 +519,6 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
     obj_min = None
     robust_count = 0
     for idx in range(y_pred.shape[0]):
-        if idx > 1:
-            break
         if y_pred[idx] < 0:
             obj_min = False
         else:
@@ -603,8 +601,6 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             if "Heuristics" in certificate_params:
                 m.Params.Heuristics = certificate_params["Heuristics"]
 
-            m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
-            m.Params.BestBdStop = 0
             if obj_min:
                 m.Params.BestBdStop = MILP_OPTIMALITY_TOL + 1e-16
                 m.Params.BestObjStop = -MILP_OPTIMALITY_TOL 
@@ -674,7 +670,9 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             # log results
             logging.info(f'Original {y_pred[idx].item():.5f}, Opt objective '
                          f'{m.ObjVal:.5f}')
-            if obj_min and m.ObjVal > MILP_OPTIMALITY_TOL:
+            if m.Status == GRB.TIME_LIMIT:
+                is_robust_l.append(False)
+            elif obj_min and m.ObjVal > MILP_OPTIMALITY_TOL:
                 robust_count += 1
                 is_robust_l.append(True)
             elif not obj_min and m.ObjVal < -MILP_OPTIMALITY_TOL:
@@ -690,9 +688,11 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             logging.info(f'Robust count {robust_count} out of {idx+1}')
 
         except gp.GurobiError as e:
+            m.dispose()
             logging.error(f"Error code {e.errno}: {e}")
             return
         except AttributeError:
+            m.dispose()
             logging.error("Encountered an attribute error")
             return
     return is_robust_l, obj_l, obj_bd_l, opt_status_l
