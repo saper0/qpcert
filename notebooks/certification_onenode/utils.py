@@ -280,18 +280,22 @@ class ExperimentManager:
         return self.db[collection].find_one({'_id': id})
 
     def load_experiments(
-            self, start_id: int, end_id: int, label_filter: str=None, collection: str="runs",
+            self, start_id: int, end_id: int, label_filter: str=None, 
+            collection: str="runs"
         ) -> Dict:
         """Return Experiments between start_id and end_id with given label.
         
         Assumes that one experiment consists of multiple seeds which are stored
         consecutively in the mongodb in a given collection.
         """
-        loaded_exp = {}
         for idx in range(start_id, end_id+1):
-            if idx % 100 == 0:
+            if idx % 500 == 0:
                 print(f"Loading {idx}th experiment...")
             exp_dict = self.load_experiment_dict(idx, collection)
+            if exp_dict is None:
+                continue
+            if exp_dict["status"] != "COMPLETED":
+                continue
             hyperparameters = exp_dict["config"]
             label = hyperparameters["model_params"]["label"]
             if label_filter is not None:
@@ -302,20 +306,19 @@ class ExperimentManager:
             n_adv = int(hyperparameters["certificate_params"]["n_adversarial"])
             attack_nodes = hyperparameters["certificate_params"]["attack_nodes"]
 
-            if label not in loaded_exp:
-                loaded_exp[label] = {}
-            if C not in loaded_exp[label]:
-                loaded_exp[label][C] = {}
-            if attack_nodes not in loaded_exp[label][C]:
-                loaded_exp[label][C][attack_nodes] = {}
-            if n_adv not in loaded_exp[label][C][attack_nodes]:
-                loaded_exp[label][C][attack_nodes][n_adv] = {}
-            if delta not in loaded_exp[label][C][attack_nodes][n_adv]:
+            if label not in self.experiments_dict:
+                self.experiments_dict[label] = {}
+            if C not in self.experiments_dict[label]:
+                self.experiments_dict[label][C] = {}
+            if attack_nodes not in self.experiments_dict[label][C]:
+                self.experiments_dict[label][C][attack_nodes] = {}
+            if n_adv not in self.experiments_dict[label][C][attack_nodes]:
+                self.experiments_dict[label][C][attack_nodes][n_adv] = {}
+            if delta not in self.experiments_dict[label][C][attack_nodes][n_adv]:
                 exp = Experiment(exp_dict)
-                loaded_exp[label][C][attack_nodes][n_adv][delta] = exp
+                self.experiments_dict[label][C][attack_nodes][n_adv][delta] = exp
             else:
-                loaded_exp[label][C][attack_nodes][n_adv][delta].add_experiment(exp_dict)
-        return loaded_exp
+                self.experiments_dict[label][C][attack_nodes][n_adv][delta].add_experiment(exp_dict)
 
     def load(self, experiments) -> None:
         """Populates experiments_dict from stored results in MongoDB.
@@ -335,10 +338,8 @@ class ExperimentManager:
                     label = exp_spec["label"]
                 else:
                     label = None
-                self.experiments_dict = self.load_experiments(start_id,
-                                                              end_id,
-                                                              label,
-                                                              exp_spec["collection"])
+                self.load_experiments(start_id, end_id, label, 
+                                      exp_spec["collection"])
 
     def get_style(self, label: str):
         color_dict = {
@@ -409,10 +410,13 @@ class ExperimentManager:
         self.set_color_cycler(ax)
         for label in models:
             for C in C_l:
+                if C not in self.experiments_dict[label]:
+                    continue
                 y_err_l = []
                 y_l = []
                 for delta in delta_l:
                     if delta == 0.:
+                        print(self.experiments_dict)
                         exp = self.experiments_dict[label][C][attack_nodes][n_adv][delta_l[1]]
                         y, y_std = exp.get_test_accuracy()
                     else:
@@ -429,7 +433,7 @@ class ExperimentManager:
                 ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                             capsize=3, linewidth=1, markersize=4)
                 self.set_xaxis_labels(ax, x, delta_l)
-        ax.set_ylabel("Robust Accuracy", fontsize=20)
+        ax.set_ylabel("Certified Accuracy", fontsize=20)
         ax.set_xlabel(r"$\delta$", fontsize=17, fontweight="bold")
         ax.yaxis.grid()
         ax.xaxis.grid()

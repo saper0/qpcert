@@ -220,8 +220,9 @@ def run(data_params: Dict[str, Any],
     X, A, y, mu, p, q = get_graph(data_params, sort=True)
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
-    idx_trn, _, idx_val, idx_test = split(data_params, y)
-    assert len(_) == 0
+    idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
+    if len(idx_unlabeled) != 0:
+        idx_test = np.concatenate((idx_unlabeled, idx_test))
     X = torch.tensor(X, dtype=dtype, device=device)
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
