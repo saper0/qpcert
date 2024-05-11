@@ -196,7 +196,6 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         ntk_unlabeled = np.reshape(ntk[idx_test,:][idx_labeled], (1,-1))
         ntk_unlabeled_ub = np.reshape(ntk_ub[idx_test,:][idx_labeled], (1,-1))
         ntk_unlabeled_lb = np.reshape(ntk_lb[idx_test,:][idx_labeled], (1,-1))
-        print(ntk_unlabeled.shape)
     else:
         ntk_unlabeled = ntk[idx_test,:][:,idx_labeled]
         ntk_unlabeled_ub = ntk_ub[idx_test,:][:,idx_labeled]
@@ -477,9 +476,14 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
     ntk_labeled_lb = ntk_lb[idx_labeled, :]
     ntk_labeled_lb = ntk_labeled_lb[:, idx_labeled]
     y_labeled = y[idx_labeled].detach().cpu().numpy()
-    ntk_unlabeled = ntk[idx_test,:][:,idx_labeled]
-    ntk_unlabeled_ub = ntk_ub[idx_test,:][:,idx_labeled]
-    ntk_unlabeled_lb = ntk_lb[idx_test,:][:,idx_labeled]
+    if len(idx_test) == 1:
+        ntk_unlabeled = np.reshape(ntk[idx_test,:][idx_labeled], (1,-1))
+        ntk_unlabeled_ub = np.reshape(ntk_ub[idx_test,:][idx_labeled], (1,-1))
+        ntk_unlabeled_lb = np.reshape(ntk_lb[idx_test,:][idx_labeled], (1,-1))
+    else:
+        ntk_unlabeled = ntk[idx_test,:][:,idx_labeled]
+        ntk_unlabeled_ub = ntk_ub[idx_test,:][:,idx_labeled]
+        ntk_unlabeled_lb = ntk_lb[idx_test,:][:,idx_labeled]
 
     # Labels are learned as -1 or 1, but loaded as 0 or 1
     y_labeled = y_labeled*2 -1 
