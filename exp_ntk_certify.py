@@ -373,7 +373,7 @@ def run(data_params: Dict[str, Any],
         y_true_cls = (y[idx_test] * 2 - 1).numpy(force=True).tolist(),
         y_pred_logit = y_pred.numpy(force=True).tolist(),
         y_worst_obj = obj_l,
-        y_worst_obj_bd = obj_bd_l,
+        y_worst_obj_bound = obj_bd_l,
         y_is_robust = is_robust_l,
         y_opt_status = opt_status_l,
         # split statistics
