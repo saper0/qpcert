@@ -456,8 +456,8 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
 
 
 def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
-                               y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, 
-                               milp=True):
+                               y_pred, svm_alpha, certificate_params,
+                               C=1, M=1e4, Mprime=1e4, milp=True):
     """TODO: Create documentation 
     """
     if isinstance(svm_alpha, torch.Tensor):
@@ -581,17 +581,38 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             else:
                 m.setObjective(z_test @ y_labeled, GRB.MAXIMIZE)
 
+
+            if "MIPGap" in certificate_params:
+                m.Params.MIPGap = certificate_params["MIPGap"]
+            if "NumericFocus" in certificate_params:
+                m.Params.NumericFocus = certificate_params["NumericFocus"]
+            else:
+                m.Params.NumericFocus = 0
+            if "TimeLimit" in certificate_params:
+                m.Params.TimeLimit = certificate_params["TimeLimit"]
+            # m.Params.MIPGap = 1e-4
+            # m.Params.MIPGapAbs = 1e-4
+            # m.Params.Presolve = 0
+            # m.Params.Aggregate = 0 #aggregation level in presolve
+            if "MIPFocus" in certificate_params:
+                m.Params.MIPFocus = certificate_params["MIPFocus"]
+            else:
+                m.Params.MIPFocus = 0
+            if "Cuts" in certificate_params:
+                m.Params.Cuts = certificate_params["Cuts"]
+            if "Heuristics" in certificate_params:
+                m.Params.Heuristics = certificate_params["Heuristics"]
+
             m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
             m.Params.LogToConsole = 1 # to suppress the logging in console - for better readability
             m.params.OutputFlag=1 # to suppress branch bound search tree outputs
             m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
-        
+
             # Played around with the following flags to escape infeasibility solutions
             m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
             m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
-            m.Params.NumericFocus = 3
             # m.Params.MIPGap = 1e-4
             # m.Params.MIPGapAbs = 1e-4
             # m.Params.Presolve = 0
