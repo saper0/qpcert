@@ -161,8 +161,7 @@ def get_us_county(specification: Dict[str, Any]):
     A = np.logical_or(lt, ut).astype(np.int64)
     path_to_features = path_to_folder + "/US-county-fb-2016-feats.csv"
     if "year" in specification:
-        if specification["year"] == "2012" or specification["year"] == "2016":
-            path_to_features = path_to_folder + "/US-county-fb-" + specification["year"] + "-feats.csv"
+        path_to_features = path_to_folder + "/US-county-fb-" + str(specification["year"]) + "-feats.csv"
     features_df = pd.read_csv(path_to_features, delimiter=',')
     features_df = features_df.drop(["FIPS"], axis=1)
     X = features_df.loc[:, features_df.columns != 'election'].to_numpy()
