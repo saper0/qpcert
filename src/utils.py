@@ -614,8 +614,14 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
 
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
-            m.Params.LogToConsole = 1 # to suppress the logging in console - for better readability
-            m.params.OutputFlag=1 # to suppress branch bound search tree outputs
+            if "LogToConsole" in certificate_params:
+                m.Params.LogToConsole = certificate_params["LogToConsole"]
+            else:
+                m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
+            if "OutputFlag" in certificate_params:
+                m.Params.LogToConsole = certificate_params["OutputFlag"]
+            else:
+                m.params.OutputFlag= 0 # to suppress branch bound search tree outputs
             m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
 
             # Played around with the following flags to escape infeasibility solutions
