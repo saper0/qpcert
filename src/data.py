@@ -1,3 +1,4 @@
+from collections import Counter
 import logging
 from pathlib import Path
 from typing import Any, Dict, Union, Tuple
@@ -173,6 +174,56 @@ def get_us_county(specification: Dict[str, Any]):
     return X, A, y
 
 
+def get_cora_ml_cont_binary(specification: Dict[str, Any]):
+    X, A, y = get_cora_ml_cont("cora_ml_cont", specification, 
+                               load_binary_feature=False, load_embedding="Auto")
+    c = Counter(y).most_common(2)
+    y_first = c[0][0]
+    y_second = c[1][0]
+    n = len(y)
+    cond = np.logical_or(y == y_first, y == y_second)
+    A = A[cond, :]
+    A = A[:, cond]
+    X = X[cond, :]
+    y = np.copy(y[cond])
+    mask_first = y == y_first
+    mask_second = y == y_second
+    y[mask_first] = 1
+    y[mask_second] = 0
+    # exclude isolated nodes
+    cond = np.sum(A, axis=1)>0
+    A = A[cond, :]
+    A = A[:, cond]
+    X = X[cond, :]
+    y = np.copy(y[cond])
+    assert (np.sum(A, axis=1)==0).sum() == 0
+    return X, A, y
+
+def get_cora_ml_binary(specification: Dict[str, Any]):
+    X, A, y = get_cora_ml(specification)
+    c = Counter(y).most_common(2)
+    y_first = c[0][0]
+    y_second = c[1][0]
+    n = len(y)
+    cond = np.logical_or(y == y_first, y == y_second)
+    A = A[cond, :]
+    A = A[:, cond]
+    X = X[cond, :]
+    y = np.copy(y[cond])
+    mask_first = y == y_first
+    mask_second = y == y_second
+    y[mask_first] = 1
+    y[mask_second] = 0
+    # exclude isolated nodes
+    cond = np.sum(A, axis=1)>0
+    A = A[cond, :]
+    A = A[:, cond]
+    X = X[cond, :]
+    y = np.copy(y[cond])
+    assert (np.sum(A, axis=1)==0).sum() == 0
+    return X, A, y
+
+
 def get_graph(
         data_params: Dict[str, Any], sort: bool=True
 ) -> Tuple[Float[ndarray, "n n"], Integer[ndarray, "n n"], Integer[ndarray, "n"]]:
@@ -198,6 +249,10 @@ def get_graph(
         X, A, y = get_wikics(data_params["specification"])
     elif data_params["dataset"] == "cora_ml":
         X, A, y = get_cora_ml(data_params["specification"])
+    elif data_params["dataset"] == "cora_ml_binary":
+        X, A, y = get_cora_ml_binary(data_params["specification"])
+    elif data_params["dataset"] == "cora_ml_cont_binary":
+        X, A, y = get_cora_ml_cont_binary(data_params["specification"])
     elif data_params["dataset"] in ["cora_ml_cont", "dblp", "cora_cont", "cora_full", "cora_ml_cont_binary", "cora_ml_cont_auto" ]:
         dataset = data_params["dataset"]
         if dataset.endswith("_binary"):

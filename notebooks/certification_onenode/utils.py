@@ -408,6 +408,7 @@ class ExperimentManager:
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         self.set_color_cycler(ax)
+        print([key for key in self.experiments_dict])
         for label in models:
             for C in C_l:
                 if C not in self.experiments_dict[label]:
@@ -416,7 +417,6 @@ class ExperimentManager:
                 y_l = []
                 for delta in delta_l:
                     if delta == 0.:
-                        print(self.experiments_dict)
                         exp = self.experiments_dict[label][C][attack_nodes][n_adv][delta_l[1]]
                         y, y_std = exp.get_test_accuracy()
                     else:
