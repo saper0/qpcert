@@ -232,6 +232,10 @@ def run(data_params: Dict[str, Any],
             idx_adv = rng.choice(idx_trn.numpy(force=True), 
                                  size=attack_params["n_adversarial"],
                                  replace=False)
+        elif attack_params["attack_nodes"] == "train_val":
+            idx_adv = rng.choice(idx_labeled, 
+                                 size=attack_params["n_adversarial"],
+                                 replace=False)
         elif attack_params["attack_nodes"] == "all":
             idx_known = np.concatenate((idx_labeled, idx_test)) 
             idx_adv = rng.choice(idx_known.numpy(force=True), 
