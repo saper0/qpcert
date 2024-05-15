@@ -696,7 +696,6 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             
             m.dispose()
             logging.info(f'Robust count {robust_count} out of {idx+1}')
-
         except gp.GurobiError as e:
             m.dispose()
             logging.error(f"Error code {e.errno}: {e}")

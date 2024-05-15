@@ -359,6 +359,10 @@ def run(data_params: Dict[str, Any],
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
 
+    if mu is None:
+        mu = np.array([0])
+        p = 0
+        q = 0
     return dict(
         # general statistics
         accuracy_test = acc,
