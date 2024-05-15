@@ -218,7 +218,7 @@ def run(data_params: Dict[str, Any],
                                           certificate_params, verbosity_params, 
                                           other_params, seed)
     
-    X, A, y, mu, p, q = get_graph(data_params, sort=True)
+    X, A, y, csbm = get_graph(data_params, sort=True, return_csbm=True)
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
@@ -245,8 +245,7 @@ def run(data_params: Dict[str, Any],
                 alpha_tol=model_params["alpha_tol"],
                 dtype=dtype)
         
-        y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
-                               y_test=y, X_test=X, A_test=A, return_ntk=True)
+        ntk_test = ntk.ntk
         y_pred_trn, _ = ntk(idx_labeled=idx_labeled, idx_test=idx_labeled,
                                y_test=y, X_test=X, A_test=A, return_ntk=True)
         if certificate_params["attack_nodes"] == "train_val_backdoor":
@@ -262,7 +261,7 @@ def run(data_params: Dict[str, Any],
 
         delta = certificate_params["delta"]
         if not bool(certificate_params["delta_absolute"]):
-            delta = round(delta * 2 * mu[0].item(), 4)
+            delta = round(delta * 2 * csbm.mu[0].item(), 4)
         logging.info(f"Delta: {delta}")
         y_ub, ntk_ub = ntk.forward_upperbound(idx_labeled, idx_test, idx_adv,
                                               y, X, A, delta,
@@ -285,10 +284,7 @@ def run(data_params: Dict[str, Any],
                                               certificate_params["perturbation_model"],
                                               return_ntk=True,
                                               method=certificate_params["method"])
-        acc = utils.accuracy(y_pred, y[idx_test])
         acc_trn = utils.accuracy(y_pred_trn, y[idx_labeled])
-        acc_ub = utils.accuracy(y_ub, y[idx_test])
-        acc_lb = utils.accuracy(y_lb, y[idx_test])
         acc_ub_trn = utils.accuracy(y_ub_trn, y[idx_labeled])
         acc_lb_trn = utils.accuracy(y_lb_trn, y[idx_labeled])
     # Trivial (1-Layer) Evasion Certifcation:
@@ -297,18 +293,10 @@ def run(data_params: Dict[str, Any],
     mask_no_adv_in_n2 = (A2[:, idx_adv] > 0).sum(dim=1) == 0
     mask_no_adv_in_receptive_field = torch.logical_and(mask_no_adv_in_n, mask_no_adv_in_n2)
     acc_cert_trivial = mask_no_adv_in_receptive_field[idx_test].sum().cpu().item() / len(idx_test)
-    # NTK Evasion Certificate:
-    acc_cert_robust_evasion = utils.certify_robust(y_pred, y_ub, y_lb)
-    acc_cert_unrobust_evasion = utils.certify_unrobust(y_pred, y_ub, y_lb)
-    logging.info(f"Test accuracy: {acc}")
     logging.info(f"Train accuracy: {acc_trn}")
-    logging.info(f"Accuracy_lb_test: {acc_lb}")
-    logging.info(f"Accuracy_ub_test: {acc_ub}")
     logging.info(f"Accuracy_lb_trn: {acc_lb_trn}")
     logging.info(f"Accuracy_ub_trn: {acc_ub_trn}")
-    logging.info(f"Certified accuracy (evasion): {acc_cert_robust_evasion}")
     logging.info(f"Certified accuracy (evasion, trivial): {acc_cert_trivial}")
-    logging.info(f"Certified unrobustness (evasion): {acc_cert_unrobust_evasion}")
 
     # Poisoning Certificate
     svm_alpha = ntk.svm
@@ -328,7 +316,6 @@ def run(data_params: Dict[str, Any],
     obj_bd_l = [] 
     opt_status_l = []
     for i in range(n_unlabeled):
-        csbm = CSBM(n=n_original, **data_params["specification"])
         X, A, y = csbm.sample_conditional(n=1, X=X_original,
                                             A=A_original, 
                                             y=y_original)
@@ -351,10 +338,12 @@ def run(data_params: Dict[str, Any],
                         alpha_tol=model_params["alpha_tol"],
                         dtype=dtype)
             
-            y_pred_bd, ntk_test_bd = ntk_bd(idx_labeled=idx_labeled, idx_test=idx_backdoor,
-                                    y_test=y, X_test=X, A_test=A, return_ntk=True)
+            y_pred_bd, ntk_test_bd = ntk(idx_labeled=idx_labeled, 
+                                         idx_test=idx_backdoor,
+                                         y_test=y, X_test=X, A_test=A, 
+                                         learning_setting="inductive",
+                                         return_ntk=True)
                 
-            
             y_bd_ub, ntk_bd_ub = ntk_bd.forward_upperbound(idx_labeled, idx_backdoor, idx_adv,
                                                     y, X, A, delta,
                                                     certificate_params["perturbation_model"],
@@ -377,9 +366,9 @@ def run(data_params: Dict[str, Any],
             y_true_cls_backdoor_l.append((y[idx_backdoor] * 2 - 1).numpy(force=True).tolist()[0])
             
             ntk_inductive = torch.zeros((n_inductive, n_inductive), device=device)
-            ntk_inductive[:n_original, :n_original] = ntk_test
-            ntk_inductive[n_original,:] = ntk_test_bd[n_original, :]
-            ntk_inductive[:, n_original] = ntk_test_bd[:, n_original]
+            ntk_inductive[:n_original, :n_original] = ntk.ntk
+            ntk_inductive[n_original,:] = ntk_bd.ntk[n_original, :]
+            ntk_inductive[:, n_original] = ntk_bd.ntk[:, n_original]
 
             ntk_inductive_lb = torch.zeros((n_inductive, n_inductive), device=device)
             ntk_inductive_lb[:n_original, :n_original] = ntk_lb
@@ -416,8 +405,8 @@ def run(data_params: Dict[str, Any],
     ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=torch.float64).to(device) \
                     * model_params["regularizer"]
     cond_regularized = torch.linalg.cond(ntk_labeled)
-    min_ypred = torch.min(y_pred).cpu().item()
-    max_ypred = torch.max(y_pred).cpu().item()
+    min_ypred = torch.min(torch.tensor(y_pred_backdoor_l)).cpu().item()
+    max_ypred = torch.max(torch.tensor(y_pred_backdoor_l)).cpu().item()
     min_ylb = torch.min(y_lb).cpu().item()
     max_ylb = torch.max(y_lb).cpu().item()
     min_yub = torch.min(y_ub).cpu().item()
@@ -439,18 +428,14 @@ def run(data_params: Dict[str, Any],
 
     return dict(
         # general statistics
-        accuracy_test = acc,
+        accuracy_test = acc_backdoor,
         accuracy_trn = acc_trn,
-        accuracy_ub_test = acc_ub,
-        accuracy_lb_test = acc_lb,
+        accuracy_ub_test = acc_backdoor_ub,
+        accuracy_lb_test = acc_backdoor_lb,
         accuracy_ub_trn = acc_ub_trn,
         accuracy_lb_trn = acc_lb_trn,
         accuracy_backdoor = acc_backdoor,
-        accuracy_backdoor_ub = acc_backdoor_ub,
-        accuracy_backdoor_lb = acc_backdoor_lb,
         accuracy_cert_evasion_trivial = acc_cert_trivial,
-        accuracy_cert_evasion_robust = acc_cert_robust_evasion,
-        accuracy_cert_evasion_unrobust = acc_cert_unrobust_evasion,
         accuracy_cert_pois_robust = acc_cert,
         accuracy_cert_pois_unrobust = acc_cert_u,
         delta_absolute = delta,
@@ -468,9 +453,9 @@ def run(data_params: Dict[str, Any],
         idx_test = idx_test.tolist(),
         idx_adv = idx_adv.tolist(),
         # data statistics
-        csbm_mu = mu[0].item(),
-        csbm_p = p,
-        csbm_q = q,
+        csbm_mu = csbm.mu[0].item(),
+        csbm_p = csbm.p,
+        csbm_q = csbm.q,
         data_dim = X.shape[1],
         # other statistics ntk / pred
         min_ypred = min_ypred,

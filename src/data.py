@@ -32,7 +32,7 @@ def get_csbm(
     csbm = CSBM(n=n, **specification)
     logging.info(f"CSBM(p={csbm.p:.05f}, q={csbm.q:.05f})")
     X, A, y = csbm.sample(n, specification["seed"])
-    return X, A, y, csbm.mu, csbm.p, csbm.q
+    return X, A, y, csbm
 
 
 def get_planetoid(dataset: str, specification: Dict[str, Any]):
@@ -225,7 +225,7 @@ def get_cora_ml_binary(specification: Dict[str, Any]):
 
 
 def get_graph(
-        data_params: Dict[str, Any], sort: bool=True
+        data_params: Dict[str, Any], sort: bool=True, return_csbm: bool=False
 ) -> Tuple[Float[ndarray, "n n"], Integer[ndarray, "n n"], Integer[ndarray, "n"]]:
     """Return graph sampled from a CSBM.
 
@@ -233,7 +233,7 @@ def get_graph(
     
     Returns X, A, y."""
     if data_params["dataset"] == "csbm":
-        X, A, y, mu, p, q = get_csbm(data_params["specification"])
+        X, A, y, csbm = get_csbm(data_params["specification"])
         if sort:
             idx = np.argsort(y)
             y = y[idx]
@@ -282,7 +282,9 @@ def get_graph(
         logging.info(f"X_rowsum.min(): {np.min(X_rowsum)}")
         logging.info(f"X_rowsum.max(): {np.max(X_rowsum)}")
     if data_params["dataset"] == "csbm":
-        return X, A, y, mu, p, q
+        if return_csbm:
+            return X, A, y, csbm
+        return X, A, y, csbm.mu, csbm.p, csbm.q
     return X, A, y, None, None, None
 
 

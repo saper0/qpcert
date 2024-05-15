@@ -50,14 +50,14 @@ class CSBM(GraphGenerationModel):
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray]: X, A, y
         """
-        rng = np.random.Generator(np.random.PCG64(seed))
+        self.rng = np.random.Generator(np.random.PCG64(seed))
         # Sample y
-        y = rng.integers(0,2,size=n)
+        y = self.rng.integers(0,2,size=n)
         n_class1 = sum(y)
         n_class0 = len(y) - n_class1 
         # Sample X|y
-        X_0 = rng.multivariate_normal(-self.mu, self.cov, n_class0).astype(np.float32)
-        X_1 = rng.multivariate_normal(self.mu, self.cov, n_class1).astype(np.float32)
+        X_0 = self.rng.multivariate_normal(-self.mu, self.cov, n_class0).astype(np.float32)
+        X_1 = self.rng.multivariate_normal(self.mu, self.cov, n_class1).astype(np.float32)
         X = np.zeros((n,self.d))
         X[y == 0, :] = X_0
         X[y == 1, :] = X_1
@@ -69,7 +69,7 @@ class CSBM(GraphGenerationModel):
                     edge_prob[i,j] = self.p
                 else:
                     edge_prob[i,j] = self.q
-        A = rng.binomial(1, edge_prob)
+        A = self.rng.binomial(1, edge_prob)
         A += A.T
         return X, A, y
 
@@ -90,11 +90,11 @@ class CSBM(GraphGenerationModel):
         assert n == 1, "Only implemented for inductive sampling of a single node"
 
         # Sample y' | y:
-        y_n = np.random.randint(0, 2, size=n)
+        y_n = self.rng.integers(0, 2, size=n)
         y_new = np.hstack((y, y_n))
 
         # Sample X' | y', X
-        x_n = np.random.multivariate_normal((2*y_n - 1)*self.mu, self.cov, 
+        x_n = self.rng.multivariate_normal((2*y_n - 1)*self.mu, self.cov, 
                                             size=n).astype(np.float32)
         X_new = np.vstack((X, x_n))
 
@@ -107,7 +107,7 @@ class CSBM(GraphGenerationModel):
                     edge_prob[j,i] = self.p
                 else:
                     edge_prob[j,i] = self.q
-        a_n = np.random.binomial(1, edge_prob)
+        a_n = self.rng.binomial(1, edge_prob)
         A_tmp = np.vstack((A, a_n[0, :-1]))
         A_new = np.hstack((A_tmp, a_n.T))
 
