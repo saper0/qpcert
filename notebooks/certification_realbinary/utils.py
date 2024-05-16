@@ -126,6 +126,7 @@ class Experiment:
         else:
             self.attack = True
             params = self.hyperparameters["attack_params"]
+        self.pert_model = params["perturbation_model"]
         self.delta = float(params["delta"])
         self.n_adv = int(params["n_adversarial"])
         self.attack_nodes = params["attack_nodes"]
@@ -181,9 +182,9 @@ class Experiment:
             for y_true, y_pred, y_worst in zip(result["y_true_cls"],
                                                result["y_pred_logit"],
                                                result["y_worst_obj"]):
-                if y_pred > 0 and y_true > 0 and y_worst > 0:
+                if y_pred > 0 and y_true > 0 and y_worst > 1e-4:
                     n_robust_acc += 1
-                if y_pred < 0 and y_true < 0 and y_worst < 0:
+                if y_pred < 0 and y_true < 0 and y_worst < -1e-4:
                     n_robust_acc += 1
             n_robust_acc_l.append(n_robust_acc / self.n_test)
         return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
@@ -210,9 +211,10 @@ class Experiment:
     
     def __str__(self):
         my_str = self.label
-        my_str += f" K: {self.K:.1f}, C: {self.C:.5f}, delta: {self.delta:.2f},"
+        my_str += f" C: {self.C:.5f}, l2/linf: {self.pert_model}, delta: {self.delta:.2f},"
         my_str += f" n_adv: {self.n_adv}, attack_nodes: {self.attack_nodes}"
         return my_str
+
 
 def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
         """
@@ -233,6 +235,7 @@ def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
                     n_robust_acc += 1
             n_robust_acc_l.append(n_robust_acc / n_test)
         return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
+
 
 class ExperimentManager:
     """Administrates access and visualization of robustness experiments.
@@ -314,15 +317,15 @@ class ExperimentManager:
                     elif exp.label not in self.experiments_dict:
                         self.experiments_dict[exp.label] = {}
                     label = exp_spec["relabel"] if "relabel" in exp_spec else exp.label
-                    if exp.K not in self.experiments_dict[label]:
-                        self.experiments_dict[label][exp.K] = {}
-                    if exp.C not in self.experiments_dict[label][exp.K]:
-                        self.experiments_dict[label][exp.K][exp.C] = {}
-                    if exp.attack_nodes not in self.experiments_dict[label][exp.K][exp.C]:
-                        self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes] = {}
-                    if exp.n_adv not in self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes]:
-                        self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes][exp.n_adv] = {}
-                    self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes][exp.n_adv][exp.delta] = exp
+                    if exp.C not in self.experiments_dict[label]:
+                        self.experiments_dict[label][exp.C] = {}
+                    if exp.attack_nodes not in self.experiments_dict[label][exp.C]:
+                        self.experiments_dict[label][exp.C][exp.attack_nodes] = {}
+                    if exp.pert_model not in self.experiments_dict[label][exp.C][exp.attack_nodes]:
+                        self.experiments_dict[label][exp.C][exp.attack_nodes][exp.pert_model] = {}
+                    if exp.n_adv not in self.experiments_dict[label][exp.C][exp.attack_nodes][exp.pert_model]:
+                        self.experiments_dict[label][exp.C][exp.attack_nodes][exp.pert_model][exp.n_adv] = {}
+                    self.experiments_dict[label][exp.C][exp.attack_nodes][exp.pert_model][exp.n_adv][exp.delta] = exp
 
     def init_plot_params(self):
         # Matplotlib settings
@@ -344,16 +347,20 @@ class ExperimentManager:
         # mpl.rcParams['legend.borderpad'] = 0.2
         # mpl.rcParams['legend.handlelength'] = 1
 
+    
     def get_style(self, label: str):
         color_dict = {
             "APPNP_alpha1": 'slategrey', #MLP
+            "MLP": 'slategrey', #MLP
             "GCN": 'tab:green', 
+            "GCN_sym": 'tab:green', 
             "APPNP_alpha0": "wheat",
             "APPNP_alpha0.1": "tab:brown",
             "APPNP": 'r', #lime 
             "APPNP_alpha0.3": "tab:olive",
             "APPNP_alpha0.5": "darkslategrey",
             "SGC": "blue",
+            "SGC_sym": "blue",
             "GCN_skippc_linear": "lime", #k
             "GCN_skippc_relu+2": "lime",
             "GCN_skipalpha_linear_alpha0.2": "wheat",
@@ -366,32 +373,21 @@ class ExperimentManager:
             # "LP": "wheat",
         }
         linestyle_dict = {
-            "LP": '--'
+            "LP": '--',
+            "SGC_sym": "dashed",
+            "GCN_sym": "dashed",
         }
         use_color=""
         linestyle="-"
-        if label.startswith("GPRGNN"):
-            sep_labels = label.split("_")
-            if sep_labels[2] == "CPRBCD":
-                linestyle = "--"
-            if sep_labels[2] == "PRBCD":
-                linestyle = ":"
-            if sep_labels[1] == "eps0":
-                use_color = "b"
-                linestyle = "-"
-            if sep_labels[1] == "eps0.05":
-                use_color = "lime"
-            if sep_labels[1] == "eps0.1":
-                use_color = "tab:green"
-            if sep_labels[1] == "eps0.2":
-                use_color = "slategrey"    
-        else:
-            for key, color in color_dict.items():
-                sep_labels = key.split("+")
-                if sep_labels[0] == label:
-                    use_color = color
-                    if len(sep_labels) == 2 or sep_labels[0] == "LP":
-                        linestyle = "--"
+        for key, color in color_dict.items():
+            sep_labels = key.split("+")
+            if sep_labels[0] == label:
+                use_color = color
+                if len(sep_labels) == 2 or sep_labels[0] == "LP":
+                    linestyle = "--"
+        for key, linestyle_ in linestyle_dict.items():
+            if label == key:
+                linestyle = linestyle_
         return use_color, linestyle
     
     def set_color_cycler(self, ax):
@@ -421,29 +417,31 @@ class ExperimentManager:
         xticks = [f"{label}" for label in x_labels]
         ax.xaxis.set_ticklabels(xticks)
 
-    def plot_robust_acc_delta(self, K: float, models: List[str], C_l: List[float], 
-                              attack_nodes: str, n_adv: int, delta_l: List[float],
+    def plot_robust_acc_delta(self, models: List[str], C_l: List[float], 
+                              attack_nodes: str, pert_model: str,
+                              n_adv: int, delta_l: List[float],
                               legend_labels: List[str]=[],
                               width=1, ratio=1.618, 
                               xlogscale: bool=False,
-                              savefig: str=None,
-                              use_style: bool=True):
+                              savefig: str=None):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
-        if not use_style:
-            self.set_color_cycler(ax)
+        # self.set_color_cycler(ax)
         if len(legend_labels) != len(models):
             legend_labels = models
+        C_l_None_Flag = C_l
         for (label, legend_label) in zip(models, legend_labels):
+            if C_l_None_Flag == None:
+                C_l = [key for key in self.experiments_dict[label]]
             for C in C_l:
                 y_err_l = []
                 y_l = []
                 for delta in delta_l:
                     if delta == 0.:
-                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta_l[1]]
+                        exp = self.experiments_dict[label][C][attack_nodes][pert_model][n_adv][delta_l[1]]
                         y, y_std = exp.get_result("accuracy_test")
                     else:
-                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
+                        exp = self.experiments_dict[label][C][attack_nodes][pert_model][n_adv][delta]
                         y, y_std = get_robust_accuracy(exp)
                     y_l.append(y)
                     y_err_l.append(y_std)
@@ -458,15 +456,10 @@ class ExperimentManager:
                     self.set_xaxis_labels(ax, x, delta_l)
                 
                 label_str = r'{0}'.format(legend_label) #+ " " + str(C)
-                if use_style:
-                    color, linestyle = self.get_style(label)
-                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                color=color, linestyle=linestyle,
-                                capsize=3, linewidth=1, markersize=4)
-                else:
-                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                capsize=3, linewidth=1, markersize=4)
-
+                color, linestyle = self.get_style(label)
+                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                            color=color, linestyle=linestyle,
+                            capsize=3, linewidth=1, markersize=4)
         ax.set_ylabel("Certified Accuracy")
         ax.set_xlabel(r"Perturbation budget $\delta$")
         ax.yaxis.grid()
@@ -477,7 +470,7 @@ class ExperimentManager:
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
         plt.show()
 
-    def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
+    def plot_robust_acc_delta_nadv(self, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
                               width=1, ratio=1.618):
         h, w = matplotlib.figure.figaspect(ratio / width)

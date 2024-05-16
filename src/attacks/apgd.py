@@ -182,8 +182,6 @@ class APGD(Attack):
         # Create reordered node features with differentiable adversarial nodes
         X_pert = torch.clone(X_start)
         X_pert_prev = torch.clone(X_pert) 
-        eps_pert = torch.zeros(X_pert.shape, dtype=self.dtype, device=X_pert.device)
-        eps_pert_prev = torch.zeros(X_pert.shape, dtype=self.dtype, device=X_pert.device)
         y_pred_l = []
         gradient, y_pred = self._gradient(idx_target, X_pert)
         if sgn is None:

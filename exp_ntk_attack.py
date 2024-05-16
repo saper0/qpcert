@@ -300,7 +300,6 @@ def run(data_params: Dict[str, Any],
                 elif counter % other_params["store_every_X_iter"] == 0: 
                     y_pert_l_trimmed.append(logit)
             y_pert_ll.append(y_pert_l_trimmed)
-
     acc = sum(clean_acc_l) / idx_test.shape[0]
     acc_rob = sum(robust_acc_l) / idx_test.shape[0]
     pert_success_ratio = sum(pert_success_l) / idx_test.shape[0]
