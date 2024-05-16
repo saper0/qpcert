@@ -69,6 +69,7 @@ def config():
 
     attack_params = dict(
         n_adversarial = 10, # number adversarial nodes
+        n_attack = -1, #if set to > 0, attack n_attack randomly chosen test_nodes
         method = "XXT",
         perturbation_model = "linf",
         delta = 0.01, # l0: local budget = delta * feature_dim
@@ -180,8 +181,9 @@ def prepare_data(data_params: Dict[str, Any], device: torch.device,
     X, A, y, mu, p, q = get_graph(data_params, sort=True)
     if torch.cuda.is_available() and device.type != "cpu":
         torch.cuda.empty_cache()
-    idx_trn, _, idx_val, idx_test = split(data_params, y)
-    assert len(_) == 0
+    idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
+    if len(idx_unlabeled) != 0:
+        idx_test = np.concatenate((idx_unlabeled, idx_test))
     idx_trn = torch.tensor(idx_trn, dtype=torch.long, device=device)
     idx_val = torch.tensor(idx_val, dtype=torch.long, device=device)
     idx_test = torch.tensor(idx_test, dtype=torch.long, device=device)
@@ -263,7 +265,15 @@ def run(data_params: Dict[str, Any],
     pert_success_l = []
     y_pert_ll = []
     do_logging = True
-    for i, idx_target in enumerate(idx_test):
+    idx_targets = idx_test
+    if "n_attack" in attack_params and attack_params["n_attack"] > -1:
+        n = idx_targets.shape[0]
+        idx_targets = rng.choice(range(n), 
+                                 size=attack_params["n_attack"],
+                                 replace=False)
+        idx_targets = np.sort(idx_targets)
+        idx_targets = idx_test[idx_targets]
+    for i, idx_target in enumerate(idx_targets):
         idx_target = torch.tensor([idx_target], dtype=torch.long, device=X.device)
         if i > other_params["max_logging_iters"]:
             do_logging = False
@@ -300,16 +310,20 @@ def run(data_params: Dict[str, Any],
                 elif counter % other_params["store_every_X_iter"] == 0: 
                     y_pert_l_trimmed.append(logit)
             y_pert_ll.append(y_pert_l_trimmed)
-    acc = sum(clean_acc_l) / idx_test.shape[0]
-    acc_rob = sum(robust_acc_l) / idx_test.shape[0]
-    pert_success_ratio = sum(pert_success_l) / idx_test.shape[0]
+    acc = sum(clean_acc_l) / idx_targets.shape[0]
+    acc_rob = sum(robust_acc_l) / idx_targets.shape[0]
+    pert_success_ratio = sum(pert_success_l) / idx_targets.shape[0]
     logging.info(f"Clean Accuracy: {acc:.2f}")
     logging.info(f"Robust Accuracy: {acc_rob:.2f}")
     logging.info(f"% of Successfull Perturbations: {pert_success_ratio:.2f}")
     
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
-
+    
+    if mu is None:
+        mu = np.array([0])
+        p = 0
+        q = 0
     return dict(
         # general statistics
         accuracy_test = acc,
@@ -326,7 +340,7 @@ def run(data_params: Dict[str, Any],
         idx_train = idx_trn.tolist(),
         idx_val = idx_val.tolist(),
         idx_labeled = idx_labeled.tolist(),
-        idx_test = idx_test.tolist(),
+        idx_test = idx_targets.tolist(),
         idx_adv = idx_adv.tolist(),
         # data statistics
         csbm_mu = mu[0].item(),

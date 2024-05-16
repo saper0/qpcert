@@ -360,12 +360,16 @@ class NTK(torch.nn.Module):
         pi = torch.acos(torch.tensor(0, dtype=self.dtype).to(self.device)) * 2
         assert (u > 1).sum() == 0
         assert (u < -1).sum() == 0
+        if u.requires_grad:
+            u = torch.clamp(u, -1+globals.grad_tol, 1-globals.grad_tol)
         return (pi - torch.acos(u)) / pi
 
     def kappa_1(self, u):
         pi = torch.acos(torch.tensor(0, dtype=self.dtype).to(self.device)) * 2
         assert (u > 1).sum() == 0 
         assert (u < -1).sum() == 0
+        if u.requires_grad:
+            u = torch.clamp(u, -1+globals.grad_tol, 1-globals.grad_tol)
         return (u*(pi - torch.acos(u)) + torch.sqrt(1-u*u))/pi
 
     def kappa_0_lb(self, u_lb):
