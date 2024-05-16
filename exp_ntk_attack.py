@@ -74,6 +74,7 @@ def config():
         delta = 0.01, # l0: local budget = delta * feature_dim
         delta_absolute = True, # if false interpreted as % of 2*mu
         attack_nodes = "test", # "train", "all"
+        normalize_grad = False, # if gradient computation in attack should be normalized, can help escape bad initial local minima
     )
 
     verbosity_params = dict(

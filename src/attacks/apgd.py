@@ -31,10 +31,11 @@ class APGD(Attack):
                  max_iter: int=1000,
                  n_restarts: int=0,
                  dtype: torch.dtype=torch.float64,
+                 normalize_grad: bool=False,
                  **kwarg):
         self.delta = delta
         self.X = X
-        self.project = Projection(delta, perturbation_model, self.X)
+        #self.project = Projection(delta, perturbation_model, self.X)
         self.A = A
         self.y = y
         self.n_classes = int(y.max() + 1)
@@ -42,6 +43,8 @@ class APGD(Attack):
         self.idx_labeled = idx_labeled
         self.idx_adv = idx_adv
         self.model_params = model_params
+        self.normalize_grad = bool(normalize_grad)
+        print(f" normalize grad: {self.normalize_grad}")
         if eta is None:
             self.eta = 2*delta
         else:
@@ -52,6 +55,8 @@ class APGD(Attack):
         self.rho = rho
         self.max_iter = max_iter
         self.n_restarts = n_restarts
+        self.perturbation_model = perturbation_model
+        self.project_method = "new"
         if self.n_restarts > 0 and perturbation_model != "linf":
             assert False, "Restarts currently only implemented with linf."
         self.dtype = dtype
@@ -122,7 +127,16 @@ class APGD(Attack):
         X = X_r[idx_sort, :]
         y_pred = self._get_logits(idx_target, X)
         y_pred.backward()
-        return X_adv.grad, y_pred[0].detach().cpu().item()
+        gradient = X_adv.grad
+        if self.normalize_grad:
+            if self.perturbation_model == "linf":
+                gradient = torch.sign(gradient)
+            elif self.perturbation_model == "l2":
+                grad_norm = torch.linalg.vector_norm(gradient, ord=2, dim=1)
+                gradient = gradient / grad_norm.view(-1,1)
+            else:
+                assert False, f"Perturbation model {self.perturbation_model} not supported."
+        return gradient, y_pred[0].detach().cpu().item()
     
     def _loss_has_improved(self, loss_new, loss_old, sgn):
         """If sgn=-1: loss is minimized, if sgn=1: loss is maximized."""
@@ -132,14 +146,34 @@ class APGD(Attack):
             return loss_new > loss_old
         assert False
     
+    def _project(self, X_pert):
+        """Calculates P(X_pert) where P is a projection onto the feasible domain."""
+        if self.perturbation_model == "linf":
+            X_lb = self.X - self.delta
+            X_ub = self.X + self.delta
+            mask = X_pert < X_lb
+            X_pert[mask] = X_lb[mask]
+            mask = X_pert > X_ub
+            X_pert[mask] = X_ub[mask]
+        elif self.perturbation_model == "l2":
+            diff = X_pert[self.idx_adv, :] - self.X[self.idx_adv, :]
+            diff_norm = torch.linalg.vector_norm(diff, ord=2, dim=1)
+            mask = diff_norm > self.delta
+            idx_violated = self.idx_adv[mask]
+            if len(idx_violated) > 0:
+                X_pert[idx_violated, :] = self.X[idx_violated, :] + \
+                    diff[mask, :] / diff_norm[mask].view(-1, 1) * self.delta
+        else:
+            assert False
+
     def _update_with_momentum(self, sgn, eta, gradient, Z, X_pert, X_pert_prev):
         """Perform gradient update with momentum (lines 7-8) of APGD pseudocode."""
         Z[self.idx_adv, :] = X_pert[self.idx_adv, :] + sgn * eta * gradient
-        self.project(Z)
+        self._project(Z)
         Z[self.idx_adv, :] = X_pert[self.idx_adv, :] \
             + self.alpha * (Z[self.idx_adv, :] - X_pert[self.idx_adv, :]) \
             + (1 - self.alpha) * (X_pert[self.idx_adv, :] - X_pert_prev[self.idx_adv, :])
-        self.project(Z)
+        self._project(Z)
         X_pert_prev[self.idx_adv, :] = X_pert[self.idx_adv, :]
         X_pert[self.idx_adv, :] = Z[self.idx_adv, :]
 
@@ -147,18 +181,21 @@ class APGD(Attack):
         -> Tuple[torch.Tensor, List[float]]:
         # Create reordered node features with differentiable adversarial nodes
         X_pert = torch.clone(X_start)
-        X_pert_prev = torch.clone(X_pert) #x0
+        X_pert_prev = torch.clone(X_pert) 
+        eps_pert = torch.zeros(X_pert.shape, dtype=self.dtype, device=X_pert.device)
+        eps_pert_prev = torch.zeros(X_pert.shape, dtype=self.dtype, device=X_pert.device)
         y_pred_l = []
         gradient, y_pred = self._gradient(idx_target, X_pert)
         if sgn is None:
             # First prediction assumed to be unperturbed
             sgn = int(y_pred > 0) * (-1) + int(y_pred <= 0) 
         X_pert[self.idx_adv, :] += sgn * self.eta * gradient #x1
-        self.project(X_pert)
+        self._project(X_pert)
         y_pred_l.append(y_pred)
         X_pert_worst = torch.clone(X_pert_prev)
         y_pred_worst = y_pred_l[0]
         Z = torch.clone(X_pert)
+        Z_old = torch.clone(X_pert)
         idx_checkpoint = 1
         n_improved = 0
         eta = self.eta
