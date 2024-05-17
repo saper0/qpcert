@@ -116,26 +116,25 @@ class APGD(Attack):
         
         Returns: Gradient w.r.t. X, Prediction for idx_target
         """
-        with torch.autograd.detect_anomaly():
-            X_adv = X[self.idx_adv, :]
-            X_adv.requires_grad = True
-            cln_mask = torch.ones((X.shape[0],), dtype=torch.bool, device=X.device)
-            cln_mask[self.idx_adv] = False
-            X_cln = X[cln_mask, :]
-            X_r = torch.cat((X_adv, X_cln), dim=0)
-            # Reorder back 
-            idx_sort = torch.argsort(self.idx_r)
-            X = X_r[idx_sort, :]
-            y_pred = self._get_logits(idx_target, X)
-            y_pred.backward()
-            gradient = X_adv.grad
-            if self.normalize_grad:
-                if self.perturbation_model == "linf":
-                    gradient = torch.sign(gradient)
-                elif self.perturbation_model == "l2":
-                    grad_norm = torch.linalg.vector_norm(gradient, ord=2, dim=1)
-                    gradient = gradient / grad_norm.view(-1,1)
-                else:
+        X_adv = X[self.idx_adv, :]
+        X_adv.requires_grad = True
+        cln_mask = torch.ones((X.shape[0],), dtype=torch.bool, device=X.device)
+        cln_mask[self.idx_adv] = False
+        X_cln = X[cln_mask, :]
+        X_r = torch.cat((X_adv, X_cln), dim=0)
+        # Reorder back 
+        idx_sort = torch.argsort(self.idx_r)
+        X = X_r[idx_sort, :]
+        y_pred = self._get_logits(idx_target, X)
+        y_pred.backward()
+        gradient = X_adv.grad
+        if self.normalize_grad:
+            if self.perturbation_model == "linf":
+                gradient = torch.sign(gradient)
+            elif self.perturbation_model == "l2":
+                grad_norm = torch.linalg.vector_norm(gradient, ord=2, dim=1)
+                gradient = gradient / grad_norm.view(-1,1)
+            else:
                     assert False, f"Perturbation model {self.perturbation_model} not supported."
         return gradient, y_pred[0].detach().cpu().item()
     
