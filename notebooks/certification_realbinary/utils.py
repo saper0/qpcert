@@ -118,7 +118,7 @@ class Experiment:
         self.id = experiment_list[0]["_id"]
         self.hyperparameters = experiment_list[0]["config"]
         self.label = self.hyperparameters["model_params"]["label"]
-        self.K = self.hyperparameters["data_params"]["specification"]["K"]
+        #self.K = self.hyperparameters["data_params"]["specification"]["K"]
         self.C = float(self.hyperparameters["model_params"]["regularizer"])
         if "certificate_params" in self.hyperparameters:
             self.attack = False
@@ -347,7 +347,6 @@ class ExperimentManager:
         # mpl.rcParams['legend.borderpad'] = 0.2
         # mpl.rcParams['legend.handlelength'] = 1
 
-    
     def get_style(self, label: str):
         color_dict = {
             "APPNP_alpha1": 'slategrey', #MLP
@@ -356,13 +355,18 @@ class ExperimentManager:
             "GCN_sym": 'tab:green', 
             "APPNP_alpha0": "wheat",
             "APPNP_alpha0.1": "tab:brown",
+            "APPNP_alpha0.1_row": "tab:brown",
+            "APPNP_alpha0.2": "r",
             "APPNP": 'r', #lime 
             "APPNP_alpha0.3": "tab:olive",
+            "APPNP_alpha0.3_row": "tab:olive",
             "APPNP_alpha0.5": "darkslategrey",
             "SGC": "blue",
             "SGC_sym": "blue",
+            "GCN_skippc": "lime", #k
             "GCN_skippc_linear": "lime", #k
             "GCN_skippc_relu+2": "lime",
+            "GCN_skipalpha": "wheat",
             "GCN_skipalpha_linear_alpha0.2": "wheat",
             "GCN_skipalpha_relu_alpha0.2+2": "wheat",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
@@ -376,6 +380,9 @@ class ExperimentManager:
             "LP": '--',
             "SGC_sym": "dashed",
             "GCN_sym": "dashed",
+            "APPNP_alpha0.1_row": "dashed",
+            "APPNP_alpha0.3_row": "dashed",
+            "MLP": 'dashed'
         }
         use_color=""
         linestyle="-"
@@ -404,18 +411,18 @@ class ExperimentManager:
         ax.set_prop_cycle(cycler('linestyle', linestyle_list)*
                           cycler('color', color_list))
 
-    def set_xaxis_labels(self, ax, x_ticks, x_labels):
+    def set_xaxis_labels(self, ax, x_ticks, x_labels, fontsize):
         ax.xaxis.get_major_formatter()._usetex = False
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
-        ax.xaxis.set_ticklabels(xticks, fontsize=12, fontweight="bold")
+        ax.xaxis.set_ticklabels(xticks, fontsize=fontsize, fontweight="bold")
         ax.set_xlim(left=-0.3)
     
-    def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels):
+    def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels, fontsize):
         ax.xaxis.get_major_formatter()._usetex = False
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
-        ax.xaxis.set_ticklabels(xticks)
+        ax.xaxis.set_ticklabels(xticks, fontsize=fontsize)
 
     def plot_robust_acc_delta(self, models: List[str], C_l: List[float], 
                               attack_nodes: str, pert_model: str,
@@ -423,7 +430,15 @@ class ExperimentManager:
                               legend_labels: List[str]=[],
                               width=1, ratio=1.618, 
                               xlogscale: bool=False,
-                              savefig: str=None):
+                              ylogscale: bool=False,
+                              savefig: str=None,
+                              savedir: Path=None,
+                              label_fontsize=16,
+                              legend_fontsize=12,
+                              ticks_fontsize=10,
+                              markersize=4,
+                              capsize=3,
+                              linewidth=1):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         # self.set_color_cycler(ax)
@@ -445,29 +460,35 @@ class ExperimentManager:
                         y, y_std = get_robust_accuracy(exp)
                     y_l.append(y)
                     y_err_l.append(y_std)
+                if ylogscale:
+                    ax.set_yscale('log')
                 if xlogscale:
                     ax.set_xscale('log')
                     x = np.array(delta_l)
                     if x[0] == 0:
                         x[0] = 0.005
-                    self.set_xaxis_labels_logscale(ax, x, delta_l)
+                    self.set_xaxis_labels_logscale(ax, x, delta_l, ticks_fontsize)
                 else:
                     x = [i for i in range(len(delta_l))]
-                    self.set_xaxis_labels(ax, x, delta_l)
+                    self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
                 
                 label_str = r'{0}'.format(legend_label) #+ " " + str(C)
                 color, linestyle = self.get_style(label)
                 ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                             color=color, linestyle=linestyle,
-                            capsize=3, linewidth=1, markersize=4)
-        ax.set_ylabel("Certified Accuracy")
-        ax.set_xlabel(r"Perturbation budget $\delta$")
+                            capsize=capsize, linewidth=linewidth, 
+                            markersize=markersize)
+        ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
+        ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
         ax.yaxis.grid()
         ax.xaxis.grid()
-        ax.legend()
+        ax.legend(fontsize=legend_fontsize)
+        ax.tick_params(labelsize=ticks_fontsize)
         if savefig:
-            CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-            plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
+            if savedir is None:
+                savedir = CERTIFICATE_FIGURE_DIR
+            savedir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(savedir/savefig, bbox_inches='tight')
         plt.show()
 
     def plot_robust_acc_delta_nadv(self, models: List[str], C_l: List[float], 
@@ -759,6 +780,7 @@ class ExperimentManager:
             #ax.set_aspect(1.618)
         fig.set_tight_layout(True)
         plt.show()
+        plt.close(fig)
 
     def starplot(self, name: str, attack: str, models: List[str], 
                  K: List[float], max_degree: int=None, logplot: bool=False,
