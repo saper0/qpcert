@@ -353,7 +353,7 @@ class ExperimentManager:
             "MLP": 'slategrey', #MLP
             "GCN": 'tab:green', 
             "GCN_sym": 'tab:green', 
-            "APPNP_alpha0": "wheat",
+            "APPNP_alpha0": "plum",
             "APPNP_alpha0.1": "tab:brown",
             "APPNP_alpha0.1_row": "tab:brown",
             "APPNP_alpha0.2": "r",
@@ -378,8 +378,8 @@ class ExperimentManager:
         }
         linestyle_dict = {
             "LP": '--',
-            "SGC_sym": "dashed",
-            "GCN_sym": "dashed",
+            "SGC_sym": ":",
+            "GCN_sym": ":",
             "APPNP_alpha0.1_row": "dashed",
             "APPNP_alpha0.3_row": "dashed",
             "MLP": 'dashed'
@@ -439,7 +439,8 @@ class ExperimentManager:
                               markersize=4,
                               capsize=3,
                               linewidth=1,
-                              framealpha=1.0):
+                              framealpha=1.0,
+                              use_custom_legend=False):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         # self.set_color_cycler(ax)
@@ -483,7 +484,15 @@ class ExperimentManager:
         ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
         ax.yaxis.grid()
         ax.xaxis.grid()
-        ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
+        
+        if use_custom_legend:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha,
+                    handlelength=1,
+                    handletextpad=0.5,
+                    labelspacing = 0.3, loc="lower left", 
+                    bbox_to_anchor=(-0.035,-0.06))
+        else:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
         ax.tick_params(labelsize=ticks_fontsize)
         if savefig:
             if savedir is None:
@@ -491,6 +500,7 @@ class ExperimentManager:
             savedir.mkdir(parents=True, exist_ok=True)
             plt.savefig(savedir/savefig, bbox_inches='tight')
         plt.show()
+        plt.close(fig)
 
     def plot_robust_acc_delta_nadv(self, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
@@ -524,9 +534,14 @@ class ExperimentManager:
         ax.legend()
         plt.show()
 
-    def plot_nadv_delta_robust_gain_wrt_mlp_heatmap(self, K: float, models: str, C: float, 
-                              attack_nodes: str, n_adv_l: List[str], delta_l: List[float], mlp: str,
-                              title_label: str=None, width=1, ratio=1.2, savefig: str=None):
+    def plot_nadv_delta_robust_gain_wrt_mlp_heatmap(self, models: str, C: float,
+                                attack_nodes: str, n_adv_l: List[str], 
+                                pert_model: str, delta_l: List[float], 
+                                mlp: str, C_mlp: float,
+                                title_label: str=None, width=1, ratio=1.2, 
+                                savefig: str=None,
+                                savedir: Path=None,
+                                colormap: str="bwr_r"):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         # self.set_color_cycler(ax)
@@ -537,35 +552,40 @@ class ExperimentManager:
                     delta = delta_l[i]
                     n_adv = int(n_adv_l[j])
                     if delta == 0:
-                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][0.01]
-                        acc_exp, _ = exp.get_result("accuracy_test")
-                        mlp_exp = self.experiments_dict[mlp][K][C][attack_nodes][n_adv][0.01]
-                        acc_mlp, _ = mlp_exp.get_result("accuracy_test")
+                        exp = self.experiments_dict[label][C][attack_nodes][pert_model][n_adv][0.01]
+                        acc_exp, _ = get_robust_accuracy(exp)
+                        mlp_exp = self.experiments_dict[mlp][C_mlp][attack_nodes][pert_model][n_adv][0.01]
+                        acc_mlp, _ = get_robust_accuracy(mlp_exp)
                         acc_diff = acc_exp-acc_mlp
                     else:
-                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
-                        acc_exp, _ = exp.get_robust_accuracy()
-                        mlp_exp = self.experiments_dict[mlp][K][C][attack_nodes][n_adv][0.01]
-                        acc_mlp, _ = mlp_exp.get_robust_accuracy()
+                        exp = self.experiments_dict[label][C][attack_nodes][pert_model][n_adv][delta]
+                        acc_exp, _ = get_robust_accuracy(exp)
+                        mlp_exp = self.experiments_dict[mlp][C_mlp][attack_nodes][pert_model][n_adv][delta]
+                        acc_mlp, _ = get_robust_accuracy(mlp_exp)
                         acc_diff = acc_exp-acc_mlp
                     nadv_delta[i][j] = acc_diff
-        cmap = matplotlib.cm.get_cmap('coolwarm_r')
+        cmap = matplotlib.cm.get_cmap(colormap)
+        #cmap = sns.color_palette("vlag_r", as_cmap=True)
         sns.heatmap(nadv_delta, cmap=cmap, center=0, linewidths=0.5, cbar=True, 
                     cbar_kws={'label': 'Certified accuracy gain'})
         ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=n_adv_l)
         ax.set_yticks(np.arange(nadv_delta.shape[0])+0.5, labels=delta_l, rotation=0)
         ax.set_ylabel(r"Perturbation budget $\delta$")
         ax.set_xlabel("Number of adversaries")
+        ax.invert_yaxis()
         if title_label:
-            ax.set_title(title_label[0])
+            ax.set_title(title_label)
         else:
             ax.set_title(models[0])
         if savefig:
-            CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-            plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)
+            if savedir is None:
+                savedir = CERTIFICATE_FIGURE_DIR
+            savedir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(savedir/savefig, bbox_inches='tight', dpi=600)
         plt.show()
+        plt.close(fig)
 
-    def plot_nadv_delta_heatmap(self, K: float, models: str, C: float, 
+    def plot_nadv_delta_heatmap(self, models: str, C: float, 
                               attack_nodes: str, n_adv_l: List[str], delta_l: List[float],
                               width=1, ratio=1.618, cbar_normalized = True):
         h, w = matplotlib.figure.figaspect(ratio / width)
