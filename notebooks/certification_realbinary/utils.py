@@ -487,10 +487,10 @@ class ExperimentManager:
         
         if use_custom_legend:
             ax.legend(fontsize=legend_fontsize, framealpha=framealpha,
-                    handlelength=1,
+                    handlelength=1.5,
                     handletextpad=0.5,
                     labelspacing = 0.3, loc="lower left", 
-                    bbox_to_anchor=(-0.035,-0.06))
+                    bbox_to_anchor=(-0.02,-0.035))
         else:
             ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
         ax.tick_params(labelsize=ticks_fontsize)
