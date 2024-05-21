@@ -366,7 +366,7 @@ class ExperimentManager:
             "GCN_skippc": "lime", #k
             "GCN_skippc_linear": "lime", #k
             "GCN_skippc_relu+2": "lime",
-            "GCN_skipalpha": "wheat",
+            "GCN_skipalpha": "plum", #"wheat",
             "GCN_skipalpha_linear_alpha0.2": "wheat",
             "GCN_skipalpha_relu_alpha0.2+2": "wheat",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
@@ -438,7 +438,8 @@ class ExperimentManager:
                               ticks_fontsize=10,
                               markersize=4,
                               capsize=3,
-                              linewidth=1):
+                              linewidth=1,
+                              framealpha=1.0):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         # self.set_color_cycler(ax)
@@ -482,7 +483,7 @@ class ExperimentManager:
         ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
         ax.yaxis.grid()
         ax.xaxis.grid()
-        ax.legend(fontsize=legend_fontsize)
+        ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
         ax.tick_params(labelsize=ticks_fontsize)
         if savefig:
             if savedir is None:
