@@ -481,7 +481,10 @@ class ExperimentManager:
                             capsize=capsize, linewidth=linewidth, 
                             markersize=markersize)
         ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
-        ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
+        if pert_model == "l2":
+            ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=2$)", fontsize=label_fontsize)
+        else:
+            ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=\infty$)", fontsize=label_fontsize)
         ax.yaxis.grid()
         ax.xaxis.grid()
         
@@ -490,6 +493,7 @@ class ExperimentManager:
                     handlelength=1.5,
                     handletextpad=0.5,
                     labelspacing = 0.3, loc="lower left", 
+                    #bbox_to_anchor=(-0.02, -0))
                     bbox_to_anchor=(-0.02,-0.035))
         else:
             ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
