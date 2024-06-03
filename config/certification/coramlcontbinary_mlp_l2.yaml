@@ -1,0 +1,120 @@
+seml:
+  name: bin_mlp_cert
+  executable: exp_ntk_certify.py
+  project_root_dir: ../..
+  output_dir: log/certification
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    qos: phdcpu      
+    partition: cpu,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 12G          # memory
+    cpus-per-task: 1  # num cores
+    time: 1-05:30     # max time, D-HH:MM
+
+fixed:
+  data_params:
+    dataset: cora_ml_cont_binary
+    learning_setting: transductive
+    specification:
+      n_per_class: 5
+      fraction_test: 0.01
+      data_dir: ./data
+      make_undirected: True
+      binary_attr: False
+      balance_test: True
+
+  model_params:
+    label: MLP
+    model: APPNP
+    activation: relu
+    normalization: sym_normalization
+    iteration: 10
+    alpha: 1
+    solver: qplayer
+    alpha_tol: 1e-4
+    bias: False
+
+  certificate_params:
+    method: XXT
+    perturbation_model: l2
+    delta_absolute: True
+    attack_nodes: test
+    NumericFocus: 0
+    MIPFocus: 0
+    TimeLimit: 100000
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+    path_gurobi_license: lukas
+
+grid:
+  
+  model_params:
+    regularizer:
+      type: choice
+      options:
+      - 0.5
+      zip_id: output
+    
+
+  certificate_params:
+    LogToConsole: 
+      type: choice
+      options:
+      - 0
+      zip_id: output
+
+    OutputFlag: 
+      type: choice
+      options:
+      - 0
+      zip_id: output
+
+    n_adversarial:
+      type: choice
+      options:
+      - 12
+      - 24
+      - 60
+      - 121
+      - 243
+      - 607
+      - 1215
+
+    delta:
+      type: choice
+      options:
+      - 0.01
+      - 0.02
+      - 0.05
+      - 0.1
+      - 0.2
+      - 0.5
+      - 1
+
+seeds:
+  grid:
+    data_params:
+      specification:
+        seed:
+          type: range
+          min: 0
+          max: 3
+          step: 1
+          zip_id: seed_opt
+    
+    seed:
+      type: range
+      min: 0
+      max: 3
+      step: 1
+      zip_id: seed_opt
+
