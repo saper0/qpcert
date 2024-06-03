@@ -214,6 +214,7 @@ class Experiment:
         my_str += f" n_adv: {self.n_adv}, attack_nodes: {self.attack_nodes}"
         return my_str
 
+
 def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
         """
         For certificates returns certified accuracy.
@@ -233,6 +234,7 @@ def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
                     n_robust_acc += 1
             n_robust_acc_l.append(n_robust_acc / n_test)
         return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
+
 
 class ExperimentManager:
     """Administrates access and visualization of robustness experiments.

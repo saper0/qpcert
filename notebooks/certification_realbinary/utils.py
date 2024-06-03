@@ -572,15 +572,13 @@ class ExperimentManager:
         #cmap = sns.color_palette("vlag_r", as_cmap=True)
         sns.heatmap(nadv_delta, cmap=cmap, center=0, linewidths=0.5, cbar=True, 
                     cbar_kws={'label': 'Certified accuracy gain'})
-        ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=n_adv_l)
+        ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=delta_l[1:])
         ax.set_yticks(np.arange(nadv_delta.shape[0])+0.5, labels=delta_l, rotation=0)
-        ax.set_ylabel(r"Perturbation budget $\delta$")
-        ax.set_xlabel("Number of adversaries")
+        ax.set_ylabel(r"Budget $\delta$ $(p=2)$")
+        ax.set_xlabel(r"Adversarial Nodes $p_{adv}$")
         ax.invert_yaxis()
-        if title_label:
-            ax.set_title(title_label)
-        else:
-            ax.set_title(models[0])
+        #if title_label:
+        #    ax.set_title(title_label)
         if savefig:
             if savedir is None:
                 savedir = CERTIFICATE_FIGURE_DIR

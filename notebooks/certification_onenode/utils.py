@@ -514,7 +514,7 @@ class ExperimentManager:
                             capsize=capsize, linewidth=linewidth, 
                             markersize=markersize)
         ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
-        ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
+        ax.set_xlabel(r"Perturbation budget $\delta$ $(p=2)$", fontsize=label_fontsize)
         ax.yaxis.grid()
         ax.xaxis.grid()
         ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
