@@ -19,7 +19,7 @@ fixed:
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 20
+      n_per_class: 10
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True

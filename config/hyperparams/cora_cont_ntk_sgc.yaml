@@ -1,5 +1,5 @@
 seml:
-  name: citeseer_hyperparams
+  name: cora_ml_cont_hyperparams
   executable: exp_ntk_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -10,7 +10,7 @@ slurm:
     qos: phdcpu      
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
-    mem: 15G          # memory
+    mem: 12G          # memory
     cpus-per-task: 1  # num cores
     time: 0-00:15     # max time, D-HH:MM
 
@@ -25,11 +25,12 @@ fixed:
       balance_test: True
 
   model_params:
-    label: GCN
+    label: SGC
     model: GCN
     normalization: row_normalization
     depth: 1
     solver: qplayer_one_vs_all
+    activation: linear
     bias: False
     alpha_tol: 1e-4
 
@@ -47,7 +48,7 @@ grid:
     dataset:
       type: choice
       options:
-      - citeseer
+      - cora_ml_cont_auto
 
   model_params:
     pred_method:
@@ -58,29 +59,15 @@ grid:
     regularizer:
       type: choice
       options:
-      - 0.001
-      - 0.00175
-      - 0.002
-      - 0.0025
-      - 0.003
-      - 0.0035
-      - 0.004
-      - 0.0045
-      - 0.005
-      - 0.0055
-      - 0.006
-      - 0.0065
-      - 0.007
-      - 0.0075
-      - 0.008
-      - 0.0085
-      - 0.009
-      - 0.0095
-      - 0.01
-      - 0.1
-      - 1
-      - 5
-      - 10
+      - 0.0525
+      - 0.055
+      - 0.0575
+      - 0.06
+      - 0.0625
+      - 0.065
+      - 0.0675
+      - 0.07
+      - 0.0725
   
 
 seeds:

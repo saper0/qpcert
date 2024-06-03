@@ -47,7 +47,7 @@ grid:
     dataset:
       type: choice
       options:
-      - citeseer
+      - cora_ml
 
   model_params:
     pred_method:

@@ -1,5 +1,5 @@
 seml:
-  name: citeseer_hyperparams
+  name: binary_appnp
   executable: exp_ntk_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -10,28 +10,29 @@ slurm:
     qos: phdcpu      
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
-    mem: 15G          # memory
+    mem: 10G          # memory
     cpus-per-task: 1  # num cores
-    time: 0-00:15     # max time, D-HH:MM
+    time: 0-00:30     # max time, D-HH:MM
 
 fixed:
   data_params:
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 10
+      n_per_class: 5
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True
 
   model_params:
-    label: GCN
-    model: GCN
-    normalization: row_normalization
-    depth: 1
-    solver: qplayer_one_vs_all
-    bias: False
+    label: MLP
+    model: APPNP
+    activation: relu
+    normalization: sym_normalization
+    iteration: 10
+    solver: qplayer
     alpha_tol: 1e-4
+    bias: False
 
   verbosity_params:
     debug_lvl: info
@@ -47,9 +48,14 @@ grid:
     dataset:
       type: choice
       options:
-      - citeseer
+      - cora_ml_cont_binary
 
   model_params:
+    alpha:
+      type: choice
+      options:
+      - 1
+
     pred_method:
       type: choice
       options:
@@ -59,27 +65,17 @@ grid:
       type: choice
       options:
       - 0.001
-      - 0.00175
-      - 0.002
-      - 0.0025
-      - 0.003
-      - 0.0035
-      - 0.004
-      - 0.0045
       - 0.005
-      - 0.0055
-      - 0.006
-      - 0.0065
-      - 0.007
-      - 0.0075
-      - 0.008
-      - 0.0085
-      - 0.009
-      - 0.0095
       - 0.01
+      - 0.05
       - 0.1
+      - 0.25
+      - 0.5
+      - 0.75
       - 1
+      - 2.5
       - 5
+      - 7.5
       - 10
   
 

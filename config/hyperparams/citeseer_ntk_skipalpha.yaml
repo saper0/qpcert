@@ -1,5 +1,5 @@
 seml:
-  name: citeseer_hyperparams
+  name: citeseer_skipalpha_hyperparams
   executable: exp_ntk_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -19,7 +19,7 @@ fixed:
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 10
+      n_per_class: 20
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True

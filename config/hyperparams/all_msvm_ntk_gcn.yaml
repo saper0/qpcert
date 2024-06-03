@@ -1,5 +1,5 @@
 seml:
-  name: citeseer_hyperparams
+  name: msvm_hyperparams
   executable: exp_ntk_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -10,16 +10,16 @@ slurm:
     qos: phdcpu      
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
-    mem: 15G          # memory
+    mem: 20G          # memory
     cpus-per-task: 1  # num cores
-    time: 0-00:15     # max time, D-HH:MM
+    time: 0-01:15     # max time, D-HH:MM
 
 fixed:
   data_params:
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 10
+      n_per_class: 20
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True
@@ -29,7 +29,7 @@ fixed:
     model: GCN
     normalization: row_normalization
     depth: 1
-    solver: qplayer_one_vs_all
+    solver: MSVM
     bias: False
     alpha_tol: 1e-4
 
@@ -48,6 +48,9 @@ grid:
       type: choice
       options:
       - citeseer
+      - cora
+      - cora_ml
+      - cora_ml_cont
 
   model_params:
     pred_method:
@@ -58,6 +61,9 @@ grid:
     regularizer:
       type: choice
       options:
+      - 0.0001
+      - 0.0002
+      - 0.0005
       - 0.001
       - 0.00175
       - 0.002
@@ -77,10 +83,19 @@ grid:
       - 0.009
       - 0.0095
       - 0.01
+      - 0.02
+      - 0.05
       - 0.1
+      - 0.2
+      - 0.5
       - 1
+      - 2
       - 5
       - 10
+      - 20
+      - 50
+      - 100
+
   
 
 seeds:
