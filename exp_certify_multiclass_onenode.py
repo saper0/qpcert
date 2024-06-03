@@ -266,6 +266,10 @@ def run(data_params: Dict[str, Any],
             idx_adv = rng.choice(idx_known, 
                                  size=certificate_params["n_adversarial"],
                                  replace=False)
+        elif certificate_params["attack_nodes"] == "train_val":
+            idx_adv = rng.choice(idx_labeled, 
+                                 size=certificate_params["n_adversarial"],
+                                 replace=False)
         else:
             assert False, "Choose set of nodes to be attacked!"
 
