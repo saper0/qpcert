@@ -1,5 +1,5 @@
 seml:
-  name: ntk_gcn_att
+  name: appnp_att
   executable: exp_ntk_attack.py
   project_root_dir: ../..
   output_dir: log/attack
@@ -28,9 +28,9 @@ fixed:
       avg_between_class_degree: 0.74
 
   model_params:
-    label: GCN
-    model: GCN
-    normalization: row_normalization
+    model: APPNP
+    normalization: sym_normalization
+    iteration: 10
     depth: 1
     pred_method: svm
     activation: relu
@@ -43,7 +43,7 @@ fixed:
     max_iter: 300
     method: XXT
     perturbation_model: linf
-    normalize_grad: False
+    normalize_grad: True
     attack_nodes: test
     delta_absolute: False
 
@@ -54,7 +54,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    store_first_iter: 5
+    store_first_iter: 1
     store_attack_curve: False
 
 grid:
@@ -65,6 +65,18 @@ grid:
       options:
       - 0.01
 
+    label:
+      type: choice
+      options:
+      - APPNP_alpha0.2
+      zip_id: alphas
+
+    alpha:
+      type: choice
+      options:
+      - 0.2
+      zip_id: alphas
+
   attack_params:
     eta:
       type: choice
@@ -74,13 +86,9 @@ grid:
     n_adversarial:
       type: choice
       options:
-      - 1
-      - 2
-      - 6
       - 12
       - 24
       - 60
-      - 120
 
     delta:
       type: choice

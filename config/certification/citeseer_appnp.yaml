@@ -1,5 +1,5 @@
 seml:
-  name: cora_gcn_cert
+  name: citeseer_appnp_cert
   executable: exp_certify_multiclass_onenode.py
   project_root_dir: ../..
   output_dir: log/certification
@@ -11,12 +11,12 @@ slurm:
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
     mem: 12G          # memory
-    cpus-per-task: 4  # num cores
-    time: 3-20:30     # max time, D-HH:MM
+    cpus-per-task: 2  # num cores
+    time: 0-15:30     # max time, D-HH:MM
 
 fixed:
   data_params:
-    dataset: cora
+    dataset: citeseer
     learning_setting: transductive
     specification:
       n_per_class: 10
@@ -26,14 +26,13 @@ fixed:
       binary_attr: False
       balance_test: True
 
-
   model_params:
-    label: GCN
-    model: GCN
-    normalization: row_normalization
-    depth: 1
-    pred_method: svm
+    label: APPNP
+    model: APPNP
     activation: relu
+    normalization: sym_normalization
+    iteration: 10
+    pred_method: svm
     solver: qplayer_one_vs_all
     alpha_tol: 1e-4
     bias: False
@@ -41,10 +40,10 @@ fixed:
   certificate_params:
     n_targets_per_class: 10
     method: XXT
-    perturbation_model: l2
+    perturbation_model: l2_binary_feature
     attack_nodes: test
     NumericFocus: 0
-    TimeLimit: 160000
+    TimeLimit: 100000
 
   verbosity_params:
     debug_lvl: info
@@ -61,14 +60,18 @@ grid:
     regularizer:
       type: choice
       options:
-      #- 0.001
-      #- 0.002
-      #- 0.003
-      #- 0.004
-      #- 0.005
-      - 0.0075
+      - 0.00450
       zip_id: output
     
+    alpha:
+      type: choice
+      options:
+      #- 0
+      - 0.1
+      #- 0.2
+      #- 0.3
+      #- 0.5
+      #- 1
 
   certificate_params:
     LogToConsole: 
@@ -87,20 +90,20 @@ grid:
       #- 0
       #- 0
       #- 0
-      #- 1
       - 1
+      #- 1
       zip_id: output
 
     n_adversarial:
       type: choice
       options:
-      #- 25 
-      #- 51
-      #- 128
-      - 256
-      #- 513
-      #- 1284
-      #- 2568
+      #- 19 
+      #- 39
+      - 99
+      #- 199
+      #- 398
+      #- 995
+      #- 1990
 
     delta:
       type: choice
@@ -115,7 +118,7 @@ grid:
     target_idx:
       type: range
       min: 0
-      max: 70
+      max: 60
       step: 1
   
 

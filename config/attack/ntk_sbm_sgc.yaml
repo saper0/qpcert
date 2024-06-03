@@ -12,7 +12,7 @@ slurm:
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
-    time: 0-05:30     # max time, D-HH:MM
+    time: 0-3:00     # max time, D-HH:MM
 
 fixed:
   data_params:
@@ -28,22 +28,21 @@ fixed:
       avg_between_class_degree: 0.74
 
   model_params:
-    label: GCN
+    label: SGC
     model: GCN
     normalization: row_normalization
     depth: 1
     pred_method: svm
-    activation: relu
+    activation: linear
     solver: qplayer
     alpha_tol: 1e-4
     bias: False
 
   attack_params:
     attack: apgd
-    max_iter: 300
+    max_iter: 2000
     method: XXT
     perturbation_model: linf
-    normalize_grad: False
     attack_nodes: test
     delta_absolute: False
 
@@ -63,13 +62,18 @@ grid:
     regularizer:
       type: choice
       options:
+      # - 0.001
       - 0.01
+      # - 0.1
+      # - 1
 
   attack_params:
     eta:
       type: choice
       options:
+      # - 2
       - 10
+      # - 100
 
     n_adversarial:
       type: choice
@@ -90,7 +94,10 @@ grid:
       - 0.05
       - 0.1
       - 0.2
+      # - 0.3
+      # - 0.4
       - 0.5
+      # - 0.75
       - 1
   
 
@@ -111,4 +118,3 @@ seeds:
       max: 5
       step: 1
       zip_id: seed_opt
-

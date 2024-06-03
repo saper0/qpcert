@@ -1,8 +1,8 @@
 seml:
-  name: ntk_gcn_att
-  executable: exp_ntk_attack.py
+  name: citeseer_gcn_cert
+  executable: exp_certify_multiclass_onenode.py
   project_root_dir: ../..
-  output_dir: log/attack
+  output_dir: log/certification
 
 slurm:
   experiments_per_job: 1
@@ -10,22 +10,22 @@ slurm:
     qos: phdcpu      
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
-    mem: 10G          # memory
-    cpus-per-task: 1  # num cores
-    time: 0-05:30     # max time, D-HH:MM
+    mem: 20G          # memory
+    cpus-per-task: 4  # num cores
+    time: 3-20:30     # max time, D-HH:MM
 
 fixed:
   data_params:
+    dataset: cora_ml
     learning_setting: transductive
     specification:
-      classes: 2
-      n_trn_labeled: 40
-      n_trn_unlabeled: 0
-      n_val: 40
-      n_test: 120
-      sigma: 1
-      avg_within_class_degree: 3.16
-      avg_between_class_degree: 0.74
+      n_per_class: 10
+      fraction_test: 0.01
+      data_dir: ./data
+      make_undirected: True
+      binary_attr: False
+      balance_test: True
+
 
   model_params:
     label: GCN
@@ -34,18 +34,17 @@ fixed:
     depth: 1
     pred_method: svm
     activation: relu
-    solver: qplayer
+    solver: qplayer_one_vs_all
     alpha_tol: 1e-4
     bias: False
 
-  attack_params:
-    attack: apgd
-    max_iter: 300
+  certificate_params:
+    n_targets_per_class: 10
     method: XXT
-    perturbation_model: linf
-    normalize_grad: False
+    perturbation_model: l2_binary_feature
     attack_nodes: test
-    delta_absolute: False
+    NumericFocus: 0
+    TimeLimit: 100000
 
   verbosity_params:
     debug_lvl: info
@@ -54,8 +53,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    store_first_iter: 5
-    store_attack_curve: False
+    path_gurobi_license: lukas
 
 grid:
   
@@ -63,24 +61,41 @@ grid:
     regularizer:
       type: choice
       options:
-      - 0.01
+      - 0.00350
+      zip_id: output
+    
 
-  attack_params:
-    eta:
+  certificate_params:
+    LogToConsole: 
       type: choice
       options:
-      - 10
+      #- 0
+      #- 0
+      #- 0
+      - 1
+      #- 1
+      zip_id: output
+
+    OutputFlag: 
+      type: choice
+      options:
+      #- 0
+      #- 0
+      #- 0
+      - 1
+      #- 1
+      zip_id: output
 
     n_adversarial:
       type: choice
       options:
-      - 1
-      - 2
-      - 6
-      - 12
-      - 24
-      - 60
-      - 120
+      - 25 
+      - 51
+      - 128
+      - 256
+      - 513
+      - 1284
+      #- 2568
 
     delta:
       type: choice
@@ -91,7 +106,12 @@ grid:
       - 0.1
       - 0.2
       - 0.5
-      - 1
+    
+    target_idx:
+      type: range
+      min: 0
+      max: 70
+      step: 1
   
 
 seeds:
@@ -101,14 +121,14 @@ seeds:
         seed:
           type: range
           min: 0
-          max: 5
+          max: 3
           step: 1
           zip_id: seed_opt
     
     seed:
       type: range
       min: 0
-      max: 5
+      max: 3
       step: 1
       zip_id: seed_opt
 

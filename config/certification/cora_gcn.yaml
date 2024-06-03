@@ -10,7 +10,7 @@ slurm:
     qos: phdcpu      
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
-    mem: 10G          # memory
+    mem: 12G          # memory
     cpus-per-task: 4  # num cores
     time: 3-20:30     # max time, D-HH:MM
 

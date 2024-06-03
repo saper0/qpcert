@@ -1,5 +1,5 @@
 seml:
-  name: ntk_gcn_att
+  name: gcn_att
   executable: exp_ntk_attack.py
   project_root_dir: ../..
   output_dir: log/attack
@@ -43,7 +43,7 @@ fixed:
     max_iter: 300
     method: XXT
     perturbation_model: linf
-    normalize_grad: False
+    normalize_grad: True
     attack_nodes: test
     delta_absolute: False
 
@@ -74,13 +74,9 @@ grid:
     n_adversarial:
       type: choice
       options:
-      - 1
-      - 2
-      - 6
       - 12
       - 24
       - 60
-      - 120
 
     delta:
       type: choice
