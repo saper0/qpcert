@@ -1,5 +1,5 @@
 seml:
-  name: binary_gcn
+  name: coramlcont_hyper
   executable: exp_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -10,7 +10,7 @@ slurm:
     qos: phdcpu      
     partition: cpu,cpu_large
     gres: gpu:0       # num gpu
-    mem: 10G          # memory
+    mem: 15G          # memory
     cpus-per-task: 1  # num cores
     time: 0-00:15     # max time, D-HH:MM
 
@@ -19,7 +19,7 @@ fixed:
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 5
+      n_per_class: 20
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True
@@ -27,10 +27,10 @@ fixed:
   model_params:
     label: GCN
     model: GCN
-    activation: relu
     normalization: row_normalization
+    activation: linear
     depth: 1
-    solver: qplayer
+    solver: qplayer_one_vs_all
     bias: False
     alpha_tol: 1e-4
 
@@ -48,10 +48,9 @@ grid:
     dataset:
       type: choice
       options:
-      - cora_ml_cont_binary
+      - cora_ml_cont
 
   model_params:
-
     pred_method:
       type: choice
       options:
@@ -60,18 +59,18 @@ grid:
     regularizer:
       type: choice
       options:
-      - 0.001
-      - 0.005
       - 0.01
+      - 0.02
+      - 0.03
+      - 0.04
       - 0.05
+      - 0.055
+      - 0.0575
+      - 0.06
+      - 0.075
       - 0.1
-      - 0.25
-      - 0.5
-      - 0.75
       - 1
-      - 2.5
       - 5
-      - 7.5
       - 10
   
 

@@ -217,6 +217,7 @@ class APGD(Attack):
                 if cond1 or cond2:
                     eta = eta / 2
                     X_pert[self.idx_adv, :] = X_pert_worst[self.idx_adv, :]
+                print(do_logging)
                 if do_logging:
                     logging.info(f"k {i-1}, W: {self.W[idx_checkpoint]}, "
                                 f"y_pred_worst: {y_pred_worst}, eta: {eta}")

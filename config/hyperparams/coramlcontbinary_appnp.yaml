@@ -1,6 +1,6 @@
 seml:
   name: binary_appnp
-  executable: exp_ntk_hyperparam.py
+  executable: exp_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
 
@@ -55,9 +55,9 @@ grid:
       type: choice
       options:
       - 0
-      #- 0.1
-      #- 0.2
-      #- 0.3
+      - 0.1
+      - 0.2
+      - 0.3
       - 0.5
 
     pred_method:

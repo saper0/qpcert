@@ -2,7 +2,6 @@ import logging
 from typing import Any, Dict, Union, Tuple
 import os
 import socket
-import time
 
 import numpy as np
 from sacred import Experiment
@@ -14,6 +13,7 @@ import torch
 from src import utils, globals
 from src.attacks import create_structure_attack
 from src.data import get_graph, split
+from src.graph_models.csbm import CSBM
 from src.models.ntk import NTK
 from common import count_edges_for_idx
 
@@ -40,15 +40,16 @@ def config():
     seed = 0
 
     data_params = dict(
-        dataset = "cora_ml_cont",
+        dataset = "cora_ml_cont_binary",
         learning_setting = "transductive", # or "transdructive"
         specification = dict(
-            n_per_class = 20,
+            n_per_class = 5,
             fraction_test = 0.1,
             data_dir = "./data",
             make_undirected = True,
             binary_attr = False,
             balance_test = True,
+            seed = 0 # used to generate the dataset & data split
         )
     )
     
@@ -65,9 +66,8 @@ def config():
     )
 
     certificate_params = dict(
-        target_idx = 0, #0-based!
-        n_targets_per_class = 10,
         n_adversarial = 10, # number adversarial nodes
+        n_backdoor_evals = 100,
         method = "XXT",
         perturbation_model = "linf",
         delta = 0.01, # l0: local budget = delta * feature_dim
@@ -124,6 +124,7 @@ def choose_gurobi_license(other_params: Dict[str, Any]):
         logging.info("No known gurobi license provided. Trying default.")
     else:
         assert False
+
 
 def configure_hardware(
     other_params: Dict[str, Any], seed: int
@@ -191,34 +192,40 @@ def run(data_params: Dict[str, Any],
                                           certificate_params, verbosity_params, 
                                           other_params, seed)
     
-    X, A, y, mu, p, q = get_graph(data_params, sort=True)
+    X, A, y, _, _, _ = get_graph(data_params, sort=True)
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
+    if len(idx_unlabeled) != 0:
+        idx_test = np.concatenate((idx_unlabeled, idx_test))
     X = torch.tensor(X, dtype=dtype, device=device)
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
     n_classes = int(y.max() + 1)
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
-    idx_unlabeled = np.concatenate((idx_unlabeled, idx_test))
-    # Pick target node
-    target_idx = certificate_params["target_idx"] 
-    n_targets_per_class = certificate_params["n_targets_per_class"]
-    target_class = int(target_idx / n_targets_per_class) % n_classes
-    y_mask_target_cls = y[idx_unlabeled] == target_class
-    idx_targets = rng.permutation(idx_unlabeled[y_mask_target_cls])
-    step = int(target_idx / (n_targets_per_class * n_classes))
-    step = step * n_targets_per_class 
-    idx_test = idx_targets[target_idx % n_targets_per_class + step]
-    idx_test = torch.Tensor([idx_test], device=device).to(torch.long)
-
+    # idx of labeled nodes in nodes known during training (for semi-supervised)
     if not data_params["learning_setting"] == "transductive":
         assert False, "Only transductive setting supported"
 
+    n = idx_test.shape[0]
+    idx_backdoor_eval = rng.choice(range(n), 
+                                   size=certificate_params["n_backdoor_evals"],
+                                   replace=False)
+    mask = np.ones(idx_test.shape, dtype=bool)
+    mask[idx_backdoor_eval] = False
+    idx_known = np.concatenate((idx_labeled, idx_test[mask]))
+    idx_unlabeled = idx_test[mask]
+    idx_test = idx_test[~mask]
+    A_trn = A[idx_known, :][:, idx_known]
+    X_trn = X[idx_known, :]
+    y_trn = y[idx_known]
+    idx_labeled_trn = np.arange(len(idx_labeled))
+    idx_unlabeled_trn = np.arange(len(idx_labeled_trn), len(idx_known))
+
     with torch.no_grad():
-        ntk = NTK(model_params, X_trn=X, A_trn=A, n_classes=n_classes, 
-                idx_trn_labeled=idx_labeled, y_trn=y[idx_labeled],
+        ntk = NTK(model_params, X_trn=X_trn, A_trn=A_trn, n_classes=n_classes, 
+                idx_trn_labeled=idx_labeled_trn, y_trn=y_trn[idx_labeled_trn],
                 learning_setting=data_params["learning_setting"],
                 pred_method=model_params["pred_method"],
                 regularizer=model_params["regularizer"],
@@ -227,111 +234,164 @@ def run(data_params: Dict[str, Any],
                 alpha_tol=model_params["alpha_tol"],
                 dtype=dtype)
         
-        y_pred, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_test,
-                               y_test=y, X_test=X, A_test=A, return_ntk=True)
-        y_pred_u, ntk_test = ntk(idx_labeled=idx_labeled, idx_test=idx_unlabeled,
-                               y_test=y, X_test=X, A_test=A, return_ntk=True)
-        y_pred_trn, _ = ntk(idx_labeled=idx_labeled, idx_test=idx_labeled,
-                               y_test=y, X_test=X, A_test=A, return_ntk=True)
-        acc = utils.accuracy(y_pred, y[idx_test])
-        acc_trn = utils.accuracy(y_pred_trn, y[idx_labeled])
-
-        if certificate_params["attack_nodes"] == "test":
-            idx_adv = rng.choice(idx_unlabeled, 
+        ntk_test = ntk.ntk
+        y_pred_trn, _ = ntk(idx_labeled=idx_labeled_trn, idx_test=idx_labeled_trn,
+                               y_test=y_trn, X_test=X_trn, A_test=A_trn, return_ntk=True)
+        if certificate_params["attack_nodes"] == "train_val_backdoor":
+            idx_adv = rng.choice(idx_labeled_trn, 
                                  size=certificate_params["n_adversarial"],
                                  replace=False)
-        elif certificate_params["attack_nodes"] == "train":
-            idx_adv = rng.choice(idx_trn, 
-                                 size=certificate_params["n_adversarial"],
-                                 replace=False)
-        elif certificate_params["attack_nodes"] == "all":
-            idx_known = np.concatenate((idx_labeled, idx_unlabeled)) 
-            idx_adv = rng.choice(idx_known, 
-                                 size=certificate_params["n_adversarial"],
-                                 replace=False)
-        elif certificate_params["attack_nodes"] == "train_val":
-            idx_adv = rng.choice(idx_labeled, 
+        elif certificate_params["attack_nodes"] == "test_backdoor":
+            idx_adv = rng.choice(idx_unlabeled_trn, 
                                  size=certificate_params["n_adversarial"],
                                  replace=False)
         else:
-            assert False, "Choose set of nodes to be attacked!"
+            assert False, "Use train_val_backdoor or test_backdoor as attack_nodes for evaluating inductive backdoor"
 
         delta = certificate_params["delta"]
         logging.info(f"Delta: {delta}")
 
-        y_ub, ntk_ub = ntk.forward_upperbound(idx_labeled, idx_test, idx_adv,
-                                              y, X, A, delta,
+        y_ub, ntk_ub = ntk.forward_upperbound(idx_labeled_trn, idx_unlabeled_trn, idx_adv,
+                                              y_trn, X_trn, A_trn, delta,
                                               certificate_params["perturbation_model"],
                                               return_ntk=True,
                                               method=certificate_params["method"])
-
-        y_ub_trn, _ = ntk.forward_upperbound(idx_labeled, idx_labeled, idx_adv,
-                                              y, X, A, delta,
+        y_ub_trn, _ = ntk.forward_upperbound(idx_labeled_trn, idx_labeled_trn, idx_adv,
+                                              y_trn, X_trn, A_trn, delta,
                                               certificate_params["perturbation_model"],
                                               return_ntk=True,
                                               method=certificate_params["method"])
-        y_lb, ntk_lb = ntk.forward_lowerbound(idx_labeled, idx_test, idx_adv,
-                                              y, X, A, delta,
+        y_lb, ntk_lb = ntk.forward_lowerbound(idx_labeled_trn, idx_unlabeled_trn, idx_adv,
+                                              y_trn, X_trn, A_trn, delta,
                                               certificate_params["perturbation_model"],
                                               return_ntk=True,
                                               method=certificate_params["method"])
-        y_lb_trn, ntk_lb = ntk.forward_lowerbound(idx_labeled, idx_labeled, idx_adv,
-                                              y, X, A, delta,
+        y_lb_trn, _ = ntk.forward_lowerbound(idx_labeled_trn, idx_labeled_trn, idx_adv,
+                                              y_trn, X_trn, A_trn, delta,
                                               certificate_params["perturbation_model"],
                                               return_ntk=True,
                                               method=certificate_params["method"])
-        acc = utils.accuracy(y_pred, y[idx_test])
-        acc_u = utils.accuracy(y_pred_u, y[idx_unlabeled])
         acc_trn = utils.accuracy(y_pred_trn, y[idx_labeled])
-        acc_ub = utils.accuracy(y_ub, y[idx_test])
-        acc_lb = utils.accuracy(y_lb, y[idx_test])#
         acc_ub_trn = utils.accuracy(y_ub_trn, y[idx_labeled])
         acc_lb_trn = utils.accuracy(y_lb_trn, y[idx_labeled])
-
     # Trivial (1-Layer) Evasion Certifcation:
     mask_no_adv_in_n = (A[:, idx_adv] > 0).sum(dim=1) == 0
     A2 = A.matmul(A)
     mask_no_adv_in_n2 = (A2[:, idx_adv] > 0).sum(dim=1) == 0
     mask_no_adv_in_receptive_field = torch.logical_and(mask_no_adv_in_n, mask_no_adv_in_n2)
     acc_cert_trivial = mask_no_adv_in_receptive_field[idx_test].sum().cpu().item() / len(idx_test)
-    # NTK Evasion Certificate:
-    acc_cert_robust_evasion = utils.certify_robust(y_pred, y_ub, y_lb)
-    acc_cert_unrobust_evasion = utils.certify_unrobust(y_pred, y_ub, y_lb)
-    logging.info(f"Test accuracy: {acc}")
-    logging.info(f"Test accuracy ALL UNLABELED: {acc_u}")
     logging.info(f"Train accuracy: {acc_trn}")
-    logging.info(f"Accuracy_lb_test: {acc_lb}")
-    logging.info(f"Accuracy_ub_test: {acc_ub}")
     logging.info(f"Accuracy_lb_trn: {acc_lb_trn}")
     logging.info(f"Accuracy_ub_trn: {acc_ub_trn}")
-    logging.info(f"Certified accuracy (evasion): {acc_cert_robust_evasion}")
     logging.info(f"Certified accuracy (evasion, trivial): {acc_cert_trivial}")
-    logging.info(f"Certified unrobustness (evasion): {acc_cert_unrobust_evasion}")
 
     # Poisoning Certificate
     svm_alpha = ntk.svm
-    start_time = time.process_time()
-    if model_params["solver"] == "qplayer_one_vs_all":
-        is_robust_l = utils.certify_one_vs_all_milp(
-                idx_labeled, idx_test, ntk_test, ntk_lb, ntk_ub, y, y_pred,
-                svm_alpha, certificate_params=certificate_params,
-                C=model_params["regularizer"], M=1e3, Mprime=1e3,
-        )
-    end_time = time.process_time()
-    acc_cert = sum(is_robust_l) / y_pred.shape[0]
+    n_original = A_trn.shape[0]
+    n_unlabeled = idx_test.shape[0]
+    idx_adv_original = idx_adv
+    acc_backdoor_l = []
+    acc_backdoor_ub_l = []
+    acc_backdoor_lb_l = []
+    y_pred_backdoor_l = []
+    y_true_cls_backdoor_l = []
+    is_robust_l = []
+    obj_l = [] 
+    obj_bd_l = [] 
+    opt_status_l = []
+    for idx_eval in idx_test:
+        idx_eval = np.array([idx_eval])
+        idx_all = np.concatenate((idx_known, idx_eval))
+        X_new = X[idx_all, :]
+        A_new = A[idx_all, :][:, idx_all]
+        y_new = y[idx_all]
+        n_inductive = A_new.shape[0]
+        idx_new = np.array([A_new.shape[0]-1])
+        idx_adv = np.concatenate((idx_adv_original, idx_new))
+        idx_backdoor = idx_new[0] 
+        idx_backdoor = torch.Tensor([idx_backdoor], device=device).to(torch.long)
+        with torch.no_grad():
+            ntk_bd = NTK(model_params, X_trn=X_new, A_trn=A_new, n_classes=n_classes, 
+                        idx_trn_labeled=idx_labeled_trn, y_trn=y_new[idx_labeled_trn],
+                        learning_setting=data_params["learning_setting"],
+                        pred_method=model_params["pred_method"],
+                        regularizer=model_params["regularizer"],
+                        bias=bool(model_params["bias"]),
+                        solver=model_params["solver"],
+                        alpha_tol=model_params["alpha_tol"],
+                        dtype=dtype)
+            
+            y_pred_bd, ntk_test_bd = ntk(idx_labeled=idx_labeled_trn, 
+                                         idx_test=idx_backdoor,
+                                         y_test=y_new, X_test=X_new, A_test=A_new, 
+                                         learning_setting="inductive",
+                                         return_ntk=True)
+                
+            y_bd_ub, ntk_bd_ub = ntk_bd.forward_upperbound(idx_labeled_trn, 
+                                                           idx_backdoor, idx_adv,
+                                                           y_new, X_new, A_new, delta,
+                                                           certificate_params["perturbation_model"],
+                                                           return_ntk=True,
+                                                           method=certificate_params["method"])
+
+            y_bd_lb, ntk_bd_lb = ntk_bd.forward_lowerbound(idx_labeled_trn, 
+                                                           idx_backdoor, idx_adv,
+                                                           y_new, X_new, A_new, delta,
+                                                           certificate_params["perturbation_model"],
+                                                           return_ntk=True,
+                                                           method=certificate_params["method"])
+                
+            acc_bd = utils.accuracy(y_pred_bd, y_new[idx_backdoor])
+            acc_bd_ub = utils.accuracy(y_bd_ub, y_new[idx_backdoor])
+            acc_bd_lb = utils.accuracy(y_bd_lb, y_new[idx_backdoor])
+            acc_backdoor_l.append(acc_bd)
+            acc_backdoor_ub_l.append(acc_bd_ub)
+            acc_backdoor_lb_l.append(acc_bd_lb)
+            y_pred_backdoor_l.append(y_pred_bd.numpy(force=True).tolist()[0])
+            y_true_cls_backdoor_l.append((y_new[idx_backdoor] * 2 - 1).numpy(force=True).tolist()[0])
+            
+            ntk_inductive = torch.zeros((n_inductive, n_inductive), device=device)
+            ntk_inductive[:n_original, :n_original] = ntk.ntk
+            ntk_inductive[n_original,:] = ntk_bd.ntk[n_original, :]
+            ntk_inductive[:, n_original] = ntk_bd.ntk[:, n_original]
+
+            ntk_inductive_lb = torch.zeros((n_inductive, n_inductive), device=device)
+            ntk_inductive_lb[:n_original, :n_original] = ntk_lb
+            ntk_inductive_lb[n_original,:] = ntk_bd_lb[n_original, :]
+            ntk_inductive_lb[:, n_original] = ntk_bd_lb[:, n_original]
+
+            ntk_inductive_ub = torch.zeros((n_inductive, n_inductive), device=device)
+            ntk_inductive_ub[:n_original, :n_original] = ntk_ub
+            ntk_inductive_ub[n_original,:] = ntk_bd_ub[n_original, :]
+            ntk_inductive_ub[:, n_original] = ntk_bd_ub[:, n_original]
+
+            is_robust, obj, obj_bd, opt_status = \
+                utils.certify_robust_bilevel_svm(
+                    idx_labeled_trn, idx_backdoor, ntk_inductive, ntk_inductive_lb, ntk_inductive_ub, y_new, y_pred_bd,
+                    svm_alpha, certificate_params, C=model_params["regularizer"], 
+                    M=1e3, Mprime=1e3
+            )
+            is_robust_l.append(is_robust[0])
+            obj_l.append(obj[0])
+            obj_bd_l.append(obj_bd[0])
+            opt_status_l.append(opt_status[0])
+    acc_cert = sum(is_robust_l) / n_unlabeled
     acc_cert_u = 0 #not implemented
     logging.info(f"Certified accuracy (poisoning): {acc_cert}")
+    acc_backdoor = sum(acc_backdoor_l) / n_unlabeled
+    acc_backdoor_ub = sum(acc_backdoor_ub_l) / n_unlabeled
+    acc_backdoor_lb = sum(acc_backdoor_lb_l) / n_unlabeled
 
     # Some Debugging Info
-    ntk_labeled = ntk.ntk[idx_labeled, :]
-    ntk_labeled = ntk_labeled[:, idx_labeled]
-    ntk_unlabeled = ntk_test[idx_test,:][:,idx_labeled]
+    ntk_labeled = ntk.ntk[idx_labeled_trn, :]
+    ntk_labeled = ntk_labeled[:, idx_labeled_trn]
+    ntk_unlabeled = ntk_test[idx_unlabeled_trn,:][:,idx_labeled_trn]
     cond = torch.linalg.cond(ntk_labeled)
     ntk_labeled += torch.eye(ntk_labeled.shape[0], dtype=torch.float64).to(device) \
                     * model_params["regularizer"]
     cond_regularized = torch.linalg.cond(ntk_labeled)
-    min_ypred = torch.min(y_pred).cpu().item()
-    max_ypred = torch.max(y_pred).cpu().item()
+    min_ypred = torch.min(torch.tensor(y_pred_backdoor_l)).cpu().item()
+    max_ypred = torch.max(torch.tensor(y_pred_backdoor_l)).cpu().item()
     min_ylb = torch.min(y_lb).cpu().item()
     max_ylb = torch.max(y_lb).cpu().item()
     min_yub = torch.min(y_ub).cpu().item()
@@ -353,24 +413,24 @@ def run(data_params: Dict[str, Any],
 
     return dict(
         # general statistics
-        accuracy_test = acc,
-        accuracy_test_all = acc_u,
+        accuracy_test = acc_backdoor,
         accuracy_trn = acc_trn,
-        accuracy_ub_test = acc_ub,
-        accuracy_lb_test = acc_lb,
+        accuracy_ub_test = acc_backdoor_ub,
+        accuracy_lb_test = acc_backdoor_lb,
         accuracy_ub_trn = acc_ub_trn,
         accuracy_lb_trn = acc_lb_trn,
+        accuracy_backdoor = acc_backdoor,
         accuracy_cert_evasion_trivial = acc_cert_trivial,
-        accuracy_cert_evasion_robust = acc_cert_robust_evasion,
-        accuracy_cert_evasion_unrobust = acc_cert_unrobust_evasion,
         accuracy_cert_pois_robust = acc_cert,
         accuracy_cert_pois_unrobust = acc_cert_u,
         delta_absolute = delta,
-        process_time = end_time - start_time, #Unit: seconds
         # node-wise pois. robustness statistics
-        y_true_cls = y[idx_test].numpy(force=True).tolist()[0],
-        y_pred_logit = y_pred[0].numpy(force=True).tolist(),
-        y_is_robust = is_robust_l[0],
+        y_true_cls = y_true_cls_backdoor_l, #(y[idx_test] * 2 - 1).numpy(force=True).tolist(),
+        y_pred_logit = y_pred_backdoor_l, # y_pred.numpy(force=True).tolist(),
+        y_worst_obj = obj_l,
+        y_worst_obj_bound = obj_bd_l,
+        y_is_robust = is_robust_l,
+        y_opt_status = opt_status_l,
         # split statistics
         idx_train = idx_trn.tolist(),
         idx_val = idx_val.tolist(),

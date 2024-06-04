@@ -1,10 +1,9 @@
 from typing import Any, Dict, Union
 
 from src.models.ntk import NTK
-from src.models.gcn import GCN
 
 
-MODEL_TYPE = Union[NTK, GCN, None]
+MODEL_TYPE = Union[NTK, None]
 
         
 def create_model(hyperparams: Dict[str, Any]) -> MODEL_TYPE:
@@ -21,8 +20,6 @@ def create_model(hyperparams: Dict[str, Any]) -> MODEL_TYPE:
     """
     if hyperparams["model"] == "NTK":
         return NTK(**hyperparams)
-    if hyperparams["model"] == "GCN":
-        return GCN(**hyperparams)
     raise ValueError("Specified model not found.")
 
 

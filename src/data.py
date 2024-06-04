@@ -35,42 +35,6 @@ def get_csbm(
     return X, A, y, csbm
 
 
-def get_planetoid(dataset: str, specification: Dict[str, Any]):
-    '''Loads Planetoid datasets from 
-    https://pytorch-geometric.readthedocs.io/en/latest/modules/datasets.html#torch_geometric.datasets.Planetoid
-    '''
-    dataset_root = specification["data_dir"]
-    data = Planetoid(root = dataset_root, name=dataset)
-    X = data.x.numpy()
-    y = data.y.numpy()
-    idx_features = (X.sum(axis=1) != 0)
-    X = X[idx_features, :]
-    y = y[idx_features]
-    edge_index = data.edge_index
-    edge_weight = torch.ones(edge_index.shape[1])
-    A = SparseTensor(row=edge_index[0], col=edge_index[1], value=edge_weight, 
-                     sparse_sizes=(edge_index.max()+1, edge_index.max()+1))
-    A = A.to_dense().numpy()
-    A = A[idx_features, :]
-    A = A[:, idx_features]
-    return X, A, y
-
-
-def get_wikics(specification: Dict[str, Any]):
-    """Loads WikiCS dataset from 
-    https://pytorch-geometric.readthedocs.io/en/latest/_modules/torch_geometric/datasets/wikics.html#WikiCS
-    """
-    wikics = WikiCS(root = specification["data_dir"])
-    X = wikics.x.numpy()
-    y = wikics.y.numpy()
-    edge_index = wikics.edge_index
-    edge_weight = torch.ones(edge_index.shape[1])
-    A = SparseTensor(row=edge_index[0], col=edge_index[1], value=edge_weight, 
-                     sparse_sizes=(edge_index.max()+1, edge_index.max()+1))
-    A = A.to_dense().numpy()
-    return X, A, y
-
-
 def get_cora_ml(specification: Dict[str, Any]):
     """Loads cora_ml and makes it undirected."""
     directory = specification["data_dir"]
@@ -143,37 +107,6 @@ def get_cora_ml_cont(dataset: str, specification: Dict[str, Any], load_binary_fe
     return X, A, y
 
 
-def get_us_county(specification: Dict[str, Any]):
-    """Loads US_county dataset from 
-    https://www.cs.cornell.edu/~arb/data/US-county-fb/
-    """
-    directory = specification["data_dir"]
-    path_to_folder = directory+"/US-county-fb"
-    path_to_edges = path_to_folder+"/US-county-fb-graph.txt"
-    G = nx.read_edgelist(path_to_edges, create_using=nx.Graph, nodetype=int)
-    A = nx.adjacency_matrix(G, nodelist=np.sort(G.nodes()))
-    A = A.todense()
-    #assert False
-    # make undirected
-    lt = np.tril(A) == 1
-    ut = np.triu(A) == 1
-    lt = np.logical_or(lt, lt.T)
-    ut = np.logical_or(ut, ut.T)
-    A = np.logical_or(lt, ut).astype(np.int64)
-    path_to_features = path_to_folder + "/US-county-fb-2016-feats.csv"
-    if "year" in specification:
-        path_to_features = path_to_folder + "/US-county-fb-" + str(specification["year"]) + "-feats.csv"
-    features_df = pd.read_csv(path_to_features, delimiter=',')
-    features_df = features_df.drop(["FIPS"], axis=1)
-    X = features_df.loc[:, features_df.columns != 'election'].to_numpy()
-    y = features_df.loc[:, features_df.columns == 'election'].to_numpy().reshape(-1)
-    y_idx_mask = y<=0
-    y[y_idx_mask] = 0
-    y[~y_idx_mask] = 1
-    y = y.astype(np.int64)
-    return X, A, y
-
-
 def get_cora_ml_cont_binary(specification: Dict[str, Any]):
     X, A, y = get_cora_ml_cont("cora_ml_cont", specification, 
                                load_binary_feature=False, load_embedding="Auto")
@@ -198,6 +131,7 @@ def get_cora_ml_cont_binary(specification: Dict[str, Any]):
     y = np.copy(y[cond])
     assert (np.sum(A, axis=1)==0).sum() == 0
     return X, A, y
+
 
 def get_cora_ml_binary(specification: Dict[str, Any]):
     X, A, y = get_cora_ml(specification)
@@ -240,20 +174,13 @@ def get_graph(
             X = X[idx, :]
             A = A[idx, :]
             A = A[:, idx]
-    elif data_params["dataset"] in ["cora", "citeseer", "pubmed"]:
-        X, A, y = get_planetoid(data_params["dataset"], data_params["specification"])
-    elif data_params["dataset"] in ["cora_inv"]:
-        X, A, y = get_planetoid("cora", data_params["specification"])
-        X = (X - 1) * (-1)
-    elif data_params["dataset"] == "wikics":
-        X, A, y = get_wikics(data_params["specification"])
     elif data_params["dataset"] == "cora_ml":
         X, A, y = get_cora_ml(data_params["specification"])
     elif data_params["dataset"] == "cora_ml_binary":
         X, A, y = get_cora_ml_binary(data_params["specification"])
     elif data_params["dataset"] == "cora_ml_cont_binary":
         X, A, y = get_cora_ml_cont_binary(data_params["specification"])
-    elif data_params["dataset"] in ["cora_ml_cont", "dblp", "cora_cont", "cora_full", "cora_ml_cont_binary", "cora_ml_cont_auto" ]:
+    elif data_params["dataset"] in ["cora_ml_cont", "cora_ml_cont_binary", "cora_ml_cont_auto"]:
         dataset = data_params["dataset"]
         if dataset.endswith("_binary"):
             dataset = dataset[:-7]
@@ -263,9 +190,7 @@ def get_graph(
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "Auto")
         else:
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "BERT")
-    elif data_params["dataset"] == "us_county":
-        X, A, y = get_us_county(data_params["specification"])
-    if data_params["dataset"] in ["citeseer", "wikics", "cora_ml"]:
+    if data_params["dataset"] in ["cora_ml"]:
         G = nx.from_numpy_array(A)
         idx_lcc = list(max(nx.connected_components(G), key=len))
         X = X[idx_lcc, :]
@@ -412,6 +337,7 @@ def split(
         )
 
     return idx_trn, idx_unlabeled, idx_val, idx_test
+
 
 def get_bert_embeddings(text, model="BERT"):
 

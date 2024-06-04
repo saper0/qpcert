@@ -12,6 +12,8 @@ def process_adj(adj: Union[SparseTensor,
                         -> Union[Integer[torch.Tensor, "2 nnz"],
                                  Float[torch.Tensor, "nnz"]]:
     """Process (divers) adjacency matrix formats into sparse format.
+    
+    Adapted from https://github.com/saper0/revisiting_robustness/.
 
     Returns:
         edge_index ... edge indices (2, |E|)

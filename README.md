@@ -1,12 +1,86 @@
 # ntk-robust
 
+Codebase to generated the results for the NeurIPS 2024 submission "Provable robustness of (graph) neural networks against data poisoning and backdoor attacks".
+
 ## Installation
 
-Current implementation requires at least pytorch 2.0.0, I use it with pytorch 2.0.1 and cuda 11.8.
+The codebase has been developed using Python 3.11 and requires the following packages and has been tested with the listed versions:
 
-It further requires a fitting pytorch geometric, torch-scatter and torch-sparse installation to the pytorch version. For torch-scatter and torch-sparse, the conda install failed and I had to 
-pip install torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.0.1+cu118.html (details see github pages for torch-scatter and torch-sparse packages)
+* pytorch 2.0.1
+* pyg (pytorch geometric) 2.3.1
+* torch-scatter 2.1.1.+pt20cu118
+* torch-sparse 0.6.17+pt20cu118
+* qpth 0.0.16
+* gurobi 11.0.1
+* jaxtyping 0.2.22
+* typeguard 4.1.4
+* networkx 3.1
+* numpy 1.25.2
+* seml 0.4.0
+* scikit-learn 1.2.2
+* cvxopt 1.3.2
+* jupyterlab 4.0.6
+* pandas 2.1.3
 
-## Other notes
+## Experiment Files
 
-Currently, a transductive poisioning scenario, where only the unlabeled nodes are attacked is implemented. TODO: Change to inductive evasion.
+Experiments were run using the [seml](https://github.com/TUM-DAML/seml/tree/master) framework and a corresponding MongoDB installation (see seml-link). However, they can be run independently of seml and a MongoDB installation using the corresponding jupyter notebooks provided in the root directory and prefixed with `test_`.  
+
+We define the following experiments:
+
+### Certify Poisoning (Binary)
+
+Jupyter Notebook: `test_certify.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_certify.py`  
+* Experiment configurations: `config/certification/`
+
+### Certify Poisoning (Multi-Class)
+
+Jupyter Notebook: `test_certify_multiclass.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_certify_multiclass.py`  
+* Experiment configurations: `config/certification/`
+
+### Certify Backdooring (Cora-MLb)
+
+Jupyter Notebook: `test_certify_backdoor_coramlb.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_certify_backdoor_coramlb.py`  
+* Experiment configurations: `config/certification/`
+
+### Certify Backdooring (CSBM)
+
+Jupyter Notebook: `test_certify_backdoor_csbm.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_certify_backdoor_csbm.py`  
+* Experiment configurations: `config/certification/`
+
+### Adversarial Attack (Tightness Evaluation)
+
+Jupyter Notebook: `test_attack.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_attack.py`  
+* Experiment configurations: `config/attack/`
+
+### Hyperparameter Search (using Cross Validation)
+
+Jupyter Notebook: `test_hyperpar.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_hyperparam.py`  
+* Experiment configurations: `config/hyperparams/`
+
+## Other Notes
+
+This codebase contains code fragments from
+
+* [Revisiting Robustness in Graph Machine Learning](https://github.com/saper0/revisiting_robustness/)
+* [PyTorch Geometric](https://github.com/pyg-team/pytorch_geometric)
+
+We thank the authors for making their code publicly available.
