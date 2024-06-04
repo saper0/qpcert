@@ -1,4 +1,4 @@
-# ntk-robust
+# Provable robustness of (graph) neural networks against data poisoning and backdoor attacks
 
 Codebase to generated the results for the NeurIPS 2024 submission "Provable robustness of (graph) neural networks against data poisoning and backdoor attacks".
 
