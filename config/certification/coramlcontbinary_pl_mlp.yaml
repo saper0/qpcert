@@ -44,7 +44,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: lukas
+    path_gurobi_license: /path/to/your/gurobi/license
 
 grid:
   
