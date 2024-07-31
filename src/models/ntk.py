@@ -100,7 +100,8 @@ class NTK(torch.nn.Module):
         assert self.model_dict["model"] == "GCN" \
             or self.model_dict["model"] == "SoftMedoid" \
             or self.model_dict["model"] == "PPNP" \
-            or self.model_dict["model"] == "APPNP"
+            or self.model_dict["model"] == "APPNP" \
+            or self.model_dict["model"] == "GIN"
         self.dtype = dtype
         if device is not None:
             self.device = device
@@ -348,6 +349,8 @@ class NTK(torch.nn.Module):
             return APPNP_propogation(A, alpha=self.model_dict["alpha"], 
                                      iteration=self.model_dict["iteration"], 
                                      exact=exact)
+        elif self.model_dict["model"] == "GIN":
+            return add_self_loop(A)
         else:
             raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP architecture implemented")
 
@@ -508,6 +511,15 @@ class NTK(torch.nn.Module):
         kernel += S.matmul(Sig * E_der).matmul(S.T)
         kernel += S.matmul(E+B).matmul(S.T)
         return kernel
+    
+    def _calc_ntk_gin(self, X: Float[torch.Tensor, "n d"], 
+                        S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
+        kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        XXT = NTK._calc_XXT(X)
+        Sig = S.matmul(XXT.matmul(S.T))
+        E, E_der, _ = self.calc_relu_expectations(Sig)
+        kernel += (Sig * E_der) + E
+        return kernel
 
     def calc_ntk(self, X: Float[torch.Tensor, "n d"], 
                  A: Float[torch.Tensor, "n n"]):
@@ -520,13 +532,21 @@ class NTK(torch.nn.Module):
             kernel = self._calc_ntk_gcn(X, S)
             self.empty_gpu_memory()
             return kernel
-        
         elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
             # NTK for PPNP with one hidden layer fcn for features
             # (A)PPNP = S ( ReLU(XW_1 + b_1) W_2 + b_2)
             kernel = self._calc_ntk_appnp(X, S)
             self.empty_gpu_memory()
             return kernel
+        elif self.model_dict["model"] == "GIN":
+            # NTK for GIN with one hidden layer MLP
+            # GIN = ReLU((A+I)XW_1)W_2
+            kernel = self._calc_ntk_gin(X, S)
+            self.empty_gpu_memory()
+            return kernel
+        else:
+            raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP/GIN architecture implemented")
+ 
     
     @staticmethod
     def _calc_XXT(X: Float[torch.Tensor, "n d"]):
@@ -1308,6 +1328,63 @@ class NTK(torch.nn.Module):
             print(f"ntk_ub[:,idx_adv]: {ntk_ub[:,idx_adv].mean()}")
         return self.ntk_lb, self.ntk_ub
 
+    def calc_gin_lb_ub(self, X: Float[torch.Tensor, "n d"], 
+                       A: Float[torch.Tensor, "n n"],
+                       idx_adv: Integer[np.ndarray, "r"],
+                       delta: float,
+                       perturbation_model: str,
+                       method: str="SXXTS"):
+        A = make_dense(A)
+        S = self.calc_diffusion(X, A)
+        XXT = NTK._calc_XXT(X)
+        if method == "XXT":
+            XXT_lb, XXT_ub = self.calc_XXT_lb_ub(X, idx_adv, delta, perturbation_model)
+            assert (XXT_lb != XXT_lb.T).sum() == 0
+            assert (XXT_ub != XXT_ub.T).sum() == 0
+            assert (XXT_lb > XXT_ub).sum() == 0
+            assert (XXT_lb > XXT).sum() == 0
+            assert (XXT_ub < XXT).sum() == 0
+        self.empty_gpu_memory()
+
+        ntk_lb = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        ntk_ub = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        ntk = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        Sig = S.matmul(XXT.matmul(S.T))
+        Sig_lb = S.matmul(XXT_lb.matmul(S.T))
+        Sig_ub = S.matmul(XXT_ub.matmul(S.T))
+        assert (Sig_lb > Sig_ub).sum() == 0
+        assert (Sig_lb > Sig).sum() == 0
+        assert (Sig_ub < Sig).sum() == 0
+        
+        E, E_der, u = self.calc_relu_expectations(Sig)
+        ntk += (Sig * E_der) + E
+
+        E_lb, E_ub, E_der_lb, E_der_ub, sig_dot_E_der_lb, sig_dot_E_der_ub = \
+                    self._calc_relu_expectations_lb_ub(Sig_lb, Sig_ub, E, E_der, u, idx_adv, perturbation_model)
+        ntk_lb += sig_dot_E_der_lb + E_lb
+        ntk_ub += sig_dot_E_der_ub + E_ub
+
+        self.calculated_lb_ub = True
+        self.ntk_lb = ntk_lb
+        self.ntk_ub = ntk_ub
+        assert (ntk_lb > ntk_ub).sum() == 0
+        assert (ntk_lb > ntk).sum() == 0
+        assert (ntk_ub < ntk).sum() == 0
+        if globals.debug:
+            print(f"ntk.mean(): {ntk.mean()}")
+            print(f"ntk.min(): {ntk.min()}")
+            print(f"ntk.max(): {ntk.max()}")
+            print(f"ntk[:,idx_adv]: {ntk[:,idx_adv].mean()}")
+            print(f"ntk_lb.mean(): {ntk_lb.mean()}")
+            print(f"ntk_lb.min(): {ntk_lb.min()}")
+            print(f"ntk_lb.max(): {ntk_lb.max()}")
+            print(f"ntk_lb[:,idx_adv]: {ntk_lb[:,idx_adv].mean()}")
+            print(f"ntk_ub.mean(): {ntk_ub.mean()}")
+            print(f"ntk_ub.min(): {ntk_ub.min()}")
+            print(f"ntk_ub.max(): {ntk_ub.max()}")
+            print(f"ntk_ub[:,idx_adv]: {ntk_ub[:,idx_adv].mean()}")
+        return self.ntk_lb, self.ntk_ub
+
     def calc_ntk_lb_ub(self, X: Float[torch.Tensor, "n d"], 
                        A: Float[torch.Tensor, "n n"],
                        idx_adv: Integer[np.ndarray, "r"],
@@ -1321,8 +1398,10 @@ class NTK(torch.nn.Module):
             return self.calc_gcn_lb_ub(X, A, idx_adv, delta, perturbation_model, method)
         elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
             return self.calc_appnp_lb_ub(X, A, idx_adv, delta, perturbation_model, method)
+        elif self.model_dict["model"] == "GIN":
+            return self.calc_gin_lb_ub(X, A, idx_adv, delta, perturbation_model, method)
         else:
-            assert False, "Models other than GCN and (A)PPNP not implemented so far."
+            assert False, "Models other than GCN, (A)PPNP, GIN are not implemented so far."
 
     def get_ntk(self):
         """Return (precomputed) ntk matrix."""
