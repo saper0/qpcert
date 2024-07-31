@@ -223,6 +223,13 @@ def get_cora_ml_binary(specification: Dict[str, Any]):
     assert (np.sum(A, axis=1)==0).sum() == 0
     return X, A, y
 
+def get_karate_club():
+    G = nx.karate_club_graph()
+    order = sorted(list(G.nodes()))
+    A = nx.to_numpy_array(G, nodelist= order)
+    y = np.array([1 if G.nodes[v]['club'] == 'Mr. Hi' else 0 for v in G])
+    X = np.eye(A.shape[0])
+    return X, A, y
 
 def get_graph(
         data_params: Dict[str, Any], sort: bool=True, return_csbm: bool=False
@@ -265,6 +272,8 @@ def get_graph(
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "BERT")
     elif data_params["dataset"] == "us_county":
         X, A, y = get_us_county(data_params["specification"])
+    elif data_params["dataset"] == "karate_club":
+        X, A, y = get_karate_club()
     if data_params["dataset"] in ["citeseer", "wikics", "cora_ml"]:
         G = nx.from_numpy_array(A)
         idx_lcc = list(max(nx.connected_components(G), key=len))
