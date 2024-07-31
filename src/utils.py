@@ -922,33 +922,21 @@ def certify_collective_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y
     return obj, is_robust, y_worst_obj, opt_status
 
 
-def certify_robust_label(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
-                         y_pred, svm_alpha, C=1, M=1e4, Mprime=1e4, 
+def certify_robust_label(idx_labeled, idx_test, ntk, y, 
+                         y_pred, svm_alpha, l_flip=0.2, C=1, M=1e4, Mprime=1e4, 
                          milp=True):
     """TODO: Create documentation 
     """
     if isinstance(svm_alpha, torch.Tensor):
         svm_alpha = svm_alpha.numpy(force=True)
     
-    assert (ntk_lb > ntk_ub).sum() == 0
-    assert (ntk_lb > ntk).sum() == 0
-    assert (ntk_ub < ntk).sum() == 0
-
     n_labeled = idx_labeled.shape[0]
     ntk = ntk.detach().cpu().numpy()
     ntk_labeled = ntk[idx_labeled, :]
     ntk_labeled = ntk_labeled[:, idx_labeled]
-    ntk_ub = ntk_ub.detach().cpu().numpy()
-    ntk_labeled_ub = ntk_ub[idx_labeled, :]
-    ntk_labeled_ub = ntk_labeled_ub[:, idx_labeled]
-    ntk_lb = ntk_lb.detach().cpu().numpy()
-    ntk_labeled_lb = ntk_lb[idx_labeled, :]
-    ntk_labeled_lb = ntk_labeled_lb[:, idx_labeled]
     y_labeled = y[idx_labeled].detach().cpu().numpy()
     ntk_unlabeled = ntk[idx_test,:][:,idx_labeled]
-    ntk_unlabeled_ub = ntk_ub[idx_test,:][:,idx_labeled]
-    ntk_unlabeled_lb = ntk_lb[idx_test,:][:,idx_labeled]
-
+    
     # Labels are learned as -1 or 1, but loaded as 0 or 1
     y_labeled_ = y_labeled*2 -1 
     
@@ -982,11 +970,10 @@ def certify_robust_label(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
     obj_l = []
     is_robust_l = []
     opt_status_l = []
+    y_opt_l = []
     obj_min = None
     robust_count = 0
     for idx in range(y_pred.shape[0]):
-        if idx > 3: #for debugging purposes
-            break
         if y_pred[idx] < 0:
             obj_min = False
         else:
@@ -1005,9 +992,6 @@ def certify_robust_label(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             z_ = m.addMVar(shape=(n_labeled, n_labeled), vtype=GRB.CONTINUOUS, lb=z_lb, ub=z_ub, name="z'")
             y_b = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="y_binary")
             y = m.addMVar(shape=(n_labeled), lb=-1, ub=1, vtype=GRB.INTEGER, name="y")
-            b = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="sign_z")
-            b_ = m.addMVar(shape=(n_labeled, n_labeled), vtype=GRB.BINARY, name="b'")
-            b__ = m.addMVar(shape=(n_labeled, n_labeled), vtype=GRB.BINARY, name="b''")
             if milp:
                 s = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="s")
                 t = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="t")
@@ -1017,23 +1001,17 @@ def certify_robust_label(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             m.addConstr(z <= alpha)
             m.addConstr(z >= -alpha)
             m.addConstr(z >= alpha - (1-y)*C)
-            m.addConstr(z <= alpha + (1+y)*C)
+            m.addConstr(z <= -alpha + (1+y)*C)
             M_ones = np.ones(shape=(n_labeled, n_labeled))
-            m.addConstr(z_ <= M_ones*z + 2*C*b__)
-            m.addConstr(z_ >= -M_ones*z - 2*C*b_)
             y_T = y.reshape((n_labeled, 1))
-            m.addConstr(z_ <= M_ones*z - (1-M_ones*y_T)*C) #
-            m.addConstr(z_ >= -M_ones*z + (1+M_ones*y_T)*C) #
-            m.addConstr(z <= C*(1-b))
-            m.addConstr(z >= -C*b)
-            m.addConstr(b_ <= M_ones*b)
-            y_b_T = y_b.reshape((n_labeled, 1))
-            m.addConstr(b_ <= M_ones*y_b_T) #
-            m.addConstr(b_ >= M_ones*b + M_ones*y_b_T - 1) #
-            m.addConstr(b_ >= 0)
-            m.addConstr(b__ == M_ones*b - b_)
+            m.addConstr(z_ <= M_ones*z + (1-M_ones*y_T)*C) #
+            m.addConstr(z_ >= M_ones*z - (1-M_ones*y_T)*C) #
+            m.addConstr(z_ <= -M_ones*z + (1+M_ones*y_T)*C) #
+            m.addConstr(z_ >= -M_ones*z - (1+M_ones*y_T)*C) #
             v_ones = np.ones(shape=(n_labeled))
             m.addConstr((z_*ntk_labeled)@v_ones - u + v == 1, "eq_constraint")
+            n_flips = int(l_flip*n_labeled)
+            m.addConstr(-((y*y_labeled_)-1)@v_ones <= 2*n_flips, "num_flips")
             if milp:
                 m.addConstr(u <= M*s, "u_mil1")
                 m.addConstr(alpha <= C*(1-s), "u_mil2")
@@ -1065,14 +1043,14 @@ def certify_robust_label(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
-            m.Params.LogToConsole = 1 # to suppress the logging in console - for better readability
-            m.params.OutputFlag=1 # to suppress branch bound search tree outputs
+            m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
+            m.params.OutputFlag= 0 # to suppress branch bound search tree outputs
             m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
         
             # Played around with the following flags to escape infeasibility solutions
             m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
             m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
-            m.Params.NumericFocus = 3
+            m.Params.NumericFocus = 0
             # m.Params.MIPGap = 1e-4
             # m.Params.MIPGapAbs = 1e-4
             # m.Params.Presolve = 0
@@ -1136,7 +1114,10 @@ def certify_robust_label(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 is_robust_l.append(False)
             obj_l.append(m.ObjVal)
             opt_status_l.append(m.Status)
-            
+            y_opt_l.append(y_b.X.tolist())
+            # print('y initial ', y_labeled_)
+            # print('y opt ', y.X)
+            # print('actual flips ', -((y.X*y_labeled_)-1)@v_ones)
             m.dispose()
             logging.info(f'Robust count {robust_count} out of {idx+1}')
 
@@ -1146,4 +1127,4 @@ def certify_robust_label(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         except AttributeError as a:
             logging.error(f"Encountered an attribute error {a.errno}: {a}")
             return
-    return is_robust_l, obj_l, opt_status_l
+    return is_robust_l, obj_l, opt_status_l, y_opt_l
