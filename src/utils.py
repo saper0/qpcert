@@ -13,6 +13,7 @@ from gurobipy import GRB
 MILP_INT_FEAS_TOL = 1e-4
 MILP_OPTIMALITY_TOL = 1e-4
 MILP_FEASIBILITY_TOL = 1e-4 
+MILP_NODELIMIT = 5*1e6
 
 
 def empty_gpu_memory(device: Union[str, torch.device]):
@@ -1128,3 +1129,209 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
             logging.error(f"Encountered an attribute error {a.errno}: {a}")
             return
     return is_robust_l, obj_l, opt_status_l, y_opt_l
+
+def certify_collective_robust_label(idx_labeled, idx_test, ntk, y, 
+                         y_pred, svm_alpha, certificate_params, l_flip=0.2, C=1, M=1e4, Mprime=1e4, 
+                         milp=True):
+    """TODO: Create documentation 
+    """
+    if isinstance(svm_alpha, torch.Tensor):
+        svm_alpha = svm_alpha.numpy(force=True)
+    
+    n_labeled = idx_labeled.shape[0]
+    ntk = ntk.detach().cpu().numpy()
+    ntk_labeled = ntk[idx_labeled, :]
+    ntk_labeled = ntk_labeled[:, idx_labeled]
+    y_labeled = y[idx_labeled].detach().cpu().numpy()
+    ntk_unlabeled = ntk[idx_test,:][:,idx_labeled]
+    
+    # Labels are learned as -1 or 1, but loaded as 0 or 1
+    y_labeled_ = y_labeled*2 -1 
+    
+    # Find the initial start feasible solution
+    alpha_mask = svm_alpha < globals.zero_tol
+    svm_alpha[alpha_mask] = 0
+    alpha_nz_mask = svm_alpha>0 
+    eq_constraint = y_labeled_*((ntk_labeled * svm_alpha)@y_labeled_) - 1
+    eq_constraint[np.abs(eq_constraint) < MILP_INT_FEAS_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
+    u_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
+    v_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
+    u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
+    v_start[alpha_nz_mask] = -eq_constraint[alpha_nz_mask]
+    u_start[u_start<globals.zero_tol] = 0
+    v_start[v_start<globals.zero_tol] = 0
+    s_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
+    u_nz_mask = u_start > 0
+    s_start[u_nz_mask] = 1
+    t_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
+    v_nz_mask = v_start > 0
+    t_start[v_nz_mask] = 1
+    assert (svm_alpha<0).sum() == 0
+    assert (u_start<0).sum() == 0
+    assert (v_start<0).sum() == 0
+    assert ((y_labeled_*((ntk_labeled * svm_alpha)@y_labeled_) - 1 - u_start + v_start).sum() < globals.zero_tol)
+    assert (u_start-M*s_start > globals.zero_tol).sum() == 0
+    assert (svm_alpha-C*(1-s_start) > globals.zero_tol).sum() == 0
+    assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
+    assert (-svm_alpha+C*t_start > globals.zero_tol).sum() == 0
+
+    is_robust_l = []
+    y_opt_l = []
+    n_unlabeled = y_pred.shape[0]
+    y_pred_pos = (y_pred>=0)
+    try:
+        # Create a new model
+        m = gp.Model("milp_provable_robustness")
+
+        # Create variables
+        z_lb = np.minimum(0.0, -C)
+        z_ub = np.maximum(0.0, C)
+        count = m.addMVar(shape=n_unlabeled, vtype=GRB.BINARY, name="count")
+        alpha = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, ub=C, name="alpha")
+        u = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, name="u")
+        v = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, name="v")
+        z = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, lb=z_lb, ub=z_ub, name="z")
+        z_ = m.addMVar(shape=(n_labeled, n_labeled), vtype=GRB.CONTINUOUS, lb=z_lb, ub=z_ub, name="z'")
+        y_b = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="y_binary")
+        y = m.addMVar(shape=(n_labeled), lb=-1, ub=1, vtype=GRB.INTEGER, name="y")
+        if milp:
+            s = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="s")
+            t = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="t")
+
+        # Add constraints
+        m.addConstr(y == 2*y_b - 1)
+        m.addConstr(z <= alpha)
+        m.addConstr(z >= -alpha)
+        m.addConstr(z >= alpha - (1-y)*C)
+        m.addConstr(z <= -alpha + (1+y)*C)
+        M_ones = np.ones(shape=(n_labeled, n_labeled))
+        y_T = y.reshape((n_labeled, 1))
+        m.addConstr(z_ <= M_ones*z + (1-M_ones*y_T)*C) #
+        m.addConstr(z_ >= M_ones*z - (1-M_ones*y_T)*C) #
+        m.addConstr(z_ <= -M_ones*z + (1+M_ones*y_T)*C) #
+        m.addConstr(z_ >= -M_ones*z - (1+M_ones*y_T)*C) #
+        v_ones = np.ones(shape=(n_labeled))
+        m.addConstr((z_*ntk_labeled)@v_ones - u + v == 1, "eq_constraint")
+        n_flips = int(l_flip*n_labeled)
+        m.addConstr(-((y*y_labeled_)-1)@v_ones <= 2*n_flips, "num_flips")
+        if milp:
+            m.addConstr(u <= M*s, "u_mil1")
+            m.addConstr(alpha <= C*(1-s), "u_mil2")
+            m.addConstr(v <= Mprime*t, "v_mil1")
+            m.addConstr(C-alpha <= C*(1-t), "v_mil2")
+        else:
+            m.addConstr(u*alpha == 0, "u_comp_slack")
+            m.addConstr(v*(C-alpha) == 0, "v_comp_slack")
+        p_test = C* np.abs(ntk_unlabeled)@v_ones
+        p_test_lb = - p_test
+        p_test_ub = + p_test
+        if y_pred_pos.sum() >0:
+            m.addConstr((ntk_unlabeled @ z)[y_pred_pos] <= p_test_ub[y_pred_pos]*(1-count[y_pred_pos]), "p_test_pos_ub")
+            m.addConstr((ntk_unlabeled @ z)[y_pred_pos] >= p_test_lb[y_pred_pos]*(count[y_pred_pos]), "p_test_pos_ub")
+        if (~y_pred_pos).sum() >0:
+            m.addConstr((ntk_unlabeled @ z)[~y_pred_pos] <= p_test_ub[~y_pred_pos]*(count[~y_pred_pos]), "p_test_neg_ub")
+            m.addConstr((ntk_unlabeled @ z)[~y_pred_pos] >= p_test_lb[~y_pred_pos]*(1-count[~y_pred_pos]), "p_test_neg_ub")
+
+        # Set the initial values for the parameters
+        alpha.Start = svm_alpha
+        y_b.Start = y_labeled
+        y.Start = y_labeled_
+        z_start = y_labeled_ * svm_alpha
+        z.Start = z_start
+        z_.Start = np.outer(y_labeled_, z_start)
+        u.Start = u_start
+        v.Start = v_start
+        count.Start = 0
+        if milp:
+            s.Start = s_start
+            t.Start = t_start
+
+        # Set objective
+        m.setObjective(count @ np.ones(n_unlabeled), GRB.MAXIMIZE)
+
+        # m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
+        m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
+        m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
+        m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
+        m.params.OutputFlag= 0 # to suppress branch bound search tree outputs
+        m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
+    
+        # Played around with the following flags to escape infeasibility solutions
+        m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
+        m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
+        m.Params.NumericFocus = 0
+        if "NodeLimit" in certificate_params:
+            m.Params.NodeLimit = certificate_params["NodeLimit"] # Explored node limit to stop 
+        # m.Params.MIPGap = 1e-4
+        # m.Params.MIPGapAbs = 1e-4
+        # m.Params.Presolve = 0
+        # m.Params.Aggregate = 0 #aggregation level in presolve
+        # m.Params.MIPFocus = 1
+        # m.Params.InfProofCuts = 0
+
+        def callback(model, where):
+            if where == gp.GRB.Callback.MESSAGE:
+                msg = model.cbGet(gp.GRB.Callback.MSG_STRING)
+                if "MIP start" in msg:
+                    print(msg)
+
+        if globals.debug:
+            m.write('milp_optimization.lp') # helps in checking if the implemented model is correct
+            m.optimize(callback)
+            print('Optimization status ', m.Status)
+        else:
+            m.optimize(callback)
+            logging.info(f"Optimization status: {m.Status}")
+
+        if m.Status == GRB.INFEASIBLE:
+            # WARNING: not a good sign to be here as our model will have feasible region for sure.
+            # Good to debug by closely looking at the violated constraints using the below code
+            # Would relaxing the constraint help as a last resort? try m.feasRelaxS(2, True, False, True) and then m.optimize()
+            # Check the arguments in feasRelaxS
+            assert False, "Time to debug the gurobi optimization!!"
+
+            # do IIS if the model is infeasible
+            m.computeIIS()
+
+            # Print out the IIS constraints and variables
+            print('\nThe following constraints and variables are in the IIS:')
+            for c in m.getConstrs():
+                if c.IISConstr: print(f'\t{c.constrname}: {m.getRow(c)} {c.Sense} {c.RHS}')
+
+            for v in m.getVars():
+                if v.IISLB: print(f'\t{v.varname} ≥ {v.LB}')
+                if v.IISUB: print(f'\t{v.varname} ≤ {v.UB}')
+        elif (m.Status == GRB.OPTIMAL or m.Status == GRB.USER_OBJ_LIMIT) and globals.debug:
+            print(f"Objective: #sign flips {m.ObjVal} out of {y_pred.shape[0]}")
+            print(f'Percentage of nodes certified {(y_pred.shape[0]-m.ObjVal)/y_pred.shape[0]}')
+
+            # Debugging 
+            # for var in m.getVars():
+            #     print('%s %g' % (var.VarName, var.X))
+            #
+            # print('z ', z.X)
+            # print('v ', v.X)
+            # print('u ', u.X)
+            # print('equality constraint ', y_labeled*(z.X@y_labeled) - u.X + v.X)
+
+        # log results
+        logging.info(f"Objective: #sign flips {m.ObjVal} out of {y_pred.shape[0]}")
+        logging.info(f'Percentage of nodes certified {(y_pred.shape[0]-m.ObjVal)/y_pred.shape[0]}')
+        
+        is_robust_l = (1-count.X).tolist()
+        obj = m.ObjVal
+        opt_status = m.Status
+        y_test_worst_obj = ntk_unlabeled @ z.X
+        y_opt_l = y_b.X.tolist()
+        # print('y initial ', y_labeled_)
+        # print('y opt ', y.X)
+        # print('actual flips ', -((y.X*y_labeled_)-1)@v_ones)
+        m.dispose()
+
+    except gp.GurobiError as e:
+        logging.error(f"Error code {e.errno}: {e}")
+        return
+    except AttributeError as a:
+        logging.error(f"Encountered an attribute error {a.errno}: {a}")
+        return
+    return is_robust_l, obj, opt_status, y_opt_l, y_test_worst_obj

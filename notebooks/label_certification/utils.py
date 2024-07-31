@@ -14,6 +14,11 @@ import scipy.stats
 import seaborn as sns
 from pathlib import Path
 import matplotlib as mpl
+import networkx as nx
+import sys
+sys.path.append('../../')
+# sys.path.insert(1, 'ntk-robust/src')
+from src.data import get_karate_club
 
 CERTIFICATE_FIGURE_DIR = Path('./figures/')
 
@@ -234,6 +239,16 @@ def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
                     n_robust_acc += 1
             n_robust_acc_l.append(n_robust_acc / n_test)
         return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
+
+def get_experiment(exp: Experiment, seed=0):
+    for ind_exp in exp.individual_experiments:
+        if ind_exp["config"]["seed"] == seed:
+            idx_labeled = ind_exp["result"]["idx_labeled"]
+            idx_test = ind_exp["result"]["idx_test"]
+            y_flip = ind_exp["result"]["y_flip"]
+            y_is_robust = ind_exp["result"]["y_is_robust"]
+            print(idx_labeled, idx_test, y_flip, y_is_robust)
+    return idx_labeled, idx_test, y_flip, y_is_robust
 
 
 class ExperimentManager:
@@ -631,6 +646,46 @@ class ExperimentManager:
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)
         plt.show()
     
+    def plot_network(self, dataset="karate_club", label="GCN", K=1.5, C=0.01, delta=0.2, seed=0):
+        if dataset == "karate_club":
+            _, A, y = get_karate_club()
+            G = nx.from_numpy_array(A)
+            exp = self.experiments_dict[label][K][C][delta]
+            idx_labeled, idx_test, y_flip, y_is_robust = get_experiment(exp, seed)
+            print('y label ', y[idx_labeled])
+            print('y test ', y[idx_test])
+            y_labeled = y[idx_labeled]
+            y_test = y[idx_test]
+            fig, ax = plt.subplots(1, 3, figsize=(12,4))
+            pos = nx.fruchterman_reingold_layout(G, seed=10)
+            nx.draw(G, ax=ax[0], node_color=y, with_labels=True, pos=pos)
+            color_map = []
+            for node in G:
+                if node in idx_labeled:
+                    color_map.append('blue')
+                elif node in idx_test:
+                    color_map.append('green')
+            nx.draw(G, ax=ax[1], node_color=color_map, with_labels=True, pos=pos)
+            color_map = []
+            for node in G:
+                if node in idx_labeled:
+                    idx = idx_labeled.index(node)
+                    if y_flip[idx] != y_labeled[idx]:
+                        color_map.append('black')
+                    else:
+                        color_map.append('blue')
+                elif node in idx_test:
+                    idx = idx_test.index(node)
+                    if y_is_robust[idx] == 1:
+                        color_map.append('green')
+                    else:
+                        color_map.append('red')
+            nx.draw(G, ax=ax[2], node_color=color_map, with_labels=True, pos=pos)
+
+
+
+
+
     def plot(self, name: str, attack: str, models: List[str], 
              errorbars: bool=True, ylabel: str=None, title: str=None,
              spacing: str="normal", legend_loc="best", legend_cols: int=None,
