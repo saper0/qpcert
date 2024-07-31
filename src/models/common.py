@@ -52,6 +52,10 @@ def make_dense(A: Union[Float[torch.Tensor, "n n"],
     return A
 
 
+def add_self_loop(A):
+    A.data[torch.arange(A.shape[0]), torch.arange(A.shape[0])] = 1
+
+
 def row_normalize(A):
     # Row normalize
     S = torch.triu(A, diagonal=1) + torch.triu(A, diagonal=1).T

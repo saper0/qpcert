@@ -16,7 +16,8 @@ from torch import Tensor
 from torch_sparse import SparseTensor
 
 from src.models.common import row_normalize, tbn_normalize, degree_scaling, \
-                              sym_normalize, APPNP_propogation, make_dense
+                              sym_normalize, APPNP_propogation, make_dense, \
+                              add_self_loop
 from src import utils, globals
 
 
@@ -326,6 +327,9 @@ class NTK(torch.nn.Module):
             elif self.model_dict["normalization"] == "degree_scaling":
                 return degree_scaling(A, self.model_dict["gamma"], 
                                       self.model_dict["delta"])
+            elif self.model_dict["normalization"] == "none":
+                add_self_loop(A)
+                return A
             else:
                 raise NotImplementedError("Normalization not supported")
         elif self.model_dict["model"] == "SoftMedoid":

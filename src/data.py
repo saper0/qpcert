@@ -413,6 +413,7 @@ def split(
 
     return idx_trn, idx_unlabeled, idx_val, idx_test
 
+
 def get_bert_embeddings(text, model="BERT"):
 
     # Mean Pooling - Take attention mask into account for correct averaging

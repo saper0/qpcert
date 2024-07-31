@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 
-URI = "mongodb://sabanaya:bAvQwbOp@fs.kdd.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
+URI = "mongodb://sabanaya:bAvQwbOp@fs.daml.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
 
 
 def assert_equal_dicts(d1: Dict[str, Any], d2: Dict[str, Any]):
