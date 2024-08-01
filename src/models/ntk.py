@@ -1351,6 +1351,9 @@ class NTK(torch.nn.Module):
         ntk = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
         Sig = S.matmul(XXT.matmul(S.T))
         Sig_lb = S.matmul(XXT_lb.matmul(S.T))
+        Diag_Sig_lb = torch.diagonal(Sig_lb) 
+        Diag_Sig_lb_neg_idx = (Diag_Sig_lb<0).nonzero(as_tuple=True)[0]
+        Sig_lb[Diag_Sig_lb_neg_idx,Diag_Sig_lb_neg_idx] = 0
         Sig_ub = S.matmul(XXT_ub.matmul(S.T))
         assert (Sig_lb > Sig_ub).sum() == 0
         assert (Sig_lb > Sig).sum() == 0
