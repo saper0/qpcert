@@ -349,51 +349,55 @@ class ExperimentManager:
     def get_style(self, label: str):
         color_dict = {
             "APPNP_alpha1": 'slategrey', #MLP
+            "MLP": 'slategrey', #MLP
             "GCN": 'tab:green', 
-            "APPNP_alpha0": "wheat",
-            "APPNP_alpha0.1": "tab:brown",
-            "APPNP": 'r', #lime 
+            "GCN_sym": 'tab:green', 
+            "APPNP_alpha0": "plum",
+            "APPNP_alpha0.1": "r",
+            "APPNP_alpha0.1_row": "r",
+            "APPNP_alpha0.2": "tab:brown",
+            "APPNP": "tab:brown", #lime 
             "APPNP_alpha0.3": "tab:olive",
+            "APPNP_alpha0.3_row": "tab:olive",
             "APPNP_alpha0.5": "darkslategrey",
             "SGC": "blue",
+            "SGC_sym": "blue",
+            "GCN_skippc": "lime", #k
             "GCN_skippc_linear": "lime", #k
             "GCN_skippc_relu+2": "lime",
-            "GCN_skipalpha_linear_alpha0.2": "wheat",
-            "GCN_skipalpha_relu_alpha0.2+2": "wheat",
+            "GCN_skipalpha": "plum", #"wheat",
+            "GCN_skipalpha_linear_alpha0.2": "plum",
+            "GCN_skipalpha_relu_alpha0.2+2": "plum",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
             "GCN_skipalpha_relu_alpha0.1+2": "steelblue",
+            "GIN": "wheat",
+            "GIN_norm": "wheat",
             # "GAT": "slategrey",
             # "GATv2": "k",
             # "GraphSAGE": "lightsteelblue",
             # "LP": "wheat",
         }
         linestyle_dict = {
-            "LP": '--'
+            "LP": '--',
+            "SGC_sym": ":",
+            "GCN_sym": ":",
+            "APPNP_alpha0.1_row": "dashed",
+            "APPNP_alpha0.3_row": "dashed",
+            "MLP": 'dashed',
+            "APPNP_alpha1": 'dashed',
+            "GIN_norm": "dashed",
         }
         use_color=""
         linestyle="-"
-        if label.startswith("GPRGNN"):
-            sep_labels = label.split("_")
-            if sep_labels[2] == "CPRBCD":
-                linestyle = "--"
-            if sep_labels[2] == "PRBCD":
-                linestyle = ":"
-            if sep_labels[1] == "eps0":
-                use_color = "b"
-                linestyle = "-"
-            if sep_labels[1] == "eps0.05":
-                use_color = "lime"
-            if sep_labels[1] == "eps0.1":
-                use_color = "tab:green"
-            if sep_labels[1] == "eps0.2":
-                use_color = "slategrey"    
-        else:
-            for key, color in color_dict.items():
-                sep_labels = key.split("+")
-                if sep_labels[0] == label:
-                    use_color = color
-                    if len(sep_labels) == 2 or sep_labels[0] == "LP":
-                        linestyle = "--"
+        for key, color in color_dict.items():
+            sep_labels = key.split("+")
+            if sep_labels[0] == label:
+                use_color = color
+                if len(sep_labels) == 2 or sep_labels[0] == "LP":
+                    linestyle = "--"
+        for key, linestyle_ in linestyle_dict.items():
+            if label == key:
+                linestyle = linestyle_
         return use_color, linestyle
     
     def set_color_cycler(self, ax):
@@ -410,18 +414,18 @@ class ExperimentManager:
         ax.set_prop_cycle(cycler('linestyle', linestyle_list)*
                           cycler('color', color_list))
 
-    def set_xaxis_labels(self, ax, x_ticks, x_labels):
+    def set_xaxis_labels(self, ax, x_ticks, x_labels, fontsize):
         ax.xaxis.get_major_formatter()._usetex = False
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
-        ax.xaxis.set_ticklabels(xticks, fontsize=12, fontweight="bold")
+        ax.xaxis.set_ticklabels(xticks, fontsize=fontsize, fontweight="bold")
         ax.set_xlim(left=-0.3)
     
-    def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels):
+    def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels, fontsize):
         ax.xaxis.get_major_formatter()._usetex = False
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
-        ax.xaxis.set_ticklabels(xticks)
+        ax.xaxis.set_ticklabels(xticks, fontsize=fontsize)
 
     def plot_robust_acc_delta(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv: int, delta_l: List[float],
@@ -429,7 +433,16 @@ class ExperimentManager:
                               width=1, ratio=1.618, 
                               xlogscale: bool=False,
                               savefig: str=None,
-                              use_style: bool=True):
+                              use_style: bool=True,
+                              label_fontsize=16,
+                              legend_fontsize=12,
+                              ticks_fontsize=10,
+                              markersize=4,
+                              capsize=3,
+                              linewidth=1,
+                              framealpha=1.0,
+                              use_custom_legend=False,
+                              pert_model="linf"):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         if not use_style:
@@ -454,30 +467,45 @@ class ExperimentManager:
                     x = np.array(delta_l)
                     if x[0] == 0:
                         x[0] = 0.005
-                    self.set_xaxis_labels_logscale(ax, x, delta_l)
+                    self.set_xaxis_labels_logscale(ax, x, delta_l, ticks_fontsize)
                 else:
                     x = [i for i in range(len(delta_l))]
-                    self.set_xaxis_labels(ax, x, delta_l)
+                    self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
                 
                 label_str = r'{0}'.format(legend_label) #+ " " + str(C)
                 if use_style:
                     color, linestyle = self.get_style(label)
                     ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                                 color=color, linestyle=linestyle,
-                                capsize=3, linewidth=1, markersize=4)
+                                capsize=capsize, linewidth=linewidth, 
+                            markersize=markersize)
                 else:
                     ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                                 capsize=3, linewidth=1, markersize=4)
-
-        ax.set_ylabel("Certified Accuracy")
-        ax.set_xlabel(r"Perturbation budget $\delta$")
+        ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
+        if pert_model=="l2":
+            ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=2$)", fontsize=label_fontsize)
+        elif pert_model=="linf":
+            ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=\infty$)", fontsize=label_fontsize)
+        elif pert_model=="l1":
+            ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=1$)", fontsize=label_fontsize)
         ax.yaxis.grid()
-        ax.xaxis.grid()
-        ax.legend()
+        ax.xaxis.grid() 
+        if use_custom_legend:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha,
+                    handlelength=1.5,
+                    handletextpad=0.5,
+                    labelspacing = 0.3, loc="lower left", 
+                    #bbox_to_anchor=(-0.02, -0))
+                    bbox_to_anchor=(-0.02,-0.035))
+        else:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
+        ax.tick_params(labelsize=ticks_fontsize)        
         if savefig:
             CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
         plt.show()
+        plt.close()
 
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
