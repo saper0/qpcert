@@ -63,6 +63,7 @@ def row_normalize(A, self_loop=True):
     if self_loop:
         S.data[torch.arange(S.shape[0]), torch.arange(S.shape[0])] = 1
     Deg_inv = torch.diag(torch.pow(S.sum(axis=1), - 1))
+    Deg_inv[torch.isinf(Deg_inv)] = 0
     return Deg_inv @ S
 
 
