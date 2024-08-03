@@ -328,6 +328,9 @@ class NTK(torch.nn.Module):
             elif self.model_dict["normalization"] == "degree_scaling":
                 return degree_scaling(A, self.model_dict["gamma"], 
                                       self.model_dict["delta"])
+            elif self.model_dict["normalization"] == "graph_sage_normalization":
+                S = row_normalize(A, self_loop=False)
+                return add_self_loop(S)
             elif self.model_dict["normalization"] == "none":
                 add_self_loop(A)
                 return A

@@ -57,10 +57,11 @@ def add_self_loop(A):
     return A
 
 
-def row_normalize(A):
+def row_normalize(A, self_loop=True):
     # Row normalize
     S = torch.triu(A, diagonal=1) + torch.triu(A, diagonal=1).T
-    S.data[torch.arange(S.shape[0]), torch.arange(S.shape[0])] = 1
+    if self_loop:
+        S.data[torch.arange(S.shape[0]), torch.arange(S.shape[0])] = 1
     Deg_inv = torch.diag(torch.pow(S.sum(axis=1), - 1))
     return Deg_inv @ S
 
