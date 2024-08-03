@@ -350,7 +350,10 @@ class NTK(torch.nn.Module):
                                      iteration=self.model_dict["iteration"], 
                                      exact=exact)
         elif self.model_dict["model"] == "GIN":
-            return add_self_loop(A)
+            if self.model_dict["normalization"] == "graph_size_normalization":
+                return add_self_loop(A)/A.shape[0]
+            else:
+                return add_self_loop(A)
         else:
             raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP architecture implemented")
 
