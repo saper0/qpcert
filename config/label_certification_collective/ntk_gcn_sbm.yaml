@@ -1,17 +1,18 @@
 seml:
   name: label_gcn
-  executable: exp_ntk_certify_label.py
+  executable: exp_ntk_certify_collective_label.py
   project_root_dir: ../..
-  output_dir: log/label
+  output_dir: log/label_collect
 
 slurm:
   experiments_per_job: 1
   sbatch_options:
     partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
-    mem: 10G          # memory
+    mem: 30G          # memory 10G was not enough in some cases
     cpus-per-task: 2  # num cores
     time: 4-20:30     # max time, D-HH:MM
+    exclude: gpu13,gpu14,gpu16,gpu17
 
 fixed:
   data_params:
@@ -34,6 +35,9 @@ fixed:
     solver: qplayer
     alpha_tol: 1e-4
     bias: False
+  
+  certificate_params:
+    NodeLimit: 1000000
 
   verbosity_params:
     debug_lvl: info
@@ -68,7 +72,7 @@ grid:
       options:
       - 0.001
       - 0.01
-      - 0.1
+      # - 0.1
       #- 1
 
   certificate_params:
@@ -77,12 +81,12 @@ grid:
       options:
       # - 0.01 # 0 for 80 # 0 for 40
       # - 0.02 # 1  # 0
-      - 0.03 # - # 1
+      - 0.03 # 2 # 1
       - 0.05 # 4 # 2
       - 0.1 # 8 # 4
-      - 0.15 # - # 6
+      - 0.15 # 12 # 6
       - 0.2 # 16 # 8
-      - 0.25 # - # 10
+      - 0.25 # 20 # 10
       - 0.3 # 24 # 12
       - 0.4 # 32 # 16
       - 0.5 # 40 # 20

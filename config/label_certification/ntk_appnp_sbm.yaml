@@ -1,5 +1,5 @@
 seml:
-  name: label_sgc
+  name: label_appnp
   executable: exp_ntk_certify_label.py
   project_root_dir: ../..
   output_dir: log/label
@@ -11,7 +11,8 @@ slurm:
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 2  # num cores
-    time: 4-20:30     # max time, D-HH:MM
+    time: 0-20:30     # max time, D-HH:MM
+    exclude: gpu13,gpu14,gpu16,gpu17
 
 fixed:
   data_params:
@@ -27,8 +28,10 @@ fixed:
       avg_between_class_degree: 0.74
 
   model_params:
-    model: GCN
-    normalization: row_normalization
+    model: APPNP
+    normalization: sym_normalization
+    iteration: 10
+    depth: 1
     pred_method: svm
     activation: linear
     solver: qplayer
@@ -45,30 +48,36 @@ fixed:
     path_gurobi_license: sabanaya
 
 grid:
-  
+
   model_params:
     label:
       type: choice
       options:
-      - SGC
-      - SGC_depth2
-      - SGC_depth4
-      zip_id: depths
+      - APPNP_linear_alpha0
+      - APPNP_linear_alpha0.1
+      - APPNP_linear_alpha0.2
+      - APPNP_linear_alpha0.3
+      - APPNP_linear_alpha0.5
+      - APPNP_linear_alpha1
+      zip_id: alphas
 
-    depth:
+    alpha:
       type: choice
       options:
-      - 1
-      - 2
-      - 4
-      zip_id: depths
-
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.5
+      - 1.0
+      zip_id: alphas
+      
     regularizer:
       type: choice
       options:
       - 0.001
       - 0.01
-      - 0.1
+      #- 0.1
       #- 1
 
   certificate_params:
@@ -77,17 +86,16 @@ grid:
       options:
       # - 0.01 # 0 for 80 # 0 for 40
       # - 0.02 # 1  # 0
-      - 0.03 # - # 1
+      - 0.03 # 2 # 1
       - 0.05 # 4 # 2
       - 0.1 # 8 # 4
-      - 0.15 # - # 6
+      - 0.15 # 12 # 6
       - 0.2 # 16 # 8
-      - 0.25 # - # 10
+      - 0.25 # 20 # 10
       - 0.3 # 24 # 12
       - 0.4 # 32 # 16
       - 0.5 # 40 # 20
       - 1 # 80 # 40
-
   
 
 seeds:
