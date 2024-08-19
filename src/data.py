@@ -70,6 +70,30 @@ def get_wikics(specification: Dict[str, Any]):
     A = A.to_dense().numpy()
     return X, A, y
 
+def get_wikics_binary(specification: Dict[str, Any]):
+    X, A, y = get_wikics(specification)
+    c = Counter(y).most_common(2)
+    y_first = c[0][0]
+    y_second = c[1][0]
+    n = len(y)
+    cond = np.logical_or(y == y_first, y == y_second)
+    A = A[cond, :]
+    A = A[:, cond]
+    X = X[cond, :]
+    y = np.copy(y[cond])
+    mask_first = y == y_first
+    mask_second = y == y_second
+    y[mask_first] = 1
+    y[mask_second] = 0
+    # exclude isolated nodes
+    cond = np.sum(A, axis=1)>0
+    A = A[cond, :]
+    A = A[:, cond]
+    X = X[cond, :]
+    y = np.copy(y[cond])
+    assert (np.sum(A, axis=1)==0).sum() == 0
+    return X, A, y
+
 
 def get_cora_ml(specification: Dict[str, Any]):
     """Loads cora_ml and makes it undirected."""
@@ -254,6 +278,9 @@ def get_graph(
         X = (X - 1) * (-1)
     elif data_params["dataset"] == "wikics":
         X, A, y = get_wikics(data_params["specification"])
+    elif data_params["dataset"] == "wikics_binary":
+        X, A, y = get_wikics_binary(data_params["specification"])
+        print(f"Edges: {A.sum()}")
     elif data_params["dataset"] == "cora_ml":
         X, A, y = get_cora_ml(data_params["specification"])
     elif data_params["dataset"] == "cora_ml_binary":

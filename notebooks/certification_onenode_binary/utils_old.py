@@ -227,6 +227,9 @@ def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
         for experiment in exp.individual_experiments:
             n_robust_acc = 0
             result = experiment["result"]
+            print(result["y_true_cls"])
+            print(result["y_pred_logit"])
+            print(result["y_worst_obj"])
             n_test = len(result["y_true_cls"])
             for y_true, y_pred, y_worst in zip(result["y_true_cls"],
                                                result["y_pred_logit"],
@@ -373,8 +376,6 @@ class ExperimentManager:
             "GCN_skipalpha_relu_alpha0.2+2": "wheat",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
             "GCN_skipalpha_relu_alpha0.1+2": "steelblue",
-            "GIN": "darkslateblue",
-            "GraphSAGE": "darkred",
             # "GAT": "slategrey",
             # "GATv2": "k",
             # "GraphSAGE": "lightsteelblue",
@@ -480,22 +481,13 @@ class ExperimentManager:
                 
                 label_str = r'{0}'.format(legend_label) #+ " " + str(C)
                 color, linestyle = self.get_style(label)
-                if label != "GraphSAGE" and label != "GIN" and label != "MLP":
-                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                color=color, linestyle=linestyle,
-                                capsize=capsize, linewidth=linewidth, 
-                                markersize=markersize, alpha=1)
-                else:
-                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                color=color, linestyle=linestyle,
-                                capsize=capsize, linewidth=linewidth, 
-                                markersize=markersize)
-
+                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                            color=color, linestyle=linestyle,
+                            capsize=capsize, linewidth=linewidth, 
+                            markersize=markersize)
         ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
         if pert_model == "l2":
             ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=2$)", fontsize=label_fontsize)
-        elif pert_model == "l1":
-            ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=1$)", fontsize=label_fontsize)
         else:
             ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=\infty$)", fontsize=label_fontsize)
         ax.yaxis.grid()
