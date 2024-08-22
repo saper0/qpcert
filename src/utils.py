@@ -1246,7 +1246,7 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         else:
             m.addConstr(u*alpha == 0, "u_comp_slack")
             m.addConstr(v*(C-alpha) == 0, "v_comp_slack")
-        p_test = C* np.abs(ntk_unlabeled)@v_ones
+        p_test = C * np.abs(ntk_unlabeled)@v_ones
         p_test_lb = - p_test
         p_test_ub = + p_test
         if y_pred_pos.sum() >0:
@@ -1276,16 +1276,23 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         # m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
         m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
         m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
-        m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
-        m.params.OutputFlag= 0 # to suppress branch bound search tree outputs
+        if "LogToConsole" in certificate_params:
+            m.Params.LogToConsole = certificate_params["LogToConsole"]
+        else:
+            m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
+        if "OutputFlag" in certificate_params:
+            m.Params.LogToConsole = certificate_params["OutputFlag"]
+        else:
+            m.params.OutputFlag = 0 # to suppress branch bound search tree outputs
         m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
-    
         # Played around with the following flags to escape infeasibility solutions
         m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
         m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
         m.Params.NumericFocus = 0
         if "NodeLimit" in certificate_params:
             m.Params.NodeLimit = certificate_params["NodeLimit"] # Explored node limit to stop 
+        if "TimeLimit" in certificate_params:
+            m.Params.TimeLimit = certificate_params["TimeLimit"]
         # m.Params.MIPGap = 1e-4
         # m.Params.MIPGapAbs = 1e-4
         # m.Params.Presolve = 0
