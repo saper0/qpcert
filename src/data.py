@@ -70,6 +70,7 @@ def get_wikics(specification: Dict[str, Any]):
     A = A.to_dense().numpy()
     return X, A, y
 
+
 def get_wikics_binary(specification: Dict[str, Any]):
     X, A, y = get_wikics(specification)
     c = Counter(y).most_common(2)
@@ -223,6 +224,7 @@ def get_cora_ml_cont_binary(specification: Dict[str, Any]):
     assert (np.sum(A, axis=1)==0).sum() == 0
     return X, A, y
 
+
 def get_cora_ml_binary(specification: Dict[str, Any]):
     X, A, y = get_cora_ml(specification)
     c = Counter(y).most_common(2)
@@ -247,6 +249,7 @@ def get_cora_ml_binary(specification: Dict[str, Any]):
     assert (np.sum(A, axis=1)==0).sum() == 0
     return X, A, y
 
+
 def get_karate_club():
     G = nx.karate_club_graph()
     order = sorted(list(G.nodes()))
@@ -254,6 +257,7 @@ def get_karate_club():
     y = np.array([1 if G.nodes[v]['club'] == 'Mr. Hi' else 0 for v in G])
     X = np.eye(A.shape[0])
     return X, A, y
+
 
 def get_graph(
         data_params: Dict[str, Any], sort: bool=True, return_csbm: bool=False

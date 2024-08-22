@@ -135,7 +135,7 @@ def grad_with_checkpoint(outputs: Union[torch.Tensor, Sequence[torch.Tensor]],
     return grad_outputs
 
 
-def _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub) -> Tuple[np.ndarray, np.ndarray]:
+def _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub) -> None:
     # Set big M for nodes i with y_i = 1 (or -1 if ~y_mask given)
     y_pos_rows_mask = np.zeros(ntk_labeled_lb.shape, dtype=bool)
     y_pos_rows_mask[y_mask] = True
@@ -172,6 +172,15 @@ def _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub) -> Tuple[np.
     M_v[y_mask] = -ntk_labeled_lb_neg_ypos[y_mask].sum(axis=1)*C \
                 + ntk_labeled_ub_pos_yneg[y_mask].sum(axis=1)*C \
                 + 1
+    
+
+def _set_big_M_label(C, ntk_labeled) -> Tuple[np.ndarray, np.ndarray]:
+    """ Return big-M constraints for label poisoining."""
+    ntk_abs_row_sum = np.abs(ntk_labeled).sum(axis=1)
+    M_u = ntk_abs_row_sum * C - 1
+    M_u[M_u < 0] = 0
+    M_v = ntk_abs_row_sum * C + 1
+    return M_u, M_v
 
 
 def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
@@ -924,7 +933,8 @@ def certify_collective_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y
 
 
 def certify_robust_label(idx_labeled, idx_test, ntk, y, 
-                         y_pred, svm_alpha, l_flip=0.2, C=1, M=1e4, Mprime=1e4, 
+                         y_pred, svm_alpha, certificate_params,
+                         l_flip=0.2, C=1, M=1e4, Mprime=1e4, 
                          milp=True):
     """TODO: Create documentation 
     """
@@ -992,7 +1002,7 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
             z = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, lb=z_lb, ub=z_ub, name="z")
             z_ = m.addMVar(shape=(n_labeled, n_labeled), vtype=GRB.CONTINUOUS, lb=z_lb, ub=z_ub, name="z'")
             y_b = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="y_binary")
-            y = m.addMVar(shape=(n_labeled), lb=-1, ub=1, vtype=GRB.INTEGER, name="y")
+            y = m.addMVar(shape=(n_labeled), lb=-1, ub=1, vtype=GRB.CONTINUOUS, name="y")
             if milp:
                 s = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="s")
                 t = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name="t")
@@ -1014,9 +1024,16 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
             n_flips = int(l_flip*n_labeled)
             m.addConstr(-((y*y_labeled_)-1)@v_ones <= 2*n_flips, "num_flips")
             if milp:
-                m.addConstr(u <= M*s, "u_mil1")
+                M_u, M_v = _set_big_M_label(C, ntk_labeled)
+                assert (u_start > M_u).sum() == 0
+                assert (v_start > M_v).sum() == 0
+                #m.addConstr(u <= M*s, "u_mil1")
+                m.addConstr(u <= M_u*s, "u_mil1")
+                print(f"M_u: avg {np.average(M_u):.2f}, max {np.max(M_u):.2f}")
+                print(f"M_v: avg {np.average(M_v):.2f}, max {np.max(M_v):.2f}")
                 m.addConstr(alpha <= C*(1-s), "u_mil2")
-                m.addConstr(v <= Mprime*t, "v_mil1")
+                #m.addConstr(v <= Mprime*t, "v_mil1")
+                m.addConstr(v <= M_v*t, "v_mil1")
                 m.addConstr(C-alpha <= C*(1-t), "v_mil2")
             else:
                 m.addConstr(u*alpha == 0, "u_comp_slack")
@@ -1044,8 +1061,14 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
             m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
-            m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
-            m.params.OutputFlag= 0 # to suppress branch bound search tree outputs
+            if "LogToConsole" in certificate_params:
+                m.Params.LogToConsole = certificate_params["LogToConsole"]
+            else:
+                m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
+            if "OutputFlag" in certificate_params:
+                m.Params.LogToConsole = certificate_params["OutputFlag"]
+            else:
+                m.params.OutputFlag= 0 # to suppress branch bound search tree outputs
             m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
         
             # Played around with the following flags to escape infeasibility solutions
@@ -1129,6 +1152,7 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
             logging.error(f"Encountered an attribute error {a.errno}: {a}")
             return
     return is_robust_l, obj_l, opt_status_l, y_opt_l
+
 
 def certify_collective_robust_label(idx_labeled, idx_test, ntk, y, 
                          y_pred, svm_alpha, certificate_params, l_flip=0.2, C=1, M=1e4, Mprime=1e4, 

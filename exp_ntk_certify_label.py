@@ -260,7 +260,8 @@ def run(data_params: Dict[str, Any],
     svm_alpha = ntk.svm
     is_robust_l, obj_l, opt_status_l, y_opt_l = utils.certify_robust_label(
             idx_labeled, idx_test, ntk_test, y, y_pred,
-            svm_alpha, l_flip=delta, C=model_params["regularizer"], M=1e3, Mprime=1e3
+            svm_alpha, certificate_params, l_flip=delta,
+            C=model_params["regularizer"], M=1e3, Mprime=1e3
     )
     acc_cert = sum(is_robust_l) / y_pred.shape[0]
     acc_cert_u = 0 #not implemented
