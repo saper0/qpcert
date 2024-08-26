@@ -225,8 +225,9 @@ def get_cora_ml_cont_binary(specification: Dict[str, Any]):
     return X, A, y
 
 
-def get_cora_ml_binary(specification: Dict[str, Any]):
-    X, A, y = get_cora_ml(specification)
+def _make_binary(X, A, y):
+    """Take a graph as input and return the induced subgraph of the two 
+    largest classes."""
     c = Counter(y).most_common(2)
     y_first = c[0][0]
     y_second = c[1][0]
@@ -248,6 +249,11 @@ def get_cora_ml_binary(specification: Dict[str, Any]):
     y = np.copy(y[cond])
     assert (np.sum(A, axis=1)==0).sum() == 0
     return X, A, y
+
+
+def get_cora_ml_binary(specification: Dict[str, Any]):
+    X, A, y = get_cora_ml(specification)
+    return _make_binary(X, A, y)
 
 
 def get_karate_club():
@@ -301,6 +307,10 @@ def get_graph(
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "Auto")
         else:
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "BERT")
+    elif data_params["dataset"] in ["cora_binary", "citeseer_binary", "pubmed_binary"]:
+        dataset = data_params["dataset"].split("_")[0]
+        X, A, y = get_planetoid(dataset, data_params["specification"])
+        X, A, y = _make_binary(X, A, y)
     elif data_params["dataset"] == "us_county":
         X, A, y = get_us_county(data_params["specification"])
     elif data_params["dataset"] == "karate_club":
