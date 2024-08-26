@@ -1024,16 +1024,20 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
             n_flips = int(l_flip*n_labeled)
             m.addConstr(-((y*y_labeled_)-1)@v_ones <= 2*n_flips, "num_flips")
             if milp:
-                M_u, M_v = _set_big_M_label(C, ntk_labeled)
-                assert (u_start > M_u).sum() == 0
-                assert (v_start > M_v).sum() == 0
-                #m.addConstr(u <= M*s, "u_mil1")
-                m.addConstr(u <= M_u*s, "u_mil1")
-                print(f"M_u: avg {np.average(M_u):.2f}, max {np.max(M_u):.2f}")
-                print(f"M_v: avg {np.average(M_v):.2f}, max {np.max(M_v):.2f}")
+                if "use_tight_big_M" in certificate_params:
+                    if certificate_params["use_tight_big_M"]:
+                        M_u, M_v = _set_big_M_label(C, ntk_labeled)
+                        assert (u_start > M_u).sum() == 0
+                        assert (v_start > M_v).sum() == 0
+                        m.addConstr(u <= M_u*s, "u_mil1")
+                        m.addConstr(v <= M_v*t, "v_mil1")
+                    else:
+                        m.addConstr(u <= M*s, "u_mil1")
+                        m.addConstr(v <= Mprime*t, "v_mil1")
+                else:
+                    m.addConstr(u <= M*s, "u_mil1")
+                    m.addConstr(v <= Mprime*t, "v_mil1")
                 m.addConstr(alpha <= C*(1-s), "u_mil2")
-                #m.addConstr(v <= Mprime*t, "v_mil1")
-                m.addConstr(v <= M_v*t, "v_mil1")
                 m.addConstr(C-alpha <= C*(1-t), "v_mil2")
             else:
                 m.addConstr(u*alpha == 0, "u_comp_slack")
@@ -1239,9 +1243,23 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         n_flips = int(l_flip*n_labeled)
         m.addConstr(-((y*y_labeled_)-1)@v_ones <= 2*n_flips, "num_flips")
         if milp:
-            m.addConstr(u <= M*s, "u_mil1")
+            if "use_tight_big_M" in certificate_params:
+                if certificate_params["use_tight_big_M"]:
+                    logging.info("Using tight big-Ms.")
+                    M_u, M_v = _set_big_M_label(C, ntk_labeled)
+                    assert (u_start > M_u).sum() == 0
+                    assert (v_start > M_v).sum() == 0
+                    m.addConstr(u <= M_u*s, "u_mil1")
+                    m.addConstr(v <= M_v*t, "v_mil1")
+                else:
+                    logging.info("Using default big-Ms.")
+                    m.addConstr(u <= M*s, "u_mil1")
+                    m.addConstr(v <= Mprime*t, "v_mil1")
+            else:
+                logging.info("Using default big-Ms.")
+                m.addConstr(u <= M*s, "u_mil1")
+                m.addConstr(v <= Mprime*t, "v_mil1")
             m.addConstr(alpha <= C*(1-s), "u_mil2")
-            m.addConstr(v <= Mprime*t, "v_mil1")
             m.addConstr(C-alpha <= C*(1-t), "v_mil2")
         else:
             m.addConstr(u*alpha == 0, "u_comp_slack")
@@ -1269,12 +1287,13 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         if milp:
             s.Start = s_start
             t.Start = t_start
-
         # Set objective
         m.setObjective(count @ np.ones(n_unlabeled), GRB.MAXIMIZE)
-
         # m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
-        m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
+        if "IntegralityFocus" in certificate_params:
+            m.Params.IntegralityFocus = certificate_params["IntegralityFocus"]
+        else:
+            m.Params.IntegralityFocus = 0 # to stabilize big-M constraint (must)
         m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
         if "LogToConsole" in certificate_params:
             m.Params.LogToConsole = certificate_params["LogToConsole"]
@@ -1297,7 +1316,10 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         # m.Params.MIPGapAbs = 1e-4
         # m.Params.Presolve = 0
         # m.Params.Aggregate = 0 #aggregation level in presolve
-        # m.Params.MIPFocus = 1
+        if "MIPFocus" in certificate_params:
+            m.Params.MIPFocus = certificate_params["MIPFocus"]
+        else:
+            m.Params.MIPFocus = 0
         # m.Params.InfProofCuts = 0
 
         def callback(model, where):
