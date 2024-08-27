@@ -1063,7 +1063,10 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
                 m.setObjective(ntk_unlabeled[idx,:] @ z, GRB.MAXIMIZE)
 
             m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
-            m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
+            if "IntegralityFocus" in certificate_params:
+                m.Params.IntegralityFocus = certificate_params["IntegralityFocus"]
+            else:
+                m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
             m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
             if "LogToConsole" in certificate_params:
                 m.Params.LogToConsole = certificate_params["LogToConsole"]
@@ -1293,7 +1296,7 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         if "IntegralityFocus" in certificate_params:
             m.Params.IntegralityFocus = certificate_params["IntegralityFocus"]
         else:
-            m.Params.IntegralityFocus = 0 # to stabilize big-M constraint (must)
+            m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
         m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
         if "LogToConsole" in certificate_params:
             m.Params.LogToConsole = certificate_params["LogToConsole"]
