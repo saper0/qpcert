@@ -1063,6 +1063,7 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
                 m.setObjective(ntk_unlabeled[idx,:] @ z, GRB.MAXIMIZE)
 
             m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
+            m.Params.BestBdStop = 0 # terminate when the best bound reaches 0, implies node robust
             if "IntegralityFocus" in certificate_params:
                 m.Params.IntegralityFocus = certificate_params["IntegralityFocus"]
             else:
@@ -1303,10 +1304,25 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         else:
             m.Params.LogToConsole = 0 # to suppress the logging in console - for better readability
         if "OutputFlag" in certificate_params:
-            m.Params.LogToConsole = certificate_params["OutputFlag"]
+            m.Params.OutputFlag = certificate_params["OutputFlag"]
         else:
             m.params.OutputFlag = 0 # to suppress branch bound search tree outputs
-        m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
+        if "DualReductions" in certificate_params:
+            m.Params.DualReductions = certificate_params["DualReductions"]
+        else:
+            m.params.DualReductions = 0 
+        if "Presolve" in certificate_params:
+            m.Params.Presolve = certificate_params["Presolve"]
+        else:
+            m.params.Presolve = -1
+        if "Cuts" in certificate_params:
+            m.Params.Cuts = certificate_params["Cuts"]
+        else:
+            m.params.Cuts = -1
+        if "Aggregate" in certificate_params:
+            m.Params.Aggregate = certificate_params["Aggregate"]
+        else:
+            m.params.Aggregate = 1
         # Played around with the following flags to escape infeasibility solutions
         m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
         m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
