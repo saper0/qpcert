@@ -224,6 +224,8 @@ def run(data_params: Dict[str, Any],
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
     if len(idx_unlabeled) != 0:
         idx_test = np.concatenate((idx_unlabeled, idx_test))
+    if "n_test" in certificate_params:
+        idx_test = rng.choice(idx_test, certificate_params["n_test"], replace=False)
     X = torch.tensor(X, dtype=dtype, device=device)
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
