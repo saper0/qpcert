@@ -1323,6 +1323,8 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
             m.Params.Aggregate = certificate_params["Aggregate"]
         else:
             m.params.Aggregate = 1
+        if "Threads" in certificate_params:
+            m.Params.Threads = certificate_params["Threads"]
         # Played around with the following flags to escape infeasibility solutions
         m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
         m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
