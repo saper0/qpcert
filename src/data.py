@@ -9,6 +9,7 @@ import numpy as np
 from numpy import ndarray
 import torch
 from torch_geometric.datasets.planetoid import Planetoid
+from torch_geometric.datasets.polblogs import PolBlogs
 from torch_geometric.datasets.wikics import WikiCS
 import torch_geometric.transforms as T
 from torch_sparse import SparseTensor
@@ -34,6 +35,29 @@ def get_csbm(
     X, A, y = csbm.sample(n, specification["seed"])
     return X, A, y, csbm
 
+
+def get_polblogs(specification: Dict[str, Any]):
+    """Loads PolBlogs dataset from 
+    https://pytorch-geometric.readthedocs.io/en/latest/_modules/torch_geometric/datasets/polblogs.html#PolBlogs
+    """
+    polblogs = PolBlogs(root = specification["data_dir"])
+    y = polblogs.y.numpy()
+    print(y)
+    edge_index = polblogs.edge_index
+    edge_weight = torch.ones(edge_index.shape[1])
+    A = SparseTensor(row=edge_index[0], col=edge_index[1], value=edge_weight, 
+                     sparse_sizes=(edge_index.max()+1, edge_index.max()+1))
+    A = A.to_dense().numpy()
+    np.fill_diagonal(A, 0)
+    G = nx.from_numpy_array(A)
+    idx_lcc = list(max(nx.connected_components(G), key=len))
+    A = A[idx_lcc, :]
+    A = A[:, idx_lcc]
+    y = y[idx_lcc]
+    A = A + A.T
+    A[A > 1] = 1
+    X = np.eye(A.shape[0])
+    return X, A, y
 
 def get_planetoid(dataset: str, specification: Dict[str, Any]):
     '''Loads Planetoid datasets from 
@@ -315,6 +339,10 @@ def get_graph(
         X, A, y = get_us_county(data_params["specification"])
     elif data_params["dataset"] == "karate_club":
         X, A, y = get_karate_club()
+    elif data_params["dataset"] == "polblogs":
+        X, A, y = get_polblogs(data_params["specification"])
+    else:
+        assert False, f"Dataset {data_params['dataset']} not implemented."
     if data_params["dataset"] in ["citeseer", "wikics", "cora_ml"]:
         G = nx.from_numpy_array(A)
         idx_lcc = list(max(nx.connected_components(G), key=len))
