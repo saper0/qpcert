@@ -12,7 +12,7 @@ slurm:
     mem: 10G          # memory 10G was not enough in some cases
     cpus-per-task: 2  # num cores
     time: 2-20:30     # max time, D-HH:MM
-    exclude: gpu13,gpu14,gpu16,gpu17
+    exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:
@@ -25,7 +25,9 @@ fixed:
       balance_test: True
   
   certificate_params:
-    NodeLimit: 1000000
+    TimeLimit: 36000
+    LogToConsole: 1
+    OutputFlag: 1
 
   verbosity_params:
     debug_lvl: info
@@ -151,6 +153,34 @@ appnp:
       normalization: sym_normalization
       iteration: 10
       alpha: 0.2
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gin:
+  fixed:
+    model_params:
+      label: GIN
+      model: GIN
+      normalization: no_normalization
+      depth: 1
+      # regularizer: 0.001
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+graphsage:
+  fixed:
+    model_params:
+      label: GraphSAGE
+      model: GCN
+      normalization: graph_sage_normalization
+      depth: 1
+      # regularizer: 0.001
+      pred_method: svm
+      activation: relu
       solver: qplayer
       alpha_tol: 1e-4
       bias: False
