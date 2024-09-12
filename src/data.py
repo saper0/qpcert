@@ -21,6 +21,7 @@ try:
 except ImportError:
     pass
 
+from src.graph_models.cba import CBA
 from src.graph_models.csbm import CSBM
 from src import globals
 
@@ -34,6 +35,16 @@ def get_csbm(
     logging.info(f"CSBM(p={csbm.p:.05f}, q={csbm.q:.05f})")
     X, A, y = csbm.sample(n, specification["seed"])
     return X, A, y, csbm
+
+def get_cba(
+        specification: Dict[str, Any]
+) -> Tuple[Float[ndarray, "n n"], Integer[ndarray, "n n"], Integer[ndarray, "n"]]:
+    n = specification["n_trn_labeled"] + specification["n_trn_unlabeled"] \
+        + specification["n_val"] + specification["n_test"]
+    cba = CBA(n=n, **specification)
+    logging.info(f"CBA(m={cba.m}, p={cba.p:.05f}, q={cba.q:.05f})")
+    X, A, y = cba.sample(n, specification["seed"])
+    return X, A, y, cba
 
 
 def get_polblogs(specification: Dict[str, Any]):
@@ -58,6 +69,7 @@ def get_polblogs(specification: Dict[str, Any]):
     A[A > 1] = 1
     X = np.eye(A.shape[0])
     return X, A, y
+
 
 def get_planetoid(dataset: str, specification: Dict[str, Any]):
     '''Loads Planetoid datasets from 
@@ -297,8 +309,17 @@ def get_graph(
     If sort is true, X, A and y are sorted for class (only applied for CSBM!)
     
     Returns X, A, y."""
+    graph_model = None
     if data_params["dataset"] == "csbm":
-        X, A, y, csbm = get_csbm(data_params["specification"])
+        X, A, y, graph_model = get_csbm(data_params["specification"])
+        if sort:
+            idx = np.argsort(y)
+            y = y[idx]
+            X = X[idx, :]
+            A = A[idx, :]
+            A = A[:, idx]
+    elif data_params["dataset"] == "cba":
+        X, A, y, graph_model = get_cba(data_params["specification"])
         if sort:
             idx = np.argsort(y)
             y = y[idx]
@@ -359,10 +380,10 @@ def get_graph(
         logging.info(f"X_rowsum.median(): {np.median(X_rowsum)}")
         logging.info(f"X_rowsum.min(): {np.min(X_rowsum)}")
         logging.info(f"X_rowsum.max(): {np.max(X_rowsum)}")
-    if data_params["dataset"] == "csbm":
+    if data_params["dataset"] == "csbm" or data_params["dataset"] == "cba":
         if return_csbm:
-            return X, A, y, csbm
-        return X, A, y, csbm.mu, csbm.p, csbm.q
+            return X, A, y, graph_model
+        return X, A, y, graph_model.mu, graph_model.p, graph_model.q
     return X, A, y, None, None, None
 
 
@@ -475,7 +496,7 @@ def split(
     Returns:
         A tuple (idx_trn, idx_unlabeled, idx_val, idx_test).
     """
-    if data_params["dataset"] == "csbm":
+    if data_params["dataset"] == "csbm" or data_params["dataset"] == "cba":
         idx_trn, idx_unlabeled, idx_val, idx_test = split_csbm(
             data_params["specification"], y
         )
