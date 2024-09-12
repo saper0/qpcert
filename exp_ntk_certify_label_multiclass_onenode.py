@@ -80,11 +80,12 @@ def config():
     )
 
     certificate_params = dict(
+        target_idx = 0, #0-based!
+        # n_targets_per_class = 10,
         n_adversarial = 10, # number adversarial nodes
         method = "XXT",
         perturbation_model = "linf",
-        delta = 0.01, # l0: local budget = delta * feature_dim
-        delta_absolute = True, # if false interpreted as % of 2*mu
+        delta = 0.01, 
         attack_nodes = "test", # "train", "all"
     )
 
@@ -221,14 +222,21 @@ def run(data_params: Dict[str, Any],
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
-    if len(idx_unlabeled) != 0:
-        idx_test = np.concatenate((idx_unlabeled, idx_test))
     X = torch.tensor(X, dtype=dtype, device=device)
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
     n_classes = int(y.max() + 1)
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
+    idx_unlabeled = np.concatenate((idx_unlabeled, idx_test))
+    # Pick target node
+    target_idx = certificate_params["target_idx"] 
+    target_class = target_idx % n_classes
+    y_mask_target_cls = y[idx_unlabeled] == target_class
+    idx_targets = rng.permutation(idx_unlabeled[y_mask_target_cls])
+    step = int(target_idx / n_classes)
+    idx_test = idx_targets[step] 
+    idx_test = np.array([idx_test])
     # idx of labeled nodes in nodes known during training (for semi-supervised)
     if not data_params["learning_setting"] == "transductive":
         assert False, "Only transductive setting supported"
@@ -258,9 +266,9 @@ def run(data_params: Dict[str, Any],
     
     # Poisoning Certificate
     svm_alpha = ntk.svm
-    is_robust_l, obj_l, opt_status_l, y_opt_l = utils.certify_robust_label(
+    is_robust_l, y_opt_l = utils.certify_robust_label_one_vs_all(
             idx_labeled, idx_test, ntk_test, y, y_pred,
-            svm_alpha, certificate_params, l_flip=delta,
+            svm_alpha, certificate_params, l_flip=delta, 
             C=model_params["regularizer"], M=1e3, Mprime=1e3
     )
     acc_cert = sum(is_robust_l) / y_pred.shape[0]
@@ -285,11 +293,6 @@ def run(data_params: Dict[str, Any],
 
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
-        
-    if mu is None:
-        mu = np.array([0])
-        p = 0
-        q = 0
     return dict(
         # general statistics
         accuracy_test = acc,
@@ -299,21 +302,19 @@ def run(data_params: Dict[str, Any],
         delta = delta,
         delta_absolute = delta, #legacy
         # node-wise pois. robustness statistics
-        y_true_cls = (y[idx_test] * 2 - 1).numpy(force=True).tolist(),
-        y_pred_logit = y_pred.numpy(force=True).tolist(),
-        y_worst_obj = obj_l,
-        y_is_robust = is_robust_l,
-        y_opt_status = opt_status_l,
-        y_flip = y_opt_l, 
+        y_true_cls = (2*y[idx_test]-1).numpy(force=True).tolist(),
+        y_pred_logit = y_pred[0].numpy(force=True).tolist(),
+        y_is_robust = is_robust_l[0],
+        y_flip = y_opt_l[0], 
         # split statistics
         idx_train = idx_trn.tolist(),
         idx_val = idx_val.tolist(),
         idx_labeled = idx_labeled.tolist(),
         idx_test = idx_test.tolist(),
         # data statistics
-        csbm_mu = mu[0].item(),
-        csbm_p = p,
-        csbm_q = q,
+        csbm_mu = 0,
+        csbm_p = 0,
+        csbm_q = 0,
         data_dim = X.shape[1],
         # other statistics ntk / pred
         min_ypred = min_ypred,

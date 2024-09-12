@@ -219,6 +219,8 @@ def run(data_params: Dict[str, Any],
                                           other_params, seed)
     
     X, A, y, mu, p, q = get_graph(data_params, sort=True)
+    n_edges = np.sum(A) / 2
+    logging.info(f"Sampled {n_edges:.0f} edges.")
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
     idx_trn, idx_unlabeled, idx_val, idx_test = split(data_params, y)
@@ -230,6 +232,7 @@ def run(data_params: Dict[str, Any],
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
     n_classes = int(y.max() + 1)
+    data_dim = X.shape[1]
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
     # idx of labeled nodes in nodes known during training (for semi-supervised)
@@ -260,11 +263,21 @@ def run(data_params: Dict[str, Any],
     
     # Poisoning Certificate
     svm_alpha = ntk.svm
-    is_robust_l, obj, opt_status, y_opt_l, y_test_worst_obj = utils.certify_collective_robust_label(
-            idx_labeled, idx_test, ntk_test, y, y_pred,
-            svm_alpha, certificate_params, l_flip=delta, C=model_params["regularizer"], M=1e3, Mprime=1e3
+    if "save_dir" in certificate_params:
+        save_params = dict(label=model_params["label"], seed=seed,
+                           dataset=data_params["dataset"],
+                           save_dir=certificate_params["save_dir"])
+    else:
+        save_params = None
+    del A
+    del X
+    is_robust_l, obj, obj_bound, opt_status, y_opt_l, y_test_worst_obj = \
+    utils.certify_collective_robust_label(
+            idx_labeled, idx_test, ntk_test, y, y_pred, svm_alpha, certificate_params, 
+            l_flip=delta, C=model_params["regularizer"], M=1e3, Mprime=1e3,
+            save_params=save_params
     )
-    acc_cert = sum(is_robust_l) / y_pred.shape[0]
+    acc_cert = (y_pred.shape[0] - obj_bound) / y_pred.shape[0]
     acc_cert_u = 0 #not implemented
     logging.info(f"Certified accuracy (poisoning): {acc_cert}")
 
@@ -298,6 +311,8 @@ def run(data_params: Dict[str, Any],
             y_true_cls = (y[idx_test] * 2 - 1).numpy(force=True).tolist(),
             y_pred_logit = y_pred.numpy(force=True).tolist(),
             y_worst_obj = y_test_worst_obj.tolist(),
+            obj = obj,
+            obj_bound = obj_bound,
             y_is_robust = is_robust_l,
             y_opt_status = opt_status,
             y_flip = y_opt_l, 
@@ -310,7 +325,7 @@ def run(data_params: Dict[str, Any],
             csbm_mu = mu[0].item(),
             csbm_p = p,
             csbm_q = q,
-            data_dim = X.shape[1],
+            data_dim = data_dim,
             # other statistics ntk / pred
             min_ypred = min_ypred,
             max_ypred = max_ypred,
@@ -334,6 +349,8 @@ def run(data_params: Dict[str, Any],
             y_true_cls = (y[idx_test] * 2 - 1).numpy(force=True).tolist(),
             y_pred_logit = y_pred.numpy(force=True).tolist(),
             y_worst_obj = y_test_worst_obj.tolist(),
+            obj = obj,
+            obj_bound = obj_bound,
             y_is_robust = is_robust_l,
             y_opt_status = opt_status,
             y_flip = y_opt_l, 
@@ -343,7 +360,7 @@ def run(data_params: Dict[str, Any],
             idx_labeled = idx_labeled.tolist(),
             idx_test = idx_test.tolist(),
             # data statistics
-            data_dim = X.shape[1],
+            data_dim = data_dim,
             # other statistics ntk / pred
             min_ypred = min_ypred,
             max_ypred = max_ypred,

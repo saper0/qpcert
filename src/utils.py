@@ -1,5 +1,6 @@
 import logging
 from typing import Tuple, Union, Sequence
+import os
 
 from jaxtyping import Float, Integer
 import numpy as np
@@ -1198,18 +1199,16 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
         alpha[alpha_mask] = 0
         alpha_nz_mask = alpha>0 
         eq_constraint = y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1
-        eq_constraint[np.abs(eq_constraint) < MILP_INT_FEAS_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
+        eq_constraint[np.abs(eq_constraint) < MILP_FEASIBILITY_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
         u_start = np.zeros(alpha.shape[0], dtype=np.float64)
         v_start = np.zeros(alpha.shape[0], dtype=np.float64)
         u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
         v_start[alpha_nz_mask] = -eq_constraint[alpha_nz_mask]
-        u_start[u_start<globals.zero_tol] = 0
-        v_start[v_start<globals.zero_tol] = 0
         s_start = np.zeros(alpha.shape[0], dtype=np.int64)
-        u_nz_mask = u_start > 0
+        u_nz_mask = u_start > globals.zero_tol 
         s_start[u_nz_mask] = 1
         t_start = np.zeros(alpha.shape[0], dtype=np.int64)
-        v_nz_mask = v_start > 0
+        v_nz_mask = v_start > globals.zero_tol 
         t_start[v_nz_mask] = 1
         u_start_d[k] = u_start
         v_start_d[k] = v_start
@@ -1217,14 +1216,13 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
         t_start_d[k] = t_start
         alpha_l.append(alpha)
         assert (alpha<0).sum() == 0
-        assert (u_start<0).sum() == 0
-        assert (v_start<0).sum() == 0
-        assert ((y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1 - u_start + v_start) > globals.zero_tol).sum() == 0
-        assert (u_start-M*s_start > globals.zero_tol).sum() == 0
-        assert (alpha-C*(1-s_start) > globals.zero_tol).sum() == 0
-        assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
-        assert (-alpha-1+t_start > globals.zero_tol).sum() == 0
-        #assert (-alpha+C*t_start > globals.zero_tol).sum() == 0
+        assert (u_start<-globals.zero_tol).sum() == 0 
+        assert (v_start<-globals.zero_tol).sum() == 0 
+        assert ((y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1 - u_start + v_start) > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (u_start-M*s_start > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (alpha-C*(1-s_start) > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (v_start-Mprime*t_start > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (-alpha-1+t_start > MILP_FEASIBILITY_TOL).sum() == 0
 
     obj_l = []
     is_robust_l = []
@@ -1428,8 +1426,8 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
                     else:
                         if m.ObjBound >= stop_obj:
                             is_robust = False
-                            m.dispose()
                             y_opt_l.append(y_b.X.tolist())
+                            m.dispose()
                             break
                 #obj_l.append(m.ObjVal)
                 #opt_status_l.append(m.Status)
@@ -1452,7 +1450,7 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
 
 def certify_collective_robust_label(idx_labeled, idx_test, ntk, y, 
                          y_pred, svm_alpha, certificate_params, l_flip=0.2, C=1, M=1e4, Mprime=1e4, 
-                         milp=True):
+                         milp=True, model_params=None, save_params=None):
     """TODO: Create documentation 
     """
     if isinstance(svm_alpha, torch.Tensor):
@@ -1617,12 +1615,14 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
         m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
         m.Params.NumericFocus = 0
+        if "SoftMemLimit" in certificate_params:
+            m.Params.SoftMemLimit = certificate_params["SoftMemLimit"]
         if "NodeLimit" in certificate_params:
             m.Params.NodeLimit = certificate_params["NodeLimit"] # Explored node limit to stop 
         if "TimeLimit" in certificate_params:
             m.Params.TimeLimit = certificate_params["TimeLimit"]
         # m.Params.MIPGap = 1e-4
-        # m.Params.MIPGapAbs = 1e-4
+        m.Params.MIPGapAbs = 0.99
         # m.Params.Presolve = 0
         # m.Params.Aggregate = 0 #aggregation level in presolve
         if "MIPFocus" in certificate_params:
@@ -1682,9 +1682,18 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
         
         is_robust_l = (1-count.X).tolist()
         obj = m.ObjVal
+        obj_bound = m.ObjBound
         opt_status = m.Status
         y_test_worst_obj = ntk_unlabeled @ z.X
         y_opt_l = y_b.X.tolist()
+        if save_params is not None:
+            if opt_status == 9 or opt_status == 17:
+                base_filename = save_params["dataset"] + "_" \
+                                + save_params["label"] + "_" \
+                                + str(save_params["seed"])
+                solution_file = os.path.join(save_params["save_dir"], base_filename + ".sol")
+                logging.info(f"Opt Status {opt_status}, saving solution to {solution_file}.")
+                m.write(solution_file)
         # print('y initial ', y_labeled_)
         # print('y opt ', y.X)
         # print('actual flips ', -((y.X*y_labeled_)-1)@v_ones)
@@ -1696,4 +1705,4 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
     except AttributeError as a:
         logging.error(f"Encountered an attribute error {a.errno}: {a}")
         return
-    return is_robust_l, obj, opt_status, y_opt_l, y_test_worst_obj
+    return is_robust_l, obj, obj_bound, opt_status, y_opt_l, y_test_worst_obj
