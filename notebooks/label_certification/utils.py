@@ -166,7 +166,8 @@ class Experiment:
         self.results = {}
         for experiment in self.individual_experiments:
             result = experiment["result"]
-            append_dict(result, self.results)
+            if result is not None:
+                append_dict(result, self.results)
         average_dict(self.results)
 
     def get_result(self, key: str) -> Tuple[float, float]:
@@ -239,6 +240,7 @@ def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
                     n_robust_acc += 1
             n_robust_acc_l.append(n_robust_acc / n_test)
         return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
+
 
 def get_experiment(exp: Experiment, seed=0):
     for ind_exp in exp.individual_experiments:
@@ -681,10 +683,6 @@ class ExperimentManager:
                     else:
                         color_map.append('red')
             nx.draw(G, ax=ax[2], node_color=color_map, with_labels=True, pos=pos)
-
-
-
-
 
     def plot(self, name: str, attack: str, models: List[str], 
              errorbars: bool=True, ylabel: str=None, title: str=None,
