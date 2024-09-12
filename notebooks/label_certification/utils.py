@@ -20,7 +20,8 @@ sys.path.append('../../')
 # sys.path.insert(1, 'ntk-robust/src')
 from src.data import get_karate_club
 
-CERTIFICATE_FIGURE_DIR = Path('./figures/')
+CERTIFICATE_FIGURE_DIR = Path('./figures/ICLR/')
+MILP_INT_FEAS_TOL = 1e-4
 
 URI = "mongodb://sabanaya:bAvQwbOp@fs.kdd.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
 
