@@ -1450,7 +1450,7 @@ def certify_robust_label_one_vs_all_inexact(idx_labeled, idx_test, ntk, y,
 
 def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y, 
                                     y_pred, svm_alpha, certificate_params,
-                                    l_flip=0.2, C=1, M=1e4, Mprime=1e4, 
+                                    l_flip=0.2, C=1, M=1e4, Mprime=1e4,
                                     milp=True):
     """TODO: Create documentation 
     """
@@ -1513,9 +1513,14 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
     is_robust_l = []
     opt_status_l = []
     y_opt_l = []
+    obj_b_l = []
     obj_min = None
     robust_count = 0
     n_classes = y_pred.shape[1]
+    if "epsilon" in certificate_params:
+        eps = certificate_params["epsilon"]
+    else:
+        eps = 1e-3
     for idx in range(y_pred.shape[0]):
         # Start with correct prediction & gradually work through others
         pred_ordered = y_pred[idx,:].topk(n_classes).indices
@@ -1541,14 +1546,13 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
             p = {}
             y = {}
             y_b = {}
-            z_1 = {}
-            z_2 = {}
-            y_int = m.addMVar(shape=(n_labeled), lb=0, ub=n_classes, vtype=GRB.INTEGER, name="y")
+            y_b_ = {}
+            y_int = m.addMVar(shape=(n_labeled), lb=0, ub=n_classes-1, vtype=GRB.INTEGER, name="y_int")
             delta = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="y_int_changed")
-            z_1_ = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="z_1_")
-            z_2_ = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="z_2_")
+            delta_ = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="y_int_changed_sign")
             p_max = m.addVar(p_lb, p_ub, vtype=GRB.CONTINUOUS, name="max_logit")
             b = m.addMVar(shape=n_classes-1, vtype=GRB.BINARY, name="b")
+            m.update()
 
             # Create variables for each index k 
             for j, k in enumerate(pred_ordered):
@@ -1560,11 +1564,11 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
                 y_labeled_[~y_mask] = -1
                 y_labeled_b = (y_labeled_ + 1)/2
                 y_smaller = np.array(y_labeled < k, dtype=np.float32)
-                y_bigger = np.array(y_labeled > k, dtype=np.float32)
 
                 # Create variables
-                y_b[k] = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name="y_binary")
-                y[k] = m.addMVar(shape=(n_labeled), lb=-1, ub=1, vtype=GRB.CONTINUOUS, name="y")
+                y_b[k] = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name=f"y_b{k}")
+                y_b_[k] = m.addMVar(shape=(n_labeled), vtype=GRB.BINARY, name=f"y_b_{k}")
+                y[k] = m.addMVar(shape=(n_labeled), lb=-1, ub=1, vtype=GRB.CONTINUOUS, name=f"y_{k}")
                 y_T = y[k].reshape((n_labeled, 1))
                 alpha[k] = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, ub=C, name=f"alpha_{k}")
                 u[k] = m.addMVar(shape=n_labeled, vtype=GRB.CONTINUOUS, name=f"u_{k}")
@@ -1575,29 +1579,28 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
                 if milp:
                     s[k] = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name=f"s_{k}")
                     t[k] = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name=f"t_{k}")
-                z_1[k] = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name=f"z_1_{k}")
-                z_2[k] = m.addMVar(shape=n_labeled, vtype=GRB.BINARY, name=f"z_2_{k}")
-
                 m.update()
+
                 # Add constraints
                 m.addConstr(y[k] == 2*y_b[k] - 1)
-                M_ = n_classes + 1
-                m.addConstr(1 - y_b[k] <= z_1[k] + z_2[k], f"forcing y_b{k}")
-                m.addConstr(y_int - k <= M_*(1-z_1[k]) - 1, f"y_int_z1_k{k}")
-                m.addConstr(k - y_int <= M_*(1-z_2[k]) - 1, f"y_int_z2_k{k}")
-                m.addConstr(p[k] == ntk_unlabeled[idx,:] @ z[k])
+                M_ = n_classes - 1
+                m.addConstr(y_int - k <= M_*(1-y_b[k]), f"y_int_b1_{k}")
+                m.addConstr(y_int - k >= -M_*(1-y_b[k]), f"y_int_b2_{k}")
+                m.addConstr(y_int - k <= -eps*(1-y_b[k]) + (M_+eps)*(1-y_b_[k]), f"y_int_b_1_{k}")
+                m.addConstr(y_int - k >= eps*(1-y_b[k]) - (M_+eps)*y_b_[k], f"y_int_b_2_{k}")
+                m.addConstr(p[k] == ntk_unlabeled[idx,:] @ z[k], f"logit_constraint_{k}")
                 if j > 0:
-                    m.addConstr(p_max >= p[k])
-                    m.addConstr(p_max <= p[k] + (1-b[j-1])*(p_ub - p_lb))
-                m.addConstr(z[k] <= alpha[k])
-                m.addConstr(z[k] >= -alpha[k])
-                m.addConstr(z[k] >= alpha[k] - (1-y[k])*C)
-                m.addConstr(z[k] <= -alpha[k] + (1+y[k])*C)
+                    m.addConstr(p_max >= p[k], f"logit_max_constraint1_{k}")
+                    m.addConstr(p_max <= p[k] + (1-b[j-1])*(p_ub - p_lb), f"logit_max_constraint2_{k}")
+                m.addConstr(z[k] <= alpha[k], f"z[{k}]_alpha1")
+                m.addConstr(z[k] >= -alpha[k], f"z[{k}]_alpha2")
+                m.addConstr(z[k] >= alpha[k] - (1-y[k])*C, f"z[{k}]_alphaC1")
+                m.addConstr(z[k] <= -alpha[k] + (1+y[k])*C, f"z[{k}]_alphaC2")
                 M_ones = np.ones(shape=(n_labeled, n_labeled))
-                m.addConstr(z_[k] <= M_ones*z[k] + (1-M_ones*y_T)*C) #
-                m.addConstr(z_[k] >= M_ones*z[k] - (1-M_ones*y_T)*C) #
-                m.addConstr(z_[k] <= -M_ones*z[k] + (1+M_ones*y_T)*C) #
-                m.addConstr(z_[k] >= -M_ones*z[k] - (1+M_ones*y_T)*C) #
+                m.addConstr(z_[k] <= M_ones*z[k] + (1-M_ones*y_T)*C, f"z_[{k}]_1") #
+                m.addConstr(z_[k] >= M_ones*z[k] - (1-M_ones*y_T)*C, f"z_[{k}]_2") #
+                m.addConstr(z_[k] <= -M_ones*z[k] + (1+M_ones*y_T)*C, f"z_[{k}]_3") #
+                m.addConstr(z_[k] >= -M_ones*z[k] - (1+M_ones*y_T)*C, f"z_[{k}]_4") #
                 v_ones = np.ones(shape=(n_labeled))
                 m.addConstr((z_[k]*ntk_labeled)@v_ones - u[k] + v[k] == 1, f"eq_constraint_{k}")
 
@@ -1623,19 +1626,17 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
                 m.update()
                 # Set the initial values for the parameters
                 y_b[k].Start = y_labeled_b
+                y_b_[k].Start = y_smaller
                 y[k].Start = y_labeled_
                 alpha[k].Start = alpha_l[k]
                 z_start = y_labeled_ * alpha_l[k]
                 z[k].Start = z_start
                 z_[k].Start = np.outer(y_labeled_, z_start)
-                z_1[k].Start = y_smaller
-                z_2[k].Start = y_bigger
                 u[k].Start = u_start_d[k]
                 v[k].Start = v_start_d[k]
                 if milp:
                     s[k].Start = s_start_d[k]
                     t[k].Start = t_start_d[k]
-                print(ntk_unlabeled[idx,:] @ z_start)
                 p[k].Start = ntk_unlabeled[idx,:] @ z_start
                 if j == 1:
                     p_max.Start = ntk_unlabeled[idx,:] @ z_start
@@ -1648,28 +1649,31 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
             print(p[k_best].Start)
             print(p[k_best].Start - p_max.Start)
             # Index independent constraints
-            m.addConstr(delta <= z_1_ + z_2_)
-            m.addConstr(z_1_ <= delta)
-            m.addConstr(z_2_ <= delta)
-            M_ = n_classes + 1
-            m.addConstr(y_labeled - y_int <= M_*(1-z_1_) - 1, f"y_int_z1_")
-            m.addConstr(y_int - y_labeled <= M_*(1-z_2_) - 1, f"y_int_z2_")
+            M_ = n_classes - 1
+            m.addConstr(y_labeled - y_int <= M_*delta, f"y_int_delta1")
+            m.addConstr(y_labeled - y_int >= -M_*delta, f"y_int_delta2")
+            m.addConstr(y_labeled - y_int <= -eps*delta + (M_+eps)*(1-delta_), f"y_int_delta_1")
+            m.addConstr(y_labeled - y_int >= eps*delta - (M_+eps)*delta_, f"y_int_delta_2")
             m.addConstr(b.sum() == 1, "b_sum")
             n_flips = int(l_flip*n_labeled)
-            m.addConstr(delta.sum() <= n_flips, "budget constraint")
-
+            m.addConstr(delta.sum() <= n_flips, "budget_constraint")
             m.update()
+
             # Index independent starts
             y_int.Start = y_labeled
-            z_1_.Start = np.zeros(shape=(n_labeled))
-            z_2_.Start = np.zeros(shape=(n_labeled))
+            delta.Start = np.zeros(n_labeled)
+            delta_.Start = np.zeros(n_labeled)
+            m.update()
 
             # Set objective
             m.setObjective(p[k_best] - p_max, GRB.MINIMIZE)
             m.Params.BestObjStop = 0 # terminate when the objective reaches 0, implies node not robust
             m.Params.BestBdStop = 0 # if the bound falls below the stop_obj, node definitely can't change prediction
-
             m.update()
+
+            m.write("./cache/model.lp")
+            print(m.getConstrByName("R481"))
+
             if "IntegralityFocus" in certificate_params:
                 m.Params.IntegralityFocus = certificate_params["IntegralityFocus"]
             else:
@@ -1746,37 +1750,18 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
 
             # log results
             logging.info(f'Original {y_pred[idx, k].item():.5f}, Opt objective '
-                        f'{m.ObjVal:.5f}, Opt bound: {m.ObjBound:.5f}, stop_obj: {stop_obj}')
-            # analyse result
-            # todo
-            """if stop_obj is None:
-                if m.ObjVal < secnd_best_ypred:
+                        f'{m.ObjVal:.5f}, Opt bound: {m.ObjBound:.5f}')
+            obj_l.append(m.ObjVal)
+            obj_b_l.append(m.ObjBound)
+            opt_status_l.append(m.Status)
+            y_opt_l.append(y_int.X.tolist())
+            if m.Status == GRB.OPTIMAL:
+                if m.ObjVal < MILP_OPTIMALITY_TOL:
                     is_robust = False
-                    y_opt_l.append(y_b.X.tolist())
-                    m.dispose()
-                    break
-                if m.Status == GRB.OPTIMAL:
-                    stop_obj = m.ObjVal
-                else:
-                    stop_obj = m.ObjBound
             else:
-                if m.Status == GRB.OPTIMAL:
-                    if m.ObjVal >= stop_obj:
-                        is_robust = False
-                        y_opt_l.append(y_b.X.tolist())
-                        m.dispose()
-                        break
-                else:
-                    if m.ObjBound >= stop_obj:
-                        is_robust = False
-                        y_opt_l.append(y_b.X.tolist())
-                        m.dispose()
-                        break"""
-            #obj_l.append(m.ObjVal)
-            #opt_status_l.append(m.Status)
-            # print('y initial ', y_labeled_)
-            # print('y opt ', y.X)
-            # print('actual flips ', -((y.X*y_labeled_)-1)@v_ones)
+                if m.ObjBound < MILP_OPTIMALITY_TOL:
+                    is_robust = False
+            is_robust_l.append(is_robust)
             m.dispose()
 
         except gp.GurobiError as e:
@@ -1785,10 +1770,7 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
         except AttributeError as a:
             logging.error(f"Encountered an attribute error {a.errno}: {a}")
             return
-        is_robust_l.append(is_robust)
-        if is_robust:
-            y_opt_l.append([])
-    return is_robust_l, y_opt_l
+    return is_robust_l, y_opt_l, obj_l, obj_b_l, opt_status_l
 
 
 

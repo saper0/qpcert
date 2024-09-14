@@ -226,6 +226,7 @@ def run(data_params: Dict[str, Any],
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
     n_classes = int(y.max() + 1)
+    data_dim = X.shape[1]
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
     idx_unlabeled = np.concatenate((idx_unlabeled, idx_test))
@@ -265,12 +266,15 @@ def run(data_params: Dict[str, Any],
     logging.info(f"Train accuracy: {acc_trn}")
     
     # Poisoning Certificate
+    del A
+    del X
     svm_alpha = ntk.svm
-    is_robust_l, y_opt_l = utils.certify_robust_label_one_vs_all(
+    is_robust_l, y_opt_l, obj_l, obj_b_l, opt_status_l = \
+        utils.certify_robust_label_one_vs_all(
             idx_labeled, idx_test, ntk_test, y, y_pred,
             svm_alpha, certificate_params, l_flip=delta, 
             C=model_params["regularizer"], M=1e3, Mprime=1e3
-    )
+        )
     acc_cert = sum(is_robust_l) / y_pred.shape[0]
     acc_cert_u = 0 #not implemented
     logging.info(f"Certified accuracy (poisoning): {acc_cert}")
@@ -290,6 +294,7 @@ def run(data_params: Dict[str, Any],
     avg_ntkunlabeled = torch.mean(ntk_unlabeled).cpu().item()
     min_ntkunlabeled = torch.min(ntk_unlabeled).cpu().item()
     max_ntkunlabeled = torch.max(ntk_unlabeled).cpu().item()
+    print(y_pred[0])
 
     if torch.cuda.is_available() and other_params["device"] != "cpu":
         torch.cuda.empty_cache()
@@ -302,10 +307,13 @@ def run(data_params: Dict[str, Any],
         delta = delta,
         delta_absolute = delta, #legacy
         # node-wise pois. robustness statistics
-        y_true_cls = (2*y[idx_test]-1).numpy(force=True).tolist(),
+        y_true_cls = y[idx_test].numpy(force=True).tolist(),
         y_pred_logit = y_pred[0].numpy(force=True).tolist(),
         y_is_robust = is_robust_l[0],
         y_flip = y_opt_l[0], 
+        obj = obj_l[0], 
+        obj_bound = obj_b_l[0],
+        opt_status = opt_status_l[0],
         # split statistics
         idx_train = idx_trn.tolist(),
         idx_val = idx_val.tolist(),
@@ -315,7 +323,7 @@ def run(data_params: Dict[str, Any],
         csbm_mu = 0,
         csbm_p = 0,
         csbm_q = 0,
-        data_dim = X.shape[1],
+        data_dim = data_dim,
         # other statistics ntk / pred
         min_ypred = min_ypred,
         max_ypred = max_ypred,
