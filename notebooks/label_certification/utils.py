@@ -621,7 +621,7 @@ class ExperimentManager:
         C_l_None_Flag = C_l
         model_acc = []
         model_acc_std = []
-        for m_id in range(models):
+        for m_id in range(len(models)):
             label = models[m_id]
             if C_l_None_Flag == None:
                 C_l = [key for key in self.experiments_dict[label][K]]
