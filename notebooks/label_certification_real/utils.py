@@ -20,8 +20,7 @@ sys.path.append('../../')
 # sys.path.insert(1, 'ntk-robust/src')
 from src.data import get_karate_club
 
-CERTIFICATE_FIGURE_DIR = Path('./figures/ICLR/')
-MILP_INT_FEAS_TOL = 1e-4
+CERTIFICATE_FIGURE_DIR = Path('./figures')
 
 URI = "mongodb://sabanaya:bAvQwbOp@fs.kdd.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
 
@@ -124,7 +123,6 @@ class Experiment:
         self.id = experiment_list[0]["_id"]
         self.hyperparameters = experiment_list[0]["config"]
         self.label = self.hyperparameters["model_params"]["label"]
-        self.K = self.hyperparameters["data_params"]["specification"]["K"]
         self.C = float(self.hyperparameters["model_params"]["regularizer"])
         if "certificate_params" in self.hyperparameters:
             self.attack = False
@@ -166,9 +164,14 @@ class Experiment:
         from the raw data for each seed."""
         self.results = {}
         for experiment in self.individual_experiments:
+            if "result" not in experiment:
+                print(f"{experiment['_id']} {self.label} delta: {self.delta} has no result.")
+                continue
             result = experiment["result"]
             if result is not None:
                 append_dict(result, self.results)
+            else:
+                print(f"{experiment['_id']} {self.label} delta: {self.delta} is NONE.")
         average_dict(self.results)
 
     def get_result(self, key: str) -> Tuple[float, float]:
@@ -181,18 +184,18 @@ class Experiment:
         For attacks returns roubst accuracy.
         """
         n_robust_acc_l = []
+        self.n_test = self.hyperparameters["data_params"]["specification"]["n_test"]
         for experiment in self.individual_experiments:
             n_robust_acc = 0
             result = experiment["result"]
-            n_test = len(result["y_true_cls"])
             for y_true, y_pred, y_worst in zip(result["y_true_cls"],
                                                result["y_pred_logit"],
                                                result["y_worst_obj"]):
-                if y_pred > 0 and y_true > 0 and y_worst > MILP_INT_FEAS_TOL: 
+                if y_pred > 0 and y_true > 0 and y_worst > 0:
                     n_robust_acc += 1
-                if y_pred < 0 and y_true < 0 and y_worst < -MILP_INT_FEAS_TOL: 
+                if y_pred < 0 and y_true < 0 and y_worst < 0:
                     n_robust_acc += 1
-            n_robust_acc_l.append(n_robust_acc / n_test)
+            n_robust_acc_l.append(n_robust_acc / self.n_test)
         return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
     
     def get_certified_ratio(self) -> Tuple[float, float]:
@@ -223,24 +226,44 @@ class Experiment:
 
 
 def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
-        """
-        For certificates returns certified accuracy.
-        For attacks returns roubst accuracy.
-        """
-        n_robust_acc_l = []
-        for experiment in exp.individual_experiments:
-            n_robust_acc = 0
-            result = experiment["result"]
-            n_test = len(result["y_true_cls"])
-            for y_true, y_pred, y_worst in zip(result["y_true_cls"],
-                                               result["y_pred_logit"],
-                                               result["y_worst_obj"]):
-                if y_pred > 0 and y_true > 0 and y_worst > 1e-4:
-                    n_robust_acc += 1
-                if y_pred < 0 and y_true < 0 and y_worst < -1e-4:
-                    n_robust_acc += 1
-            n_robust_acc_l.append(n_robust_acc / n_test)
-        return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
+    """
+    For certificates returns certified accuracy.
+    For attacks returns roubst accuracy.
+    """
+    n_robust_acc_l = []
+    for experiment in exp.individual_experiments:
+        n_robust_acc = 0
+        result = experiment["result"]
+        if result is None:
+            continue
+        n_test = len(result["y_true_cls"])
+        for y_true, y_pred, y_robust in zip(result["y_true_cls"],
+                                            result["y_pred_logit"],
+                                            result["y_is_robust"]):
+            if y_pred > 0 and y_true > 0 and y_robust > 1e-4:
+                n_robust_acc += 1
+            if y_pred < 0 and y_true < 0 and y_robust > 1e-4:
+                n_robust_acc += 1
+        n_robust_acc_l.append(n_robust_acc / n_test)
+    return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
+
+
+
+def get_certified_ratio(exp: Experiment) -> Tuple[float, float]:
+    """
+    For certificates returns certified ratio.
+    For attacks returns roubst ratio.
+    """
+    n_robust_rat_l = []
+    for experiment in exp.individual_experiments:
+        n_robust_acc = 0
+        result = experiment["result"]
+        if result is None:
+            continue
+        n_test = len(result["y_true_cls"])
+        y_robust_c = np.sum(result["y_is_robust"])
+        n_robust_rat_l.append(y_robust_c / n_test)
+    return np.mean(n_robust_rat_l).item(), np.std(n_robust_rat_l).item()
 
 
 def get_experiment(exp: Experiment, seed=0):
@@ -278,9 +301,8 @@ class ExperimentManager:
         """Return experiment with ID id."""
         exp_dict_l = []
         for i in range(n_seeds):
-            exp_dict = self.load_experiment_dict(start_id + i, collection)
-            if exp_dict["status"] == "COMPLETED":
-                exp_dict_l.append(exp_dict)
+            exp_dict_l.append(self.load_experiment_dict(start_id + i, 
+                                                        collection))
         return Experiment(exp_dict_l)
 
     def load_experiments(
@@ -335,15 +357,11 @@ class ExperimentManager:
                     elif exp.label not in self.experiments_dict:
                         self.experiments_dict[exp.label] = {}
                     label = exp_spec["relabel"] if "relabel" in exp_spec else exp.label
-                    if exp.K not in self.experiments_dict[label]:
-                        self.experiments_dict[label][exp.K] = {}
-                    if exp.C not in self.experiments_dict[label][exp.K]:
-                        self.experiments_dict[label][exp.K][exp.C] = {}
                     # if exp.attack_nodes not in self.experiments_dict[label][exp.K][exp.C]:
                     #     self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes] = {}
                     # if exp.n_adv not in self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes]:
                     #     self.experiments_dict[label][exp.K][exp.C][exp.attack_nodes][exp.n_adv] = {}
-                    self.experiments_dict[label][exp.K][exp.C][exp.delta] = exp
+                    self.experiments_dict[label][exp.delta] = exp
 
     def init_plot_params(self):
         # Matplotlib settings
@@ -367,33 +385,42 @@ class ExperimentManager:
 
     def get_style(self, label: str):
         color_dict = {
-            "APPNP_alpha1": 'slategrey', 
-            "MLP": 'slategrey', 
+            "APPNP_alpha1": 'slategrey', #MLP
+            "MLP": 'slategrey', #MLP
             "GCN": 'tab:green', 
-            "APPNP_alpha0": "wheat",
+            "GCN_sym": 'tab:green', 
+            "APPNP_alpha0": "plum",
             "APPNP_alpha0.1": "tab:brown",
+            "APPNP_alpha0.1_row": "tab:brown",
+            "APPNP_alpha0.2": "r",
             "APPNP": 'r', #lime 
             "APPNP_alpha0.3": "tab:olive",
-            "APPNP_0.3": "tab:olive",
+            "APPNP_alpha0.3_row": "tab:olive",
             "APPNP_alpha0.5": "darkslategrey",
             "SGC": "blue",
+            "SGC_sym": "blue",
+            "GCN_skippc": "lime", #k
             "GCN_skippc_linear": "lime", #k
             "GCN_skippc_relu+2": "lime",
+            "GCN_skipalpha": "plum", #"wheat",
             "GCN_skipalpha_linear_alpha0.2": "wheat",
             "GCN_skipalpha_relu_alpha0.2+2": "wheat",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
             "GCN_skipalpha_relu_alpha0.1+2": "steelblue",
             "GIN": "darkslateblue",
             "GraphSAGE": "darkred",
-            "GCN_sym+2": 'tab:green',
-            "SGC_sym+2": "blue",
             # "GAT": "slategrey",
             # "GATv2": "k",
             # "GraphSAGE": "lightsteelblue",
             # "LP": "wheat",
         }
         linestyle_dict = {
-            "LP": '--'
+            "LP": '--',
+            "SGC_sym": ":",
+            "GCN_sym": ":",
+            "APPNP_alpha0.1_row": "dashed",
+            "APPNP_alpha0.3_row": "dashed",
+            "MLP": 'dashed'
         }
         use_color=""
         linestyle="-"
@@ -414,11 +441,11 @@ class ExperimentManager:
                 use_color = "slategrey"    
         else:
             for key, color in color_dict.items():
-                sep_labels = key.split("+")
-                if sep_labels[0] == label:
+                if key == label:
                     use_color = color
-                    if len(sep_labels) == 2 or sep_labels[0] == "LP":
-                        linestyle = "--"
+            for key, style in linestyle_dict.items():
+                if key == label:
+                    linestyle = style
         return use_color, linestyle
     
     def set_color_cycler(self, ax):
@@ -435,11 +462,11 @@ class ExperimentManager:
         ax.set_prop_cycle(cycler('linestyle', linestyle_list)*
                           cycler('color', color_list))
 
-    def set_xaxis_labels(self, ax, x_ticks, x_labels, fontsize):
+    def set_xaxis_labels(self, ax, x_ticks, x_labels):
         ax.xaxis.get_major_formatter()._usetex = False
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
-        ax.xaxis.set_ticklabels(xticks, fontsize=fontsize, fontweight="bold")
+        ax.xaxis.set_ticklabels(xticks, fontsize=12, fontweight="bold")
         ax.set_xlim(left=-0.3)
     
     def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels):
@@ -448,20 +475,77 @@ class ExperimentManager:
         xticks = [f"{label}" for label in x_labels]
         ax.xaxis.set_ticklabels(xticks)
 
-    def plot_robust_acc_delta(self, K: float, models: List[str], C_l: List[float], 
+    def plot_robust_auc(self, models: List[str], 
+                              delta_l: List[float],
+                              legend_labels: List[str]=[],
+                              width=1, ratio=1.618, 
+                              scale=True,
+                              barwidth=1,
+                              savefig: str=None,
+                              savedir: Path=None):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        # self.set_color_cycler(ax)
+        if len(legend_labels) != len(models):
+            legend_labels = models
+        aoc_l = []
+        aoc_lb = []
+        aoc_ub = []
+        for (label, legend_label) in zip(models, legend_labels):
+            y_err_l = []
+            y_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][delta_l[1]]
+                    y, y_std = exp.get_result("accuracy_test")
+                else:
+                    exp = self.experiments_dict[label][delta]
+                    y, y_std = get_robust_accuracy(exp)
+                y_l.append(y)
+                y_err_l.append(y_std)
+            x = np.array(delta_l)
+            aoc_l.append(np.trapz(y_l, x))
+            aoc_lb.append(np.trapz(np.array(y_l) - np.array(y_err_l)/np.sqrt(10), x))
+            aoc_ub.append(np.trapz(np.array(y_l) + np.array(y_err_l)/np.sqrt(10), x))
+        # scale by most robust model
+        if scale:
+            aoc_max = np.max(aoc_l)
+            aoc_l = np.array(aoc_l) / np.max(aoc_l)
+            idx_sorted = np.argsort(aoc_l)[::-1]
+            aoc_lb = np.array(aoc_lb) / aoc_max
+            aoc_ub = np.array(aoc_ub) / aoc_max
+            x = np.arange(len(aoc_l))
+            ax.set_ylim(bottom=0.75, top=1.05)
+            ax.set_xticks(x)
+            ax.set_xticklabels([legend_labels[i] for i in idx_sorted])
+            ax.bar(x, aoc_l[idx_sorted], 
+                   yerr=[aoc_l[idx_sorted] - aoc_lb[idx_sorted], 
+                        aoc_ub[idx_sorted] - aoc_l[idx_sorted]], capsize=3,
+                   width=barwidth)
+            ax.set_xticks(x)
+            ax.set_xticklabels([legend_labels[i] for i in idx_sorted])
+        else:
+            x = np.arange(len(aoc_l))
+            ax.bar(x, np.array(aoc_l), 
+                yerr=[np.array(aoc_l) - np.array(aoc_lb), 
+                      np.array(aoc_ub) - np.array(aoc_l)], capsize=3)
+            ax.set_xticks(x)
+            ax.set_xticklabels(legend_labels)
+        if savefig:
+            if savedir is None:
+                savedir = CERTIFICATE_FIGURE_DIR
+            savedir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(savedir/savefig, bbox_inches='tight')
+        plt.show()
+        plt.close(fig)
+
+    def plot_robust_acc_delta(self, models: List[str], 
                               delta_l: List[float],
                               legend_labels: List[str]=[],
                               width=1, ratio=1.618, 
                               xlogscale: bool=False,
                               savefig: str=None,
-                              use_style: bool=True,
-                              label_fontsize=16,
-                              legend_fontsize=12,
-                              ticks_fontsize=10,
-                              markersize=4,
-                              capsize=3,
-                              linewidth=1,
-                              framealpha=1.0):
+                              use_style: bool=True):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         if not use_style:
@@ -469,35 +553,35 @@ class ExperimentManager:
         if len(legend_labels) != len(models):
             legend_labels = models
         for (label, legend_label) in zip(models, legend_labels):
-            for C in C_l:
-                y_err_l = []
-                y_l = []
-                for delta in delta_l:
-                    if delta == 0.:
-                        exp = self.experiments_dict[label][K][C][delta_l[1]]
-                        y, y_std = exp.get_result("accuracy_test")
-                    else:
-                        exp = self.experiments_dict[label][K][C][delta]
-                        y, y_std = get_robust_accuracy(exp)
-                    y_l.append(y)
-                    y_err_l.append(y_std)
-                if xlogscale:
-                    ax.set_xscale('log')
-                    x = np.array(delta_l)
-                    if x[0] == 0:
-                        x[0] = 0.005
-                    self.set_xaxis_labels_logscale(ax, x, delta_l, ticks_fontsize)
+            y_err_l = []
+            y_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][delta_l[1]]
+                    y, y_std = exp.get_result("accuracy_test")
                 else:
-                    x = [i for i in range(len(delta_l))]
-                    self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
-                
-                label_str = r'{0}'.format(legend_label) #+ " " + str(C)
-                if use_style:
-                    color, linestyle = self.get_style(label)
-                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                color=color, linestyle=linestyle,
-                                capsize=3, linewidth=1, markersize=4)
-                else:
+                    exp = self.experiments_dict[label][delta]
+                    y, y_std = get_robust_accuracy(exp)
+                    print(f"delta: {delta:.2f} racc: {y:.3f} std: {y_std:.2f}")
+                y_l.append(y)
+                y_err_l.append(y_std)
+            if xlogscale:
+                ax.set_xscale('log')
+                x = np.array(delta_l)
+                if x[0] == 0:
+                    x[0] = 0.005
+                self.set_xaxis_labels_logscale(ax, x, delta_l)
+            else:
+                x = [i for i in range(len(delta_l))]
+                self.set_xaxis_labels(ax, x, delta_l)
+            
+            label_str = r'{0}'.format(legend_label) #+ " " + str(C)
+            if use_style:
+                color, linestyle = self.get_style(label)
+                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                            color=color, linestyle=linestyle,
+                            capsize=3, linewidth=1, markersize=4)
+            else:
                     ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                                 capsize=3, linewidth=1, markersize=4)
 
@@ -510,76 +594,62 @@ class ExperimentManager:
             CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
         plt.show()
-
-    def plot_robust_acc_delta_v2(self, K: float, models: List[str], C_l: List[float], 
+    
+    def plot_certified_ratio_delta(self, models: List[str], 
                               delta_l: List[float],
                               legend_labels: List[str]=[],
                               width=1, ratio=1.618, 
                               xlogscale: bool=False,
-                              ylogscale: bool=False,
                               savefig: str=None,
-                              savedir: Path=None,
-                              label_fontsize=16,
-                              legend_fontsize=12,
-                              ticks_fontsize=10,
-                              markersize=4,
-                              capsize=3,
-                              linewidth=1,
-                              framealpha=1.0):
+                              use_style: bool=True):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
-        # self.set_color_cycler(ax)
+        if not use_style:
+            self.set_color_cycler(ax)
         if len(legend_labels) != len(models):
             legend_labels = models
-        C_l_None_Flag = C_l
-        print('C_ none ', C_l_None_Flag)
         for (label, legend_label) in zip(models, legend_labels):
-            if C_l_None_Flag == None:
-                C_l = [key for key in self.experiments_dict[label][K]]
-            for C in C_l:
-                y_err_l = []
-                y_l = []
-                for delta in delta_l:
-                    if delta == 0.:
-                        exp = self.experiments_dict[label][K][C][delta_l[1]]
-                        y, y_std = exp.get_result("accuracy_test")
-                    else:
-                        exp = self.experiments_dict[label][K][C][delta]
-                        y, y_std = exp.get_robust_accuracy()
-                    y_l.append(y)
-                    y_err_l.append(y_std)
-                print('y ', label, C, y_l)
-                if ylogscale:
-                    ax.set_yscale('log')
-                if xlogscale:
-                    ax.set_xscale('log')
-                    x = np.array(delta_l)
-                    if x[0] == 0:
-                        x[0] = 0.005
-                    self.set_xaxis_labels_logscale(ax, x, delta_l, ticks_fontsize)
+            y_err_l = []
+            y_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][delta_l[1]]
+                    y, y_std = 1., 0.
                 else:
-                    x = [i for i in range(len(delta_l))]
-                    self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
-                
-                label_str = r'{0}'.format(legend_label) #+ " " + str(C)
+                    exp = self.experiments_dict[label][delta]
+                    y, y_std = get_certified_ratio(exp)
+                    #print(f"delta: {delta:.2f} racc: {y:.3f} std: {y_std:.2f}")
+                y_l.append(y)
+                y_err_l.append(y_std)
+            if xlogscale:
+                ax.set_xscale('log')
+                x = np.array(delta_l)
+                if x[0] == 0:
+                    x[0] = 0.005
+                self.set_xaxis_labels_logscale(ax, x, delta_l)
+            else:
+                x = [i for i in range(len(delta_l))]
+                self.set_xaxis_labels(ax, x, delta_l)
+            
+            label_str = r'{0}'.format(legend_label) #+ " " + str(C)
+            if use_style:
                 color, linestyle = self.get_style(label)
                 ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                             color=color, linestyle=linestyle,
-                            capsize=capsize, linewidth=linewidth, 
-                            markersize=markersize)
-        ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
-        ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
+                            capsize=3, linewidth=1, markersize=4)
+            else:
+                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                                capsize=3, linewidth=1, markersize=4)
+
+        ax.set_ylabel("Certified Ratio")
+        ax.set_xlabel(r"Perturbation budget $\delta$")
         ax.yaxis.grid()
         ax.xaxis.grid()
-        ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
-        ax.tick_params(labelsize=ticks_fontsize)
+        ax.legend()
         if savefig:
-            if savedir is None:
-                savedir = CERTIFICATE_FIGURE_DIR
-            savedir.mkdir(parents=True, exist_ok=True)
-            plt.savefig(savedir/savefig, bbox_inches='tight')
+            CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+            plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
         plt.show()
-        plt.close(fig)
 
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
@@ -594,10 +664,10 @@ class ExperimentManager:
                     y_l = []
                     for delta in delta_l:
                         if delta == 0.:
-                            exp = self.experiments_dict[label][K][C][delta_l[1]]
+                            exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta_l[1]]
                             y, y_std = exp.get_result("accuracy_test")
                         else:
-                            exp = self.experiments_dict[label][K][C][delta]
+                            exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
                             y, y_std = exp.get_robust_accuracy()
                         y_l.append(y)
                         y_err_l.append(y_std)
@@ -626,15 +696,15 @@ class ExperimentManager:
                     delta = delta_l[i]
                     n_adv = int(n_adv_l[j])
                     if delta == 0:
-                        exp = self.experiments_dict[label][K][C][delta_l[1]]
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][0.01]
                         acc_exp, _ = exp.get_result("accuracy_test")
-                        mlp_exp = self.experiments_dict[mlp][K][C][delta_l[1]]
+                        mlp_exp = self.experiments_dict[mlp][K][C][attack_nodes][n_adv][0.01]
                         acc_mlp, _ = mlp_exp.get_result("accuracy_test")
                         acc_diff = acc_exp-acc_mlp
                     else:
-                        exp = self.experiments_dict[label][K][C][delta]
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
                         acc_exp, _ = exp.get_robust_accuracy()
-                        mlp_exp = self.experiments_dict[mlp][K][C][delta_l[1]]
+                        mlp_exp = self.experiments_dict[mlp][K][C][attack_nodes][n_adv][0.01]
                         acc_mlp, _ = mlp_exp.get_robust_accuracy()
                         acc_diff = acc_exp-acc_mlp
                     nadv_delta[i][j] = acc_diff
@@ -668,11 +738,11 @@ class ExperimentManager:
                     delta = delta_l[i]
                     n_adv = int(n_adv_l[j])
                     if delta == 0:
-                        #exp = self.experiments_dict[label][K][C][0.01]
+                        #exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][0.01]
                         #y, y_std = exp.get_result("accuracy_test")
                         y = 1
                     else:
-                        exp = self.experiments_dict[label][K][C][delta]
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
                         y, y_std = exp.get_certified_ratio()
                     nadv_delta[i][j] = y
         cmap = matplotlib.cm.get_cmap('Greys')
@@ -706,10 +776,10 @@ class ExperimentManager:
                 y_l = []
                 for delta in delta_l:
                     if delta == 0.:
-                        exp = self.experiments_dict[label][K][C][delta_l[1]]
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta_l[1]]
                         y, y_std = 1.0, 0
                     else:
-                        exp = self.experiments_dict[label][K][C][delta]
+                        exp = self.experiments_dict[label][K][C][attack_nodes][n_adv][delta]
                         y, y_std = exp.get_result("cert_node_frac")
                     y_l.append(y)
                     y_err_l.append(y_std)
@@ -733,74 +803,41 @@ class ExperimentManager:
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)
         plt.show()
     
-    def plot_network(self, dataset="karate_club", label="GCN", 
-                     K=1.5, C=0.01, delta=0.2, seed=0, 
-                     plot_=["gt", "train_test", "model"],
-                     with_labels=False, node_size=150, savefig=None):
+    def plot_network(self, dataset="karate_club", label="GCN", K=1.5, C=0.01, delta=0.2, seed=0):
         if dataset == "karate_club":
             _, A, y = get_karate_club()
             G = nx.from_numpy_array(A)
             exp = self.experiments_dict[label][K][C][delta]
             idx_labeled, idx_test, y_flip, y_is_robust = get_experiment(exp, seed)
-            acc_std, _ = exp.get_result("accuracy_test")
-            acc_robust, y_std = exp.get_robust_accuracy()
             print('y label ', y[idx_labeled])
             print('y test ', y[idx_test])
             y_labeled = y[idx_labeled]
             y_test = y[idx_test]
-
-            fig, ax = plt.subplots(1, len(plot_), figsize=(3*len(plot_),3))
-            if len(plot_) == 1:
-                ax = [ax]
-            pos = nx.fruchterman_reingold_layout(G, seed=2)
-            for p_idx in range(len(plot_)):
-                if plot_[p_idx] == "gt":
-                    nx.draw(G, ax=ax[p_idx], node_color=y, with_labels=with_labels, pos=pos, 
-                            edge_color="silver", node_size=node_size)
-                elif plot_[p_idx] == "train_test":
-                    color_map = []
-                    for node in G:
-                        if node in idx_labeled:
-                            color_map.append('lightseagreen')
-                        elif node in idx_test:
-                            color_map.append('yellowgreen')
-                    nx.draw(G, ax=ax[p_idx], node_color=color_map, with_labels=with_labels, pos=pos, 
-                            edge_color="silver", node_size=node_size)
-                    ax[p_idx].set_title("Data")
-                    ax[p_idx].scatter([],[], c='lightseagreen', label='labeled')
-                    ax[p_idx].scatter([],[], c='yellowgreen', label='unlabeled')
-                    ax[p_idx].scatter([],[], c='black', label='flipped')
-                    ax[p_idx].scatter([],[], c='tomato', label='non-robust')
-                    ax[p_idx].legend(loc='upper left', borderpad=0.2, labelspacing=0.2, handlelength=1, markerscale=2, frameon=False)
-                elif plot_[p_idx] == "model":
-                    color_map = []
-                    for node in G:
-                        if node in idx_labeled:
-                            idx = idx_labeled.index(node)
-                            if y_flip[idx] != y_labeled[idx]:
-                                color_map.append('black')
-                            else:
-                                color_map.append('lightseagreen')
-                        elif node in idx_test:
-                            idx = idx_test.index(node)
-                            if y_is_robust[idx] == 1:
-                                color_map.append('yellowgreen')
-                            else:
-                                color_map.append('tomato')
-                    nx.draw(G, ax=ax[p_idx], node_color=color_map, with_labels=with_labels, pos=pos, 
-                            edge_color="silver", node_size=node_size)
-                    # ax[p_idx].scatter([],[], c='black', label='flipped')
-                    # ax[p_idx].scatter([],[], c='tomato', label='non-robust')
-                    acc = round(acc_std, 4)
-                    acc_r = round(acc_robust, 4)
-                    ax[p_idx].set_title(f"{label} acc. $={acc}$ \n Certified acc. $={acc_r}$")
-                ax[p_idx].legend(loc='upper left', borderpad=0.2, labelspacing=0.2, handlelength=1, markerscale=2, frameon=False)
-            if savefig:
-                CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-                plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)
-            plt.show()
-        else:
-            raise NotImplementedError("Datasets other than karate_club not implemented.")
+            fig, ax = plt.subplots(1, 3, figsize=(12,4))
+            pos = nx.fruchterman_reingold_layout(G, seed=10)
+            nx.draw(G, ax=ax[0], node_color=y, with_labels=True, pos=pos)
+            color_map = []
+            for node in G:
+                if node in idx_labeled:
+                    color_map.append('blue')
+                elif node in idx_test:
+                    color_map.append('green')
+            nx.draw(G, ax=ax[1], node_color=color_map, with_labels=True, pos=pos)
+            color_map = []
+            for node in G:
+                if node in idx_labeled:
+                    idx = idx_labeled.index(node)
+                    if y_flip[idx] != y_labeled[idx]:
+                        color_map.append('black')
+                    else:
+                        color_map.append('blue')
+                elif node in idx_test:
+                    idx = idx_test.index(node)
+                    if y_is_robust[idx] == 1:
+                        color_map.append('green')
+                    else:
+                        color_map.append('red')
+            nx.draw(G, ax=ax[2], node_color=color_map, with_labels=True, pos=pos)
 
     def plot(self, name: str, attack: str, models: List[str], 
              errorbars: bool=True, ylabel: str=None, title: str=None,
