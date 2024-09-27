@@ -505,27 +505,27 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
     svm_alpha[alpha_mask] = 0
     alpha_nz_mask = svm_alpha>0 
     eq_constraint = y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1
-    eq_constraint[np.abs(eq_constraint) < MILP_INT_FEAS_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
+    eq_constraint[np.abs(eq_constraint) < MILP_FEASIBILITY_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
     u_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
     v_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
     u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
     v_start[alpha_nz_mask] = -eq_constraint[alpha_nz_mask]
-    u_start[u_start<globals.zero_tol] = 0
-    v_start[v_start<globals.zero_tol] = 0
+    #u_start[u_start<globals.zero_tol] = 0
+    #v_start[v_start<globals.zero_tol] = 0
     s_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
-    u_nz_mask = u_start > 0
+    u_nz_mask = u_start > globals.zero_tol
     s_start[u_nz_mask] = 1
     t_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
     v_nz_mask = v_start > 0
     t_start[v_nz_mask] = 1
     assert (svm_alpha<0).sum() == 0
-    assert (u_start<0).sum() == 0
-    assert (v_start<0).sum() == 0
-    assert ((y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1 - u_start + v_start).sum() < globals.zero_tol)
-    assert (u_start-M*s_start > globals.zero_tol).sum() == 0
-    assert (svm_alpha-C*(1-s_start) > globals.zero_tol).sum() == 0
-    assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
-    assert (-svm_alpha+C*t_start > globals.zero_tol).sum() == 0
+    assert (u_start<-globals.zero_tol).sum() == 0
+    assert (v_start<-globals.zero_tol).sum() == 0
+    assert ((y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1 - u_start + v_start).sum() < MILP_FEASIBILITY_TOL)
+    assert (u_start-M*s_start > MILP_FEASIBILITY_TOL).sum() == 0
+    assert (svm_alpha-C*(1-s_start) > MILP_FEASIBILITY_TOL).sum() == 0
+    assert (v_start-Mprime*t_start > MILP_FEASIBILITY_TOL).sum() == 0
+    assert (-svm_alpha+C*t_start > MILP_FEASIBILITY_TOL).sum() == 0
 
     obj_l = []
     obj_bd_l = []
@@ -951,7 +951,7 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
     
     # Labels are learned as -1 or 1, but loaded as 0 or 1
     y_labeled_ = y_labeled*2 -1 
-    
+
     # Find the initial start feasible solution
     alpha_mask = svm_alpha < globals.zero_tol
     svm_alpha[alpha_mask] = 0
@@ -1078,17 +1078,34 @@ def certify_robust_label(idx_labeled, idx_test, ntk, y,
                 m.Params.LogToConsole = certificate_params["OutputFlag"]
             else:
                 m.params.OutputFlag= 0 # to suppress branch bound search tree outputs
-            m.Params.DualReductions = 0 # to know whether the model is infeasible or unbounded                
-        
+            if "DualReductions" in certificate_params:
+                m.Params.DualReductions = certificate_params["DualReductions"]
+            else:
+                m.params.DualReductions = 0 
+            if "Presolve" in certificate_params:
+                m.Params.Presolve = certificate_params["Presolve"]
+            if "Cuts" in certificate_params:
+                m.Params.Cuts = certificate_params["Cuts"]
+            if "Aggregate" in certificate_params:
+                m.Params.Aggregate = certificate_params["Aggregate"]
+            if "Threads" in certificate_params:
+                m.Params.Threads = certificate_params["Threads"]
             # Played around with the following flags to escape infeasibility solutions
             m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
             m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
             m.Params.NumericFocus = 0
+            if "NodeLimit" in certificate_params:
+                m.Params.NodeLimit = certificate_params["NodeLimit"] # Explored node limit to stop 
+            if "TimeLimit" in certificate_params:
+                m.Params.TimeLimit = certificate_params["TimeLimit"]
             # m.Params.MIPGap = 1e-4
             # m.Params.MIPGapAbs = 1e-4
             # m.Params.Presolve = 0
             # m.Params.Aggregate = 0 #aggregation level in presolve
-            # m.Params.MIPFocus = 1
+            if "MIPFocus" in certificate_params:
+                m.Params.MIPFocus = certificate_params["MIPFocus"]
+            else:
+                m.Params.MIPFocus = 0
             # m.Params.InfProofCuts = 0
 
             def callback(model, where):
@@ -1773,7 +1790,6 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
     return is_robust_l, y_opt_l, obj_l, obj_b_l, opt_status_l
 
 
-
 def certify_collective_robust_label(idx_labeled, idx_test, ntk, y, 
                          y_pred, svm_alpha, certificate_params, l_flip=0.2, C=1, M=1e4, Mprime=1e4, 
                          milp=True, model_params=None, save_params=None):
@@ -1788,6 +1804,19 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
     ntk_labeled = ntk_labeled[:, idx_labeled]
     y_labeled = y[idx_labeled].detach().cpu().numpy()
     ntk_unlabeled = ntk[idx_test,:][:,idx_labeled]
+
+    if "MILP_INT_FEAS_TOL" in certificate_params:
+        _MILP_INT_FEAS_TOL = certificate_params["MILP_INT_FEAS_TOL"]
+    else:
+        _MILP_INT_FEAS_TOL = MILP_INT_FEAS_TOL
+    if "MILP_FEASIBILITY_TOL" in certificate_params:
+        _MILP_FEASIBILITY_TOL = certificate_params["MILP_FEASIBILITY_TOL"]
+    else:
+        _MILP_FEASIBILITY_TOL = MILP_FEASIBILITY_TOL
+    if "MILP_OPTIMALITY_TOL" in certificate_params:
+        _MILP_OPTIMALITY_TOL = certificate_params["MILP_OPTIMALITY_TOL"]
+    else:
+        _MILP_OPTIMALITY_TOL = MILP_OPTIMALITY_TOL
     
     # Labels are learned as -1 or 1, but loaded as 0 or 1
     y_labeled_ = y_labeled*2 -1 
@@ -1797,7 +1826,7 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
     svm_alpha[alpha_mask] = 0
     alpha_nz_mask = svm_alpha>0 
     eq_constraint = y_labeled_*((ntk_labeled * svm_alpha)@y_labeled_) - 1
-    eq_constraint[np.abs(eq_constraint) < MILP_INT_FEAS_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
+    eq_constraint[np.abs(eq_constraint) < _MILP_INT_FEAS_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
     u_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
     v_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
     u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
@@ -1910,7 +1939,7 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
             m.Params.IntegralityFocus = certificate_params["IntegralityFocus"]
         else:
             m.Params.IntegralityFocus = 1 # to stabilize big-M constraint (must)
-        m.Params.IntFeasTol = MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
+        m.Params.IntFeasTol = _MILP_INT_FEAS_TOL # to stabilize big-M constraint (helps, works without this also) 
         if "LogToConsole" in certificate_params:
             m.Params.LogToConsole = certificate_params["LogToConsole"]
         else:
@@ -1925,21 +1954,15 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
             m.params.DualReductions = 0 
         if "Presolve" in certificate_params:
             m.Params.Presolve = certificate_params["Presolve"]
-        else:
-            m.params.Presolve = -1
         if "Cuts" in certificate_params:
             m.Params.Cuts = certificate_params["Cuts"]
-        else:
-            m.params.Cuts = -1
         if "Aggregate" in certificate_params:
             m.Params.Aggregate = certificate_params["Aggregate"]
-        else:
-            m.params.Aggregate = 1
         if "Threads" in certificate_params:
             m.Params.Threads = certificate_params["Threads"]
         # Played around with the following flags to escape infeasibility solutions
-        m.Params.FeasibilityTol = MILP_FEASIBILITY_TOL
-        m.Params.OptimalityTol = MILP_OPTIMALITY_TOL
+        m.Params.FeasibilityTol = _MILP_FEASIBILITY_TOL
+        m.Params.OptimalityTol = _MILP_OPTIMALITY_TOL
         m.Params.NumericFocus = 0
         if "SoftMemLimit" in certificate_params:
             m.Params.SoftMemLimit = certificate_params["SoftMemLimit"]

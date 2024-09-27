@@ -302,7 +302,7 @@ def run(data_params: Dict[str, Any],
         delta = delta,
         delta_absolute = delta, #legacy
         # node-wise pois. robustness statistics
-        y_true_cls = (2*y[idx_test]-1).numpy(force=True).tolist(),
+        y_true_cls = y[idx_test].numpy(force=True).tolist(),
         y_pred_logit = y_pred[0].numpy(force=True).tolist(),
         y_is_robust = is_robust_l[0],
         y_flip = y_opt_l[0], 
