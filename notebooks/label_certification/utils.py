@@ -19,6 +19,7 @@ import sys
 sys.path.append('../../')
 # sys.path.insert(1, 'ntk-robust/src')
 from src.data import get_karate_club
+from scipy.stats import rankdata
 
 CERTIFICATE_FIGURE_DIR = Path('./figures/ICLR/')
 MILP_INT_FEAS_TOL = 1e-4
@@ -369,12 +370,18 @@ class ExperimentManager:
         color_dict = {
             "APPNP_alpha1": 'slategrey', 
             "MLP": 'slategrey', 
+            "MLP+2": 'slategrey', 
             "GCN": 'tab:green', 
             "APPNP_alpha0": "wheat",
+            "APPNP_0": "wheat",
             "APPNP_alpha0.1": "tab:brown",
+            "APPNP_0.1": "tab:brown",
             "APPNP": 'r', #lime 
+            "APPNP_0.2": 'r', #lime 
             "APPNP_alpha0.3": "tab:olive",
             "APPNP_0.3": "tab:olive",
+            # "APPNP_0.1": "tab:olive",
+            "APPNP_0.5": "darkslategrey",
             "APPNP_alpha0.5": "darkslategrey",
             "SGC": "blue",
             "GCN_skippc_linear": "lime", #k
@@ -382,11 +389,32 @@ class ExperimentManager:
             "GCN_skipalpha_linear_alpha0.2": "wheat",
             "GCN_skipalpha_relu_alpha0.2+2": "wheat",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
+            "GCN_skipalpha_linear": "steelblue",
             "GCN_skipalpha_relu_alpha0.1+2": "steelblue",
             "GIN": "darkslateblue",
             "GraphSAGE": "darkred",
             "GCN_sym+2": 'tab:green',
             "SGC_sym+2": "blue",
+            "GCN_sparsity_1+2": "darkred", #'tab:green',
+            "GCN_sparsity_2": "steelblue", #'tab:green',
+            "GCN_homophily_1": "darkred", #'tab:green',
+            "GCN_homophily_2": "steelblue", #'tab:green',
+            "SGC_sparsity_1+2": "darkred", #'tab:green',
+            "SGC_sparsity_2": "steelblue", #'tab:green',
+            "SGC_homophily_1": "darkred", #'tab:green',
+            "SGC_homophily_2": "steelblue", #'tab:green',
+            "GCN_depth2+2": 'tab:green', 
+            "GCN_depth4+3": 'tab:green', 
+            "SGC_depth2+2": "blue", #"tab:brown",
+            "SGC_depth4+3": "blue", #"steelblue",
+            "GIN_depth2+2": "darkslateblue", #"tab:brown",
+            "GIN_depth4+3": "darkslateblue", #"steelblue",
+            "GraphSAGE_depth2+2": "darkred", #"tab:brown",
+            "GraphSAGE_depth4+3": "darkred", #"steelblue",
+            "GCN_skippc_linear_depth2+2": "lime", #"tab:brown",
+            "GCN_skippc_linear_depth4+3": "lime", #"steelblue",
+            "GCN_skipalpha_linear_depth2+2": "steelblue",
+            "GCN_skipalpha_linear_depth4+3": "steelblue",
             # "GAT": "slategrey",
             # "GATv2": "k",
             # "GraphSAGE": "lightsteelblue",
@@ -418,7 +446,10 @@ class ExperimentManager:
                 if sep_labels[0] == label:
                     use_color = color
                     if len(sep_labels) == 2 or sep_labels[0] == "LP":
-                        linestyle = "--"
+                        if  sep_labels[1] == '2':
+                            linestyle = "--"
+                        if sep_labels[1] == '3':
+                            linestyle = "-."
         return use_color, linestyle
     
     def set_color_cycler(self, ax):
@@ -440,13 +471,13 @@ class ExperimentManager:
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
         ax.xaxis.set_ticklabels(xticks, fontsize=fontsize, fontweight="bold")
-        ax.set_xlim(left=-0.3)
+        # ax.set_xlim(left=-0.3)
     
-    def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels):
+    def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels, fontsize):
         ax.xaxis.get_major_formatter()._usetex = False
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
-        ax.xaxis.set_ticklabels(xticks)
+        ax.xaxis.set_ticklabels(xticks, fontsize=fontsize)
 
     def plot_robust_acc_delta(self, K: float, models: List[str], C_l: List[float], 
                               delta_l: List[float],
@@ -525,14 +556,14 @@ class ExperimentManager:
                               markersize=4,
                               capsize=3,
                               linewidth=1,
-                              framealpha=1.0):
+                              framealpha=1.0,
+                              certified_acc=True):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         # self.set_color_cycler(ax)
         if len(legend_labels) != len(models):
             legend_labels = models
         C_l_None_Flag = C_l
-        print('C_ none ', C_l_None_Flag)
         for (label, legend_label) in zip(models, legend_labels):
             if C_l_None_Flag == None:
                 C_l = [key for key in self.experiments_dict[label][K]]
@@ -542,13 +573,18 @@ class ExperimentManager:
                 for delta in delta_l:
                     if delta == 0.:
                         exp = self.experiments_dict[label][K][C][delta_l[1]]
-                        y, y_std = exp.get_result("accuracy_test")
+                        if certified_acc:
+                            y, y_std = exp.get_result("accuracy_test")
+                        else:
+                            y, y_std = 1.0, 0.0
                     else:
                         exp = self.experiments_dict[label][K][C][delta]
-                        y, y_std = exp.get_robust_accuracy()
+                        if certified_acc:
+                            y, y_std = exp.get_robust_accuracy()
+                        else:
+                            y, y_std = exp.get_certified_ratio()
                     y_l.append(y)
                     y_err_l.append(y_std)
-                print('y ', label, C, y_l)
                 if ylogscale:
                     ax.set_yscale('log')
                 if xlogscale:
@@ -567,7 +603,10 @@ class ExperimentManager:
                             color=color, linestyle=linestyle,
                             capsize=capsize, linewidth=linewidth, 
                             markersize=markersize)
-        ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
+        if certified_acc:
+            ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
+        else:
+            ax.set_ylabel("Certified Ratio", fontsize=label_fontsize)
         ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
         ax.yaxis.grid()
         ax.xaxis.grid()
@@ -581,6 +620,53 @@ class ExperimentManager:
         plt.show()
         plt.close(fig)
 
+    def rank_models(self, K, models: List[str], C_l: List[float], 
+                              delta_l: List[float],
+                              legend_labels: List[str]=[],
+                              weak_threshold = 0.1,
+                              intermediate_threshold = 0.3,
+                              decimal_round_off = 4
+                              ):
+        C_l_None_Flag = C_l
+        model_acc = []
+        model_acc_std = []
+        for m_id in range(len(models)):
+            label = models[m_id]
+            if C_l_None_Flag == None:
+                C_l = [key for key in self.experiments_dict[label][K]]
+                assert len(C_l) == 1      
+                C = C_l[0]
+            else:
+                C = C_l[m_id]
+            y_err_l = []
+            y_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][K][C][delta_l[1]]
+                    y, y_std = exp.get_result("accuracy_test")
+                else:
+                    exp = self.experiments_dict[label][K][C][delta]
+                    y, y_std = exp.get_robust_accuracy()
+                y_l.append(y)
+                y_err_l.append(y_std)
+            model_acc.append(y_l)
+            model_acc_std.append(y_err_l)
+        model_acc = np.array(model_acc)
+        model_acc_std = np.array(model_acc_std)
+        # print(model_acc)
+        model_rank = rankdata(-model_acc, axis=0, method='min')
+        w_id = delta_l.index(weak_threshold)+1
+        i_id = delta_l.index(intermediate_threshold)+1
+        weak = np.array([np.mean(model_rank[:,:w_id], axis=1)]).round(decimals=decimal_round_off)
+        intermediate = np.array([np.mean(model_rank[:,w_id:i_id], axis=1)]).round(decimals=decimal_round_off)
+        strong = np.array([np.mean(model_rank[:,i_id:], axis=1)]).round(decimals=decimal_round_off)
+        total = np.array([np.mean(model_rank, axis=1)]).round(decimals=decimal_round_off)
+        df_header = ["model"] + delta_l + ["weak", "intermediate", "strong", "total"]
+        labels = np.array([legend_labels])
+        df_data = np.concatenate((labels.T, model_rank, weak.T, intermediate.T, strong.T, total.T), axis=1)
+        df = pd.DataFrame(data = df_data, columns = df_header)
+        return df
+        
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
                               width=1, ratio=1.618):
@@ -738,6 +824,7 @@ class ExperimentManager:
                      plot_=["gt", "train_test", "model"],
                      with_labels=False, node_size=150, savefig=None):
         if dataset == "karate_club":
+            plt.rcParams['text.latex.preamble'] = r'\usepackage{sfmath} \boldmath'
             _, A, y = get_karate_club()
             G = nx.from_numpy_array(A)
             exp = self.experiments_dict[label][K][C][delta]
@@ -748,7 +835,6 @@ class ExperimentManager:
             print('y test ', y[idx_test])
             y_labeled = y[idx_labeled]
             y_test = y[idx_test]
-
             fig, ax = plt.subplots(1, len(plot_), figsize=(3*len(plot_),3))
             if len(plot_) == 1:
                 ax = [ax]
@@ -766,12 +852,16 @@ class ExperimentManager:
                             color_map.append('yellowgreen')
                     nx.draw(G, ax=ax[p_idx], node_color=color_map, with_labels=with_labels, pos=pos, 
                             edge_color="silver", node_size=node_size)
-                    ax[p_idx].set_title("Data")
-                    ax[p_idx].scatter([],[], c='lightseagreen', label='labeled')
-                    ax[p_idx].scatter([],[], c='yellowgreen', label='unlabeled')
-                    ax[p_idx].scatter([],[], c='black', label='flipped')
-                    ax[p_idx].scatter([],[], c='tomato', label='non-robust')
-                    ax[p_idx].legend(loc='upper left', borderpad=0.2, labelspacing=0.2, handlelength=1, markerscale=2, frameon=False)
+                    ax[p_idx].set_title(r"$\textbf{Karate}$"
+                                        "\n"
+                                         r"$\textbf{Club}$")
+                    ax[p_idx].scatter([],[], c='lightseagreen', label=r'\textbf{labeled}')
+                    ax[p_idx].scatter([],[], c='yellowgreen', label=r'\textbf{unlabeled}')
+                    ax[p_idx].scatter([],[], c='black', label=r'\textbf{flipped}')
+                    ax[p_idx].scatter([],[], c='tomato', label=r'\textbf{non-robust}')
+                    legend_properties = {'weight':'bold'}
+                    ax[p_idx].legend(loc='upper left', borderpad=0.1, labelspacing=0.1, 
+                                     handlelength=0.5, markerscale=2, frameon=False, handletextpad=0.1) 
                 elif plot_[p_idx] == "model":
                     color_map = []
                     for node in G:
@@ -789,19 +879,20 @@ class ExperimentManager:
                                 color_map.append('tomato')
                     nx.draw(G, ax=ax[p_idx], node_color=color_map, with_labels=with_labels, pos=pos, 
                             edge_color="silver", node_size=node_size)
-                    # ax[p_idx].scatter([],[], c='black', label='flipped')
-                    # ax[p_idx].scatter([],[], c='tomato', label='non-robust')
-                    acc = round(acc_std, 4)
-                    acc_r = round(acc_robust, 4)
-                    ax[p_idx].set_title(f"{label} acc. $={acc}$ \n Certified acc. $={acc_r}$")
-                ax[p_idx].legend(loc='upper left', borderpad=0.2, labelspacing=0.2, handlelength=1, markerscale=2, frameon=False)
+                    acc = round(acc_std*100, 2)
+                    acc_r = round(acc_robust*100, 2)
+                    ax[p_idx].set_title(f"${label}$ $acc.$ $={acc}\%$ \n $Certified$ $acc.$ $={acc_r}\%$", fontweight="bold")
+
+                ax[p_idx].legend(loc='upper left', borderpad=0.2, labelspacing=0.2, 
+                                 handlelength=1, markerscale=2, frameon=False,
+                                 )
             if savefig:
                 CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-                plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)
+                plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600, transparent=True)
             plt.show()
         else:
             raise NotImplementedError("Datasets other than karate_club not implemented.")
-
+    
     def plot(self, name: str, attack: str, models: List[str], 
              errorbars: bool=True, ylabel: str=None, title: str=None,
              spacing: str="normal", legend_loc="best", legend_cols: int=None,
