@@ -748,14 +748,21 @@ class ExperimentManager:
         model_rel_acc = model_acc - [model_acc[0]]
         model_rel_acc[0,:] = model_acc[0,:]
         model_str_l = []
+
         i = 0
+        max_indices = np.argmax(model_rel_acc[1:], axis=0) + 1
         for acc_line, std_line in zip(model_rel_acc, model_acc_std):
             acc_l = []
-            for acc, std in zip(acc_line, std_line):
+            j = 0
+            for acc, std, max_idx in zip(acc_line, std_line, max_indices):
                 if acc >= 0 and i > 0:
-                    acc_l = acc_l + [f"+{acc:.1f} $\pm$ {std:.1f}"]
+                    if max_idx == i:
+                        acc_l = acc_l + [f"\\textbf{{+{acc:.1f}}}$\mathbf{{\pm}}$\\textbf{{{std:.1f}}}"]
+                    else:
+                        acc_l = acc_l + [f"+{acc:.1f} $\pm$ {std:.1f}"]
                 else:
                     acc_l = acc_l + [f"{acc:.1f} $\pm$ {std:.1f}"]
+                j += 1
             i += 1
             model_str_l.append(acc_l)
         labels = np.array([legend_labels])
