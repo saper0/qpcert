@@ -11,6 +11,7 @@ from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 import pandas as pd
 import scipy.stats
+from scipy.stats import rankdata
 import seaborn as sns
 from pathlib import Path
 import matplotlib as mpl
@@ -384,6 +385,8 @@ class ExperimentManager:
         # mpl.rcParams['legend.handlelength'] = 1
 
     def get_style(self, label: str):
+        
+        """
         color_dict = {
             "APPNP_alpha1": 'slategrey', #MLP
             "MLP": 'slategrey', #MLP
@@ -413,11 +416,30 @@ class ExperimentManager:
             # "GATv2": "k",
             # "GraphSAGE": "lightsteelblue",
             # "LP": "wheat",
+        }"""
+        color_dict = {
+            "GCN": "black",
+            "GCN_sym": "black",
+            "APPNP": "lime",
+            "APPNP_alpha0.1": "lime",
+            "APPNP_alpha0.2": "lime",
+            "APPNP_alpha0.3": "lime",
+            "APPNP_alpha0.5": "lime",
+            "SGC": "fuchsia",
+            "GCN_skippc": "darkslateblue",
+            "GCN_skipalpha": "deepskyblue",
+            "GraphSAGE": "mediumseagreen",
+            "GIN": "saddlebrown",
+            "MLP": "slategrey",
         }
         linestyle_dict = {
             "LP": '--',
             "SGC_sym": ":",
             "GCN_sym": ":",
+            "APPNP_alpha0.1": (0, (3, 5, 1, 5)),
+            "APPNP_alpha0.2": (0, (5, 1)),
+            "APPNP_alpha0.3": "dotted",
+            "APPNP_alpha0.5": "densely dotted",
             "APPNP_alpha0.1_row": "dashed",
             "APPNP_alpha0.3_row": "dashed",
             "MLP": 'dashed'
@@ -449,14 +471,14 @@ class ExperimentManager:
         return use_color, linestyle
     
     def set_color_cycler(self, ax):
-        color_list = ['r', 
-                      'tab:green', 
-                      'b', 
+        color_list = ['fuchsia', 
+                      'darkslateblue', 
+                      'deepskyblue', 
                       'lime', 
                       'slategrey', 
-                      'k', 
-                      "lightsteelblue",
-                      "antiquewhite",
+                      'black', 
+                      "mediumseagreen",
+                      "saddlebrown",
                       ]
         linestyle_list = ['-', '--', ':', '-.']
         ax.set_prop_cycle(cycler('linestyle', linestyle_list)*
@@ -562,7 +584,6 @@ class ExperimentManager:
                 else:
                     exp = self.experiments_dict[label][delta]
                     y, y_std = get_robust_accuracy(exp)
-                    print(f"delta: {delta:.2f} racc: {y:.3f} std: {y_std:.2f}")
                 y_l.append(y)
                 y_err_l.append(y_std)
             if xlogscale:
@@ -618,7 +639,7 @@ class ExperimentManager:
                 else:
                     exp = self.experiments_dict[label][delta]
                     y, y_std = get_certified_ratio(exp)
-                    #print(f"delta: {delta:.2f} racc: {y:.3f} std: {y_std:.2f}")
+                    print(f"delta: {delta:.2f} racc: {y:.3f} std: {y_std:.2f}")
                 y_l.append(y)
                 y_err_l.append(y_std)
             if xlogscale:
@@ -650,6 +671,92 @@ class ExperimentManager:
             CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
         plt.show()
+
+    def rank_models(self, models: List[str],
+                    delta_l: List[float],
+                    legend_labels: List[str]=[],
+                    weak_threshold = 0.1,
+                    intermediate_threshold = 0.3,
+                    decimal_round_off = 2,
+                    include_model_rank = True,
+                    ):
+        if legend_labels == []:
+            legend_labels = models
+        model_acc = []
+        model_acc_std = []
+        for m_id in range(len(models)):
+            label = models[m_id]
+            y_err_l = []
+            y_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][delta_l[1]]
+                    y, y_std = 1, 0
+                else:
+                    exp = self.experiments_dict[label][delta]
+                    y, y_std = get_certified_ratio(exp)
+                y_l.append(y)
+                y_err_l.append(y_std)
+            model_acc.append(y_l)
+            model_acc_std.append(y_err_l)
+        model_acc = np.array(model_acc)
+        model_acc_std = np.array(model_acc_std)
+        # print(model_acc)
+        model_rank = rankdata(-model_acc, axis=0, method='min')
+        w_id = delta_l.index(weak_threshold)+1
+        i_id = delta_l.index(intermediate_threshold)+1
+        weak = np.array([np.mean(model_rank[:,:w_id], axis=1)]).round(decimals=decimal_round_off)
+        intermediate = np.array([np.mean(model_rank[:,w_id:i_id], axis=1)]).round(decimals=decimal_round_off)
+        strong = np.array([np.mean(model_rank[:,i_id:], axis=1)]).round(decimals=decimal_round_off)
+        total = np.array([np.mean(model_rank, axis=1)]).round(decimals=decimal_round_off)
+        labels = np.array([legend_labels])
+        if include_model_rank:
+            df_header = ["model"] + delta_l + ["weak", "intermediate", "strong", "total"]
+            df_data = np.concatenate((labels.T, model_rank, weak.T, intermediate.T, strong.T, total.T), axis=1)
+        else:
+            df_header = ["model"] + ["weak", "intermediate", "strong", "total"]
+            df_data = np.concatenate((labels.T, weak.T, intermediate.T, strong.T, total.T), axis=1)
+        df = pd.DataFrame(data = df_data, columns = df_header)
+        return df
+
+    def models_delta(self, models: List[str],
+                    delta_l: List[float],
+                    legend_labels: List[str]=[],
+                    ):
+        if legend_labels == []:
+            legend_labels = models
+        model_acc = []
+        model_acc_std = []
+        for m_id in range(len(models)):
+            label = models[m_id]
+            y_err_l = []
+            y_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][delta_l[1]]
+                    y, y_std = 1, 0
+                else:
+                    exp = self.experiments_dict[label][delta]
+                    y, y_std = get_certified_ratio(exp)
+                y_l.append(y)
+                y_err_l.append(y_std)
+            model_acc.append(y_l)
+            model_acc_std.append(y_err_l)
+        model_acc = np.array(model_acc) * 100
+        model_acc_std = np.array(model_acc_std) * 100
+        model_rel_acc = model_acc - [model_acc[0]]
+        model_rel_acc[0,:] = model_acc[0,:]
+        model_str_l = []
+        for acc_line, std_line in zip(model_rel_acc, model_acc_std):
+            acc_l = []
+            for acc, std in zip(acc_line, std_line):
+                acc_l = acc_l + [f"{acc:.1f} $\pm$ {std:.1f}"]
+            model_str_l.append(acc_l)
+        labels = np.array([legend_labels])
+        df_header = ["model"] + delta_l
+        df_data = np.concatenate((labels.T, model_str_l), axis=1)
+        df = pd.DataFrame(data = df_data, columns = df_header)
+        return df
 
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
@@ -1095,5 +1202,4 @@ class ExperimentManager:
             bbox=bbox_props)
         #plt.grid(axis="both")
         plt.show()
-
 
