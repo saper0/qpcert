@@ -748,10 +748,15 @@ class ExperimentManager:
         model_rel_acc = model_acc - [model_acc[0]]
         model_rel_acc[0,:] = model_acc[0,:]
         model_str_l = []
+        i = 0
         for acc_line, std_line in zip(model_rel_acc, model_acc_std):
             acc_l = []
             for acc, std in zip(acc_line, std_line):
-                acc_l = acc_l + [f"{acc:.1f} $\pm$ {std:.1f}"]
+                if acc >= 0 and i > 0:
+                    acc_l = acc_l + [f"+{acc:.1f} $\pm$ {std:.1f}"]
+                else:
+                    acc_l = acc_l + [f"{acc:.1f} $\pm$ {std:.1f}"]
+            i += 1
             model_str_l.append(acc_l)
         labels = np.array([legend_labels])
         if bold:
