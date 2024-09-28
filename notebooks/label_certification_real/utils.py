@@ -420,6 +420,8 @@ class ExperimentManager:
         }"""
         color_dict = {
             "GCN": "black",
+            "GCN_L2": "black",
+            "GCN_L4": "black",
             "GCN_sym": "black",
             "APPNP": "lime",
             "APPNP_alpha0.1": "lime",
@@ -427,7 +429,12 @@ class ExperimentManager:
             "APPNP_alpha0.3": "lime",
             "APPNP_alpha0.5": "lime",
             "SGC": "fuchsia",
+            "SGC_sym": "fuchsia",
             "GCN_skippc": "darkslateblue",
+            "GCN_skippc_L2": "darkslateblue",
+            "GCN_skippc_L4": "darkslateblue",
+            "GCN_skipalpha_L2": "deepskyblue",
+            "GCN_skipalpha_L4": "deepskyblue",
             "GCN_skipalpha": "deepskyblue",
             "GraphSAGE": "mediumseagreen",
             "GIN": "saddlebrown",
@@ -615,7 +622,8 @@ class ExperimentManager:
                             markersize=markersize)
             else:
                     ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                capsize=3, linewidth=1, markersize=4)
+                            capsize=capsize, linewidth=linewidth, 
+                            markersize=markersize)
 
         if use_custom_legend:
             handles, labels = plt.gca().get_legend_handles_labels()
