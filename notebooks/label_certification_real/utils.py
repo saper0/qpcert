@@ -722,6 +722,7 @@ class ExperimentManager:
     def models_delta(self, models: List[str],
                     delta_l: List[float],
                     legend_labels: List[str]=[],
+                    bold = True,
                     ):
         if legend_labels == []:
             legend_labels = models
@@ -753,7 +754,12 @@ class ExperimentManager:
                 acc_l = acc_l + [f"{acc:.1f} $\pm$ {std:.1f}"]
             model_str_l.append(acc_l)
         labels = np.array([legend_labels])
-        df_header = ["model"] + delta_l
+        if bold:
+            delta_l = [f"$\mathbf{{{delta:.2f}}}$" for delta in delta_l]
+            labels = np.array([[f"\\textbf{{{label}}}" for label in labels[0]]])
+        print(labels)
+        print(delta_l)
+        df_header = ["$\\epsilon$"] + delta_l
         df_data = np.concatenate((labels.T, model_str_l), axis=1)
         df = pd.DataFrame(data = df_data, columns = df_header)
         return df
