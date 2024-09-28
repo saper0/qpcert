@@ -361,6 +361,8 @@ class NTK(torch.nn.Module):
             raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP architecture implemented")
 
     def calc_diffusion(self, X: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
+        if "weigh_adjacency" in self.model_dict:
+            A = self.model_dict["weigh_adjacency"] * A
         if "normalize" in self.model_dict:
             if self.model_dict["normalize"]:
                 return self._calc_diffusion(X, A)
