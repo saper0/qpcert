@@ -249,7 +249,6 @@ def get_robust_accuracy(exp: Experiment) -> Tuple[float, float]:
     return np.mean(n_robust_acc_l).item(), np.std(n_robust_acc_l).item()
 
 
-
 def get_certified_ratio(exp: Experiment) -> Tuple[float, float]:
     """
     For certificates returns certified ratio.
@@ -352,6 +351,8 @@ class ExperimentManager:
                                                  label,
                                                  exp_spec["collection"])
                 for exp in exp_list:
+                    if "postfix" in exp_spec:
+                        exp.label += exp_spec["postfix"]
                     if "relabel" in exp_spec:
                         if exp_spec["relabel"] not in self.experiments_dict:
                             self.experiments_dict[exp_spec["relabel"]] = {}
@@ -442,32 +443,21 @@ class ExperimentManager:
             "APPNP_alpha0.5": "densely dotted",
             "APPNP_alpha0.1_row": "dashed",
             "APPNP_alpha0.3_row": "dashed",
-            "MLP": 'dashed'
+            "MLP": 'dashed',
         }
         use_color=""
         linestyle="-"
-        if label.startswith("GPRGNN"):
-            sep_labels = label.split("_")
-            if sep_labels[2] == "CPRBCD":
-                linestyle = "--"
-            if sep_labels[2] == "PRBCD":
-                linestyle = ":"
-            if sep_labels[1] == "eps0":
-                use_color = "b"
-                linestyle = "-"
-            if sep_labels[1] == "eps0.05":
-                use_color = "lime"
-            if sep_labels[1] == "eps0.1":
-                use_color = "tab:green"
-            if sep_labels[1] == "eps0.2":
-                use_color = "slategrey"    
-        else:
-            for key, color in color_dict.items():
-                if key == label:
-                    use_color = color
-            for key, style in linestyle_dict.items():
-                if key == label:
-                    linestyle = style
+        for key, color in color_dict.items():
+            _label = label
+            if label.endswith("_coll") or label.endswith("_samp"):
+                _label = label[:-5]
+            if key == _label:
+                use_color = color
+        for key, style in linestyle_dict.items():
+            if key == label:
+                linestyle = style
+            elif label.endswith("_samp"):
+                linestyle = (0, (1,1))
         return use_color, linestyle
     
     def set_color_cycler(self, ax):
@@ -484,11 +474,11 @@ class ExperimentManager:
         ax.set_prop_cycle(cycler('linestyle', linestyle_list)*
                           cycler('color', color_list))
 
-    def set_xaxis_labels(self, ax, x_ticks, x_labels):
+    def set_xaxis_labels(self, ax, x_ticks, x_labels, fontsize):
         ax.xaxis.get_major_formatter()._usetex = False
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
-        ax.xaxis.set_ticklabels(xticks, fontsize=12, fontweight="bold")
+        ax.xaxis.set_ticklabels(xticks, fontsize=fontsize, fontweight="bold")
         ax.set_xlim(left=-0.3)
     
     def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels):
@@ -564,10 +554,24 @@ class ExperimentManager:
     def plot_robust_acc_delta(self, models: List[str], 
                               delta_l: List[float],
                               legend_labels: List[str]=[],
+                              certified_ratio: bool=False,
                               width=1, ratio=1.618, 
                               xlogscale: bool=False,
                               savefig: str=None,
-                              use_style: bool=True):
+                              use_style: bool=True,
+                              legend_y: str="",
+                              legend_x: str="",
+                              label_fontsize=16,
+                              legend_fontsize=12,
+                              ticks_fontsize=10,
+                              y_lim_ticks=1,
+                              markersize=4,
+                              capsize=3,
+                              linewidth=1,
+                              framealpha=1.0,
+                              use_custom_legend=False,
+                              legend_args=None,
+                              plot_coll_and_sample=False):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         if not use_style:
@@ -580,10 +584,16 @@ class ExperimentManager:
             for delta in delta_l:
                 if delta == 0.:
                     exp = self.experiments_dict[label][delta_l[1]]
-                    y, y_std = exp.get_result("accuracy_test")
+                    if certified_ratio:
+                        y, y_std = 1, 0
+                    else:
+                        y, y_std = exp.get_result("accuracy_test")
                 else:
                     exp = self.experiments_dict[label][delta]
-                    y, y_std = get_robust_accuracy(exp)
+                    if certified_ratio:
+                        y, y_std = get_certified_ratio(exp)
+                    else:
+                        y, y_std = get_robust_accuracy(exp)
                 y_l.append(y)
                 y_err_l.append(y_std)
             if xlogscale:
@@ -594,28 +604,66 @@ class ExperimentManager:
                 self.set_xaxis_labels_logscale(ax, x, delta_l)
             else:
                 x = [i for i in range(len(delta_l))]
-                self.set_xaxis_labels(ax, x, delta_l)
+                self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
             
             label_str = r'{0}'.format(legend_label) #+ " " + str(C)
             if use_style:
                 color, linestyle = self.get_style(label)
                 ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                             color=color, linestyle=linestyle,
-                            capsize=3, linewidth=1, markersize=4)
+                            capsize=capsize, linewidth=linewidth, 
+                            markersize=markersize)
             else:
                     ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                                 capsize=3, linewidth=1, markersize=4)
 
-        ax.set_ylabel("Certified Accuracy")
-        ax.set_xlabel(r"Perturbation budget $\delta$")
+        if use_custom_legend:
+            handles, labels = plt.gca().get_legend_handles_labels()
+            newLabels, newHandles = [], []
+            for handle, label in zip(handles, labels):
+                if label not in newLabels:
+                    newLabels.append(label)
+                    newHandles.append(handle)
+            if plot_coll_and_sample:
+                if len(newLabels) % 2 == 1:
+                    newLabels.append("Sample")
+                    newLabels.append("Collective")
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+                if len(newLabels) % 2 == 0:
+                    idx = int(len(newLabels) / 2)
+                    newLabels.insert(idx, "Sample")
+                    newLabels.append("Collective")
+                    newHandles.insert(idx, plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+
+            ax.legend(newHandles,newLabels,
+                    fontsize=legend_fontsize, 
+                    framealpha=legend_args["framealpha"],
+                    handlelength=legend_args["handlelength"],
+                    handletextpad=legend_args["handletextpad"],
+                    labelspacing = legend_args["labelspacing"], 
+                    loc=legend_args["loc"],
+                    ncol=legend_args["ncol"],
+                    columnspacing=legend_args["columnspacing"],
+                    bbox_to_anchor=legend_args["bbox_to_anchor"])
+        else:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
+        ax.set_ylabel(legend_y, fontsize=label_fontsize)
+        y_ticks_minor = np.arange(0, y_lim_ticks+0.01, 0.05)
+        ax.set_yticks(y_ticks_minor, minor=True)
+        ax.set_xlabel(legend_x, fontsize=label_fontsize)
+        ax.tick_params(labelsize=ticks_fontsize)
         ax.yaxis.grid()
+        ax.yaxis.grid(which='minor', alpha=0.3)
         ax.xaxis.grid()
-        ax.legend()
         if savefig:
             CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
         plt.show()
-    
+
+
+
     def plot_certified_ratio_delta(self, models: List[str], 
                               delta_l: List[float],
                               legend_labels: List[str]=[],
