@@ -347,10 +347,11 @@ class ExperimentManager:
         color_dict = {
             "APPNP_alpha1": 'slategrey', #MLP
             "MLP": 'slategrey', #MLP
+            "MLP_v2": 'slategrey', #MLP
             "GCN": 'tab:green', 
             "GCN_sym": 'tab:green', 
             "APPNP_alpha0": "plum",
-            "APPNP_alpha0.1": "tab:brown",
+            "APPNP_alpha0.1": "r",
             "APPNP_alpha0.1_row": "tab:brown",
             "APPNP_alpha0.2": "r",
             "APPNP": 'r', #lime 
@@ -367,6 +368,8 @@ class ExperimentManager:
             "GCN_skipalpha_relu_alpha0.2+2": "wheat",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
             "GCN_skipalpha_relu_alpha0.1+2": "steelblue",
+            "GIN": "darkslateblue",
+            "GraphSAGE": "darkred",
             # "GAT": "slategrey",
             # "GATv2": "k",
             # "GraphSAGE": "lightsteelblue",

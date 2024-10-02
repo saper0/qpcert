@@ -353,10 +353,11 @@ class ExperimentManager:
         color_dict = {
             "APPNP_alpha1": 'slategrey', #MLP
             "MLP": 'slategrey', #MLP
+            "MLP_v2": 'slategrey', #MLP
             "GCN": 'tab:green', 
             "GCN_sym": 'tab:green', 
             "APPNP_alpha0": "plum",
-            "APPNP_alpha0.1": "tab:brown",
+            "APPNP_alpha0.1": "r",
             "APPNP_alpha0.1_row": "tab:brown",
             "APPNP_alpha0.2": "r",
             "APPNP": 'r', #lime 
@@ -386,7 +387,8 @@ class ExperimentManager:
             "GCN_sym": ":",
             "APPNP_alpha0.1_row": "dashed",
             "APPNP_alpha0.3_row": "dashed",
-            "MLP": 'dashed'
+            "MLP": 'dashed',
+            "MLP_v2": 'dashed'
         }
         use_color=""
         linestyle="-"
@@ -444,6 +446,7 @@ class ExperimentManager:
                               capsize=3,
                               linewidth=1,
                               framealpha=1.0,
+                              bbox_to_anchor=(-0.02,-0.035),
                               use_custom_legend=False):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
@@ -480,16 +483,10 @@ class ExperimentManager:
                 
                 label_str = r'{0}'.format(legend_label) #+ " " + str(C)
                 color, linestyle = self.get_style(label)
-                if label != "GraphSAGE" and label != "GIN" and label != "MLP":
-                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                color=color, linestyle=linestyle,
-                                capsize=capsize, linewidth=linewidth, 
-                                markersize=markersize, alpha=1)
-                else:
-                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                color=color, linestyle=linestyle,
-                                capsize=capsize, linewidth=linewidth, 
-                                markersize=markersize)
+                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                            color=color, linestyle=linestyle,
+                            capsize=capsize, linewidth=linewidth, 
+                            markersize=markersize)
 
         ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
         if pert_model == "l2":
@@ -507,7 +504,7 @@ class ExperimentManager:
                     handletextpad=0.5,
                     labelspacing = 0.3, loc="lower left", 
                     #bbox_to_anchor=(-0.02, -0))
-                    bbox_to_anchor=(-0.02,-0.035))
+                    bbox_to_anchor=bbox_to_anchor)
         else:
             ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
         ax.tick_params(labelsize=ticks_fontsize)
@@ -583,7 +580,7 @@ class ExperimentManager:
                     nadv_delta[i][j] = acc_diff
         cmap = matplotlib.cm.get_cmap(colormap)
         #cmap = sns.color_palette("vlag_r", as_cmap=True)
-        sns.heatmap(nadv_delta, cmap=cmap, center=0, linewidths=0.5, cbar=True, 
+        sns.heatmap(nadv_delta, cmap=cmap, center=0, linewidths=0.5, cbar=True, #vmin=-0.7, vmax=0.2,
                     cbar_kws={'label': 'Certified accuracy gain'})
         ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=delta_l[1:])
         ax.set_yticks(np.arange(nadv_delta.shape[0])+0.5, labels=delta_l, rotation=0)
