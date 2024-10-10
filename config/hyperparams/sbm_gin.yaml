@@ -19,10 +19,10 @@ fixed:
     learning_setting: transductive
     specification:
       classes: 2
-      n_trn_labeled: 20
+      n_trn_labeled: 10
       n_trn_unlabeled: 0
-      n_val: 20
-      n_test: 160
+      n_val: 10
+      n_test: 180
       sigma: 1
       avg_within_class_degree: 3.16
       avg_between_class_degree: 0.74
@@ -51,14 +51,14 @@ grid:
       type: choice
       options:
       - no_normalization
-      - graph_size_normalization
+      # - graph_size_normalization
 
     depth:
       type: choice
       options:
       - 1
-      - 2
-      - 4
+      # - 2
+      # - 4
 
     regularizer:
       type: choice

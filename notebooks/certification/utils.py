@@ -15,7 +15,7 @@ import seaborn as sns
 from pathlib import Path
 import matplotlib as mpl
 
-CERTIFICATE_FIGURE_DIR = Path('./figures/')
+CERTIFICATE_FIGURE_DIR = Path('./figures/ICLR/')
 
 URI = "mongodb://sabanaya:bAvQwbOp@fs.kdd.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
 
@@ -348,15 +348,15 @@ class ExperimentManager:
 
     def get_style(self, label: str):
         color_dict = {
-            "APPNP_alpha1": 'slategrey', #MLP
+            "APPNP_alpha1+2": 'slategrey', #MLP
             "MLP": 'slategrey', #MLP
             "GCN": 'tab:green', 
             "GCN_sym": 'tab:green', 
             "APPNP_alpha0": "plum",
             "APPNP_alpha0.1": "r",
             "APPNP_alpha0.1_row": "r",
-            "APPNP_alpha0.2": "tab:brown",
-            "APPNP": "tab:brown", #lime 
+            "APPNP_alpha0.2": "r", #"tab:brown",
+            "APPNP": "r", #"tab:brown", #lime 
             "APPNP_alpha0.3": "tab:olive",
             "APPNP_alpha0.3_row": "tab:olive",
             "APPNP_alpha0.5": "darkslategrey",
@@ -370,8 +370,20 @@ class ExperimentManager:
             "GCN_skipalpha_relu_alpha0.2+2": "plum",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
             "GCN_skipalpha_relu_alpha0.1+2": "steelblue",
-            "GIN": "wheat",
-            "GIN_norm": "wheat",
+            "GIN": "darkslateblue",
+            "GraphSage": "darkred",
+            "GraphSAGE": "darkred",
+            "GCN_adv+2": 'tab:green', 
+            "APPNP_adv+2": "tab:brown",
+            "SGC_adv+2": "blue",
+            "GCN_skippc_linear_adv+2": "lime",
+            "GCN_skipalpha_linear_alpha0.2_adv+2": "plum",
+            "APPNP_alpha1_adv+2": 'slategrey',
+            "GIN_adv+2": "darkslateblue",
+            "GraphSAGE_adv+2": "darkred",
+            "APPNP_sparsity_1": "green",
+            "APPNP_sparsity_2": "olive",
+            "APPNP_sparsity_3": "blue",
             # "GAT": "slategrey",
             # "GATv2": "k",
             # "GraphSAGE": "lightsteelblue",
@@ -384,7 +396,7 @@ class ExperimentManager:
             "APPNP_alpha0.1_row": "dashed",
             "APPNP_alpha0.3_row": "dashed",
             "MLP": 'dashed',
-            "APPNP_alpha1": 'dashed',
+            # "APPNP_alpha1": 'dashed',
             "GIN_norm": "dashed",
         }
         use_color=""
@@ -442,7 +454,8 @@ class ExperimentManager:
                               linewidth=1,
                               framealpha=1.0,
                               use_custom_legend=False,
-                              pert_model="linf"):
+                              pert_model="linf",
+                              dummy_legend=None):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         if not use_style:
@@ -475,10 +488,16 @@ class ExperimentManager:
                 label_str = r'{0}'.format(legend_label) #+ " " + str(C)
                 if use_style:
                     color, linestyle = self.get_style(label)
-                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                                color=color, linestyle=linestyle,
-                                capsize=capsize, linewidth=linewidth, 
-                            markersize=markersize)
+                    if legend_label in ["GraphSAGE","GIN" ,"MLP"]:
+                        ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                                    color=color, linestyle=linestyle,
+                                    capsize=capsize, linewidth=linewidth, 
+                                markersize=markersize)
+                    else:
+                        ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                                    color=color, linestyle=linestyle,
+                                    capsize=capsize, linewidth=linewidth, 
+                                markersize=markersize) #, alpha=0.45)
                 else:
                     ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                                 capsize=3, linewidth=1, markersize=4)
@@ -489,6 +508,9 @@ class ExperimentManager:
             ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=\infty$)", fontsize=label_fontsize)
         elif pert_model=="l1":
             ax.set_xlabel(r"Perturbation Budget $\delta$ ($p=1$)", fontsize=label_fontsize)
+        if dummy_legend:
+            for dl in dummy_legend:
+                ax.plot([],[],linestyle=dl[0],label=dl[1],c='black')
         ax.yaxis.grid()
         ax.xaxis.grid() 
         if use_custom_legend:
@@ -497,7 +519,9 @@ class ExperimentManager:
                     handletextpad=0.5,
                     labelspacing = 0.3, loc="lower left", 
                     #bbox_to_anchor=(-0.02, -0))
-                    bbox_to_anchor=(-0.02,-0.035))
+                    # bbox_to_anchor=(-0.02,-0.035)
+                    bbox_to_anchor=(-0.02,-0.035)
+                    )
         else:
             ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
         ax.tick_params(labelsize=ticks_fontsize)        
@@ -541,7 +565,12 @@ class ExperimentManager:
 
     def plot_nadv_delta_robust_gain_wrt_mlp_heatmap(self, K: float, models: str, C: float, 
                               attack_nodes: str, n_adv_l: List[str], delta_l: List[float], mlp: str,
-                              title_label: str=None, width=1, ratio=1.2, savefig: str=None):
+                              title_label: str=None, width=1, ratio=1.2, savefig: str=None,
+                              label_fontsize: int=20,
+                              ticks_fontsize: int=20,
+                              cbar_fontsize: int=20,
+                              xticks_l: List[float]=None,
+                              pert: str="linf"):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         # self.set_color_cycler(ax)
@@ -566,15 +595,26 @@ class ExperimentManager:
                     nadv_delta[i][j] = acc_diff
         cmap = matplotlib.cm.get_cmap('coolwarm_r')
         sns.heatmap(nadv_delta, cmap=cmap, center=0, linewidths=0.5, cbar=True, 
-                    cbar_kws={'label': 'Certified accuracy gain'})
-        ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=n_adv_l)
-        ax.set_yticks(np.arange(nadv_delta.shape[0])+0.5, labels=delta_l, rotation=0)
-        ax.set_ylabel(r"Perturbation budget $\delta$")
-        ax.set_xlabel("Number of adversaries")
-        if title_label:
-            ax.set_title(title_label[0])
+                    cbar_kws={'label': 'Certified accuracy gain',
+                              })
+        if xticks_l:
+            ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=xticks_l)
         else:
-            ax.set_title(models[0])
+            ax.set_xticks(np.arange(nadv_delta.shape[1])+0.5, labels=n_adv_l)
+        ax.set_yticks(np.arange(nadv_delta.shape[0])+0.5, labels=delta_l, rotation=0)
+        if pert=="linf":
+            ax.set_ylabel(r"Budget $\delta$ $(p=\infty)$", fontsize=label_fontsize)
+        elif pert=="l2":
+            ax.set_ylabel(r"Budget $\delta$ $(p=2)$", fontsize=label_fontsize)
+        else:
+            ax.set_ylabel(r"Budget $\delta$ $(p=1)$", fontsize=label_fontsize)
+        ax.set_xlabel(r"Adversarial Nodes $p_{adv}$", fontsize=label_fontsize)
+        # if title_label:
+        #     ax.set_title(title_label[0])
+        # else:
+        #     ax.set_title(models[0])
+        ax.tick_params(labelsize=ticks_fontsize)
+        ax.figure.axes[-1].yaxis.label.set_size(cbar_fontsize)
         if savefig:
             CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight', dpi=600)

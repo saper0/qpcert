@@ -1,5 +1,5 @@
 seml:
-  name: sbm_hyper_gcn_alpha
+  name: ntk_gcn_skippc_hyperparams
   executable: exp_ntk_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -7,28 +7,29 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu_all,cpu_large
+    qos: studentpriocpu      
+    partition: cpu,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
-    time: 0-05:00     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17
+    time: 0-03:00     # max time, D-HH:MM
+    exclude: gpu19,mdsi-gpu02
 
 fixed:
   data_params:
     learning_setting: transductive
     specification:
       classes: 2
-      n_trn_labeled: 10 #20
+      n_trn_labeled: 40
       n_trn_unlabeled: 0
-      n_val: 10 #20
-      n_test: 180 #160
+      n_val: 40
+      n_test: 120
       sigma: 1
       avg_within_class_degree: 3.16
       avg_between_class_degree: 0.74
 
   model_params:
-    label: GCN_skipalpha
+    label: GCN_skippc
     model: GCN
     pred_method: svm
     activation: relu
@@ -44,6 +45,7 @@ fixed:
     dtype: float64
     allow_tf32: False
     path_gurobi_license: sabanaya
+    debug: True
 
 grid:
   model_params:
@@ -63,29 +65,16 @@ grid:
     skip_connection:
       type: choice
       options:
-      - skip_alpha_linear
-      - skip_alpha_relu
-    
-    skip_alpha:
-      type: choice
-      options:
-      - 0.1
-      - 0.2
+      - skip_pc_linear
+      - skip_pc_relu
 
     regularizer:
       type: choice
       options:
       - 0.001
-      - 0.005
       - 0.01
-      - 0.025
-      - 0.05
       - 0.1
-      - 0.25
-      - 0.5
       - 1
-      - 5
-      - 10
 
 
 seeds:

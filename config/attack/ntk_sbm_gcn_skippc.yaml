@@ -1,17 +1,18 @@
 seml:
-  name: sbm_hyper_gcn_alpha
-  executable: exp_ntk_hyperparam.py
+  name: ntk_pc_att
+  executable: exp_ntk_attack.py
   project_root_dir: ../..
-  output_dir: log/hyperparam
+  output_dir: log/attack
 
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu_all,cpu_large
+    qos: phdcpu      
+    partition: cpu,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
-    time: 0-05:00     # max time, D-HH:MM
+    time: 0-4:00     # max time, D-HH:MM
     exclude: gpu14,gpu16,gpu17
 
 fixed:
@@ -19,22 +20,33 @@ fixed:
     learning_setting: transductive
     specification:
       classes: 2
-      n_trn_labeled: 10 #20
+      n_trn_labeled: 40
       n_trn_unlabeled: 0
-      n_val: 10 #20
-      n_test: 180 #160
+      n_val: 40
+      n_test: 120
       sigma: 1
       avg_within_class_degree: 3.16
       avg_between_class_degree: 0.74
 
   model_params:
-    label: GCN_skipalpha
+    label: GCN_skippc_linear
     model: GCN
+    normalization: row_normalization
+    depth: 1
     pred_method: svm
     activation: relu
     solver: qplayer
     alpha_tol: 1e-4
     bias: False
+
+  attack_params:
+    attack: apgd
+    max_iter: 300 #2000
+    method: XXT
+    perturbation_model: linf
+    attack_nodes: train_val
+    delta_absolute: False
+    normalize_grad: True
 
   verbosity_params:
     debug_lvl: info
@@ -43,50 +55,64 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: sabanaya
+    store_first_iter: 5
+    store_attack_curve: False
 
 grid:
+  
   model_params:
-    normalization:
+    regularizer:
       type: choice
       options:
-      - row_normalization
-      - sym_normalization
-
-    depth:
-      type: choice
-      options:
-      - 1
-      - 2
-      - 4
+      # - 0.001
+      - 0.01
+      # - 0.1
+      # - 1
     
     skip_connection:
       type: choice
       options:
-      - skip_alpha_linear
-      - skip_alpha_relu
-    
-    skip_alpha:
-      type: choice
-      options:
-      - 0.1
-      - 0.2
+      # - skip_pc_relu
+      - skip_pc_linear
 
-    regularizer:
+  attack_params:
+    eta:
       type: choice
       options:
-      - 0.001
-      - 0.005
+      - 2
+      # - 10
+      # - 100
+
+    n_adversarial:
+      type: choice
+      options:
+      - 1
+      - 2
+      # - 6
+      # - 12
+      # - 24
+      # - 60
+      # - 120
+      - 4
+      - 8
+      - 16
+      - 40
+      - 80
+
+    delta:
+      type: choice
+      options:
       - 0.01
-      - 0.025
+      - 0.02
       - 0.05
       - 0.1
-      - 0.25
+      - 0.2
+      # - 0.3
+      # - 0.4
       - 0.5
+      # - 0.75
       - 1
-      - 5
-      - 10
-
+  
 
 seeds:
   grid:
@@ -95,14 +121,14 @@ seeds:
         seed:
           type: range
           min: 0
-          max: 10
+          max: 5
           step: 1
           zip_id: seed_opt
     
     seed:
       type: range
       min: 0
-      max: 10
+      max: 5
       step: 1
       zip_id: seed_opt
 

@@ -14,7 +14,7 @@ import pandas as pd
 import scipy.stats
 import seaborn as sns
 
-CERTIFICATE_FIGURE_DIR = Path('./figures/')
+CERTIFICATE_FIGURE_DIR = Path('./figures/ICLR/')
 
 URI = "mongodb://sabanaya:bAvQwbOp@fs.kdd.in.tum.de:27017/sabanaya?authMechanism=SCRAM-SHA-1"
 
@@ -246,16 +246,10 @@ class Experiment:
         for experiment in self.individual_experiments:
             result = experiment["result"]
             n_robust = 0
-            for y_true, y_pred, y_worst in zip(result["y_true_cls"],
-                                               result["y_pred_logit"],
-                                               result["y_worst_obj"]):
-                if y_pred > 0 and y_worst > 0:
-                    n_robust += 1
-                if y_pred < 0 and y_worst < 0:
-                    n_robust += 1
+            n_robust = np.array(result["y_is_robust"]).sum()
             n_robust_l.append(n_robust / self.n_test)
         return np.mean(n_robust_l).item(), np.std(n_robust_l).item()
-    
+            
     def __str__(self):
         my_str = self.label
         my_str += f" K: {self.K:.1f}, C: {self.C:.5f}, delta: {self.delta:.2f},"
@@ -337,7 +331,7 @@ class ExperimentManager:
                                       exp_spec["collection"])
 
     def get_style(self, label: str):
-        color_dict = {
+        color_dict_old = {
             "APPNP_alpha1": 'slategrey', #MLP
             "MLP": 'slategrey', #MLP
             "GCN": 'tab:green', 
@@ -364,6 +358,7 @@ class ExperimentManager:
             "GCN_skipalpha_linear_alpha0.1": "wheat",
             "GCN_skipalpha_relu_alpha0.2+2": "wheat",
             "GCN_skipalpha_linear_alpha0.1": "steelblue",
+            "GCN_skipalpha_linear": "steelblue",
             "GCN_skipalpha_relu_alpha0.1+2": "steelblue",
             "GIN": "darkslateblue",
             "GraphSAGE": "darkred",
@@ -371,6 +366,31 @@ class ExperimentManager:
             # "GATv2": "k",
             # "GraphSAGE": "lightsteelblue",
             # "LP": "wheat",
+        }
+        color_dict = {
+            "GCN": "black",
+            "GCN_sym": "black",
+            "APPNP": "lime",
+            "APPNP_0.1": "lime",
+            "APPNP_0.3": "lime",
+            "SGC": "fuchsia",
+            "GCN_skippc": "darkslateblue",
+            "GCN_skippc_linear": "darkslateblue",
+            "GCN_skipalpha_linear": "deepskyblue",
+            "GCN_skipalpha_linear_alpha0.1": "deepskyblue",
+            "GCN_skipalpha": "deepskyblue",
+            "GraphSAGE": "mediumseagreen",
+            "GIN": "saddlebrown",
+            "MLP+2": "slategrey",
+            "GCN_depth2+2": "black",
+            "GCN_depth4+3": "black", 
+            "SGC_depth2+2": "fuchsia",
+            "SGC_depth4+3": "fuchsia",
+            "GCN_skippc_linear_depth2+2": "darkslateblue",
+            "GCN_skippc_linear_depth4+3": "darkslateblue",
+            "GCN_skipalpha_linear_depth2+2": "deepskyblue",
+            "GCN_skipalpha_linear_depth4+3": "deepskyblue",
+
         }
         linestyle_dict = {
             "LP": '--',
@@ -412,7 +432,7 @@ class ExperimentManager:
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
         ax.xaxis.set_ticklabels(xticks, fontsize=fontsize, fontweight="bold")
-        ax.set_xlim(left=-0.3)
+        # ax.set_xlim(left=-0.3)
     
     def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels, fontsize):
         ax.xaxis.get_major_formatter()._usetex = False
@@ -472,7 +492,10 @@ class ExperimentManager:
                               markersize=4,
                               capsize=3,
                               linewidth=1,
-                              framealpha=1.0):
+                              y_lim_ticks=1,
+                              framealpha=1.0,
+                              legend_args=None,
+                              use_custom_legend=False):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
         # self.set_color_cycler(ax)
@@ -512,6 +535,171 @@ class ExperimentManager:
                             color=color, linestyle=linestyle,
                             capsize=capsize, linewidth=linewidth, 
                             markersize=markersize)
+        if use_custom_legend:
+            handles, labels = plt.gca().get_legend_handles_labels()
+            newLabels, newHandles = [], []
+            for handle, label in zip(handles, labels):
+                if label not in newLabels:
+                    newLabels.append(label)
+                    newHandles.append(handle)
+            # if plot_coll_and_sample:
+            #     if len(newLabels) % 2 == 1:
+            #         newLabels.append("Sample")
+            #         newLabels.append("Collective")
+            #         newHandles.append(plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+            #         newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+            #     if len(newLabels) % 2 == 0:
+            #         idx = int(len(newLabels) / 2)
+            #         newLabels.insert(idx, "Sample")
+            #         newLabels.append("Collective")
+            #         newHandles.insert(idx, plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+            #         newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+
+            ax.legend(newHandles,newLabels,
+                    fontsize=legend_fontsize, 
+                    framealpha=legend_args["framealpha"],
+                    handlelength=legend_args["handlelength"],
+                    handletextpad=legend_args["handletextpad"],
+                    labelspacing = legend_args["labelspacing"], 
+                    loc=legend_args["loc"],
+                    ncol=legend_args["ncol"],
+                    columnspacing=legend_args["columnspacing"],
+                    bbox_to_anchor=legend_args["bbox_to_anchor"])
+        else:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
+        ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
+        ax.set_xlabel(r"Perturbation budget $\epsilon$", fontsize=label_fontsize)
+        y_ticks_minor = np.arange(0, y_lim_ticks+0.01, 0.05)
+        ax.set_yticks(y_ticks_minor, minor=True)
+        ax.yaxis.grid()
+        ax.yaxis.grid(which='minor', alpha=0.3)
+        ax.xaxis.grid()
+        ax.tick_params(labelsize=ticks_fontsize)
+        if savefig:
+            if savedir is None:
+                savedir = CERTIFICATE_FIGURE_DIR
+            savedir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(savedir/savefig, bbox_inches='tight')
+        plt.show()
+        plt.close(fig)
+
+    def save_results(self, models: List[str], C_l: List[float], 
+                              delta_l: List[float],
+                              legend_labels: List[str]=[],
+                              savefile = None,
+                              savedir=None):
+        C_l_None_Flag = C_l
+        model_acc = []
+        model_acc_std = []
+        model_ratio = []
+        model_ratio_std = []
+        for m_id in range(len(models)):
+            label = models[m_id]
+            if C_l_None_Flag == None:
+                C_l = [key for key in self.experiments_dict[label]]
+                assert len(C_l) == 1      
+                C = C_l[0]
+            else:
+                C = C_l[m_id]
+            y_err_l = []
+            y_l = []
+            y_ratio_l = []
+            y_ratio_err_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][C][delta_l[1]]
+                    y, y_std = exp.get_result("accuracy_test")
+                    y_r, y_r_std = 1, 0
+                else:
+                    exp = self.experiments_dict[label][C][delta]
+                    y, y_std = exp.get_robust_accuracy()
+                    y_r, y_r_std = exp.get_certified_ratio()
+                y_l.append(y)
+                y_err_l.append(y_std)
+                y_ratio_l.append(y_r)
+                y_ratio_err_l.append(y_r_std)
+            model_acc.append(y_l)
+            model_acc_std.append(y_err_l)
+            model_ratio.append(y_ratio_l)
+            model_ratio_std.append(y_ratio_err_l)
+        model_acc = np.array(model_acc)
+        model_acc_std = np.array(model_acc_std)
+        model_ratio = np.array(model_ratio)
+        model_ratio_std = np.array(model_ratio_std)
+        # print(model_acc)
+        df_header = ["model", "delta", "certified_acc_mean", "certified_acc_std", "certified_ratio_mean", "certified_ratio_std"]
+        labels = np.repeat(legend_labels,len(delta_l))
+        deltas = np.repeat(delta_l,len(models)) 
+        df_data = np.concatenate((labels.reshape(-1,1), deltas.reshape(-1,1), model_acc.reshape(-1,1), model_acc_std.reshape(-1,1), model_ratio.reshape(-1,1), model_ratio_std.reshape(-1,1)),axis=1)
+        df = pd.DataFrame(data = df_data, columns = df_header)
+        if savefile:
+            if savedir is None:
+                savedir = CERTIFICATE_FIGURE_DIR
+            savedir.mkdir(parents=True, exist_ok=True)
+            df.to_csv(savedir/savefile, index=False)
+        return df
+
+    def plot_robust_acc_delta_v3(self, models: List[str], C_l: List[float], 
+                              delta_l: List[float],
+                              legend_labels: List[str]=[],
+                              width=1, ratio=1.618, 
+                              xlogscale: bool=False,
+                              ylogscale: bool=False,
+                              savefig: str=None,
+                              savedir: Path=None,
+                              label_fontsize=16,
+                              legend_fontsize=12,
+                              ticks_fontsize=10,
+                              markersize=4,
+                              capsize=3,
+                              linewidth=1,
+                              framealpha=1.0):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        # self.set_color_cycler(ax)
+        if len(legend_labels) != len(models):
+            legend_labels = models
+        C_l_None_Flag = C_l
+        for (label, legend_label) in zip(models, legend_labels):
+            if C_l_None_Flag == None:
+                C_l = [key for key in self.experiments_dict[label]]
+            for C in C_l:
+                y_err_l = []
+                y_l = []
+                for delta in delta_l:
+                    if delta == 0.:
+                        exp = self.experiments_dict[label][C][delta_l[1]]
+                        y, y_std = exp.get_test_accuracy()
+                    else:
+                        exp = self.experiments_dict[label][C][delta]
+                        y, y_std = exp.get_robust_accuracy()
+                    y_l.append(y)
+                    y_err_l.append(y_std)
+                if ylogscale:
+                    ax.set_yscale('log')
+                if xlogscale:
+                    ax.set_xscale('log')
+                    x = np.array(delta_l)
+                    if x[0] == 0:
+                        x[0] = 0.005
+                    self.set_xaxis_labels_logscale(ax, x, delta_l, ticks_fontsize)
+                else:
+                    l_idx = models.index(label)
+                    x = [l_idx for i in range(len(delta_l))]
+                    self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
+                
+                label_str = r'{0}'.format(legend_label) #+ " " + str(C)
+                color, linestyle = self.get_style(label)
+                # cmap = sns.color_palette("Spectral", n_colors=len(delta_l), as_cmap=True)
+                # ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                #             #cm=cmap, #color=color, linestyle=linestyle,
+                #             capsize=capsize, linewidth=linewidth, 
+                #             markersize=markersize)
+                cmap = sns.color_palette("hls", len(delta_l))
+                
+                sc = ax.scatter(x,y_l, c=np.arange(len(delta_l)), cmap='magma')
+                if l_idx == 0:
+                    plt.colorbar(sc)
         ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
         ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
         ax.yaxis.grid()

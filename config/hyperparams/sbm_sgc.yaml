@@ -7,28 +7,29 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
+    qos: deadline
     partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
     time: 0-05:00     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17
+    exclude: gpu14,gpu16,gpu17,gpu21
 
 fixed:
   data_params:
     learning_setting: transductive
     specification:
       classes: 2
-      n_trn_labeled: 20
+      n_trn_labeled: 10
       n_trn_unlabeled: 0
-      n_val: 20
-      n_test: 160
+      n_val: 10
+      n_test: 180
       sigma: 1
-      avg_within_class_degree: 3.16
-      avg_between_class_degree: 0.74
+      # avg_within_class_degree: 3.16
+      # avg_between_class_degree: 0.74
 
   model_params:
-    label: GCN
+    # label: GCN
     model: GCN
     pred_method: svm
     activation: linear
@@ -46,19 +47,57 @@ fixed:
     path_gurobi_license: sabanaya
 
 grid:
+  data_params:
+    specification:
+      avg_within_class_degree:
+        type: choice
+        options:
+        # - 6.32 
+        # - 1.58
+        # - 0.79
+        # - 12.64
+        # zip_id: sparsity
+        - 6.32 
+        - 1.58
+        zip_id: homophily
+
+      avg_between_class_degree:
+        type: choice
+        options:
+        # - 1.48
+        # - 0.37
+        # - 0.185
+        # - 2.96
+        # zip_id: sparsity
+        - 0.74 
+        - 0.74
+        zip_id: homophily
+
   model_params:
+    label:
+        type: choice
+        options:
+        # - SGC_sparsity_1
+        # - SGC_sparsity_2
+        # - SGC_sparsity_3
+        # - SGC_sparsity_4
+        # zip_id: sparsity 
+        - SGC_homophily_1
+        - SGC_homophily_2
+        zip_id: homophily
+
     normalization:
       type: choice
       options:
       - row_normalization
-      - sym_normalization
+      # - sym_normalization
 
     depth:
       type: choice
       options:
       - 1
-      - 2
-      - 4
+      # - 2
+      # - 4
 
     regularizer:
       type: choice

@@ -206,13 +206,7 @@ class Experiment:
         for experiment in self.individual_experiments:
             result = experiment["result"]
             n_robust = 0
-            for y_true, y_pred, y_worst in zip(result["y_true_cls"],
-                                               result["y_pred_logit"],
-                                               result["y_worst_obj"]):
-                if y_pred > 0 and y_worst > 0:
-                    n_robust += 1
-                if y_pred < 0 and y_worst < 0:
-                    n_robust += 1
+            n_robust = np.array(result["y_is_robust"]).sum()
             n_robust_l.append(n_robust / self.n_test)
         return np.mean(n_robust_l).item(), np.std(n_robust_l).item()
     
@@ -367,7 +361,7 @@ class ExperimentManager:
         # mpl.rcParams['legend.handlelength'] = 1
 
     def get_style(self, label: str):
-        color_dict = {
+        color_dict_old = {
             "APPNP_alpha1": 'slategrey', 
             "MLP": 'slategrey', 
             "MLP+2": 'slategrey', 
@@ -420,6 +414,33 @@ class ExperimentManager:
             # "GraphSAGE": "lightsteelblue",
             # "LP": "wheat",
         }
+        color_dict = {
+            "GCN": "black",
+            "GCN_+2": "black",
+            "GCN_sym": "black",
+            "APPNP": "lime",
+            "APPNP_+2": "lime",
+            "SGC": "fuchsia",
+            "SGC_+2": "fuchsia",
+            "GCN_skippc": "darkslateblue",
+            "GCN_skippc_+2": "darkslateblue",
+            "GCN_skippc_linear": "darkslateblue",
+            "GCN_skipalpha_linear": "deepskyblue",
+            "GCN_skipalpha": "deepskyblue",
+            "GraphSAGE": "mediumseagreen",
+            "GIN": "saddlebrown",
+            "MLP+2": "slategrey",
+            "MLP_": "slategrey",
+            "GCN_depth2+2": "black",
+            "GCN_depth4+3": "black", 
+            "SGC_depth2+2": "fuchsia",
+            "SGC_depth4+3": "fuchsia",
+            "GCN_skippc_linear_depth2+2": "darkslateblue",
+            "GCN_skippc_linear_depth4+3": "darkslateblue",
+            "GCN_skipalpha_linear_depth2+2": "deepskyblue",
+            "GCN_skipalpha_linear_depth4+3": "deepskyblue",
+
+        }
         linestyle_dict = {
             "LP": '--'
         }
@@ -453,14 +474,14 @@ class ExperimentManager:
         return use_color, linestyle
     
     def set_color_cycler(self, ax):
-        color_list = ['r', 
-                      'tab:green', 
-                      'b', 
+        color_list = ['fuchsia', 
+                      'darkslateblue', 
+                      'deepskyblue', 
                       'lime', 
                       'slategrey', 
-                      'k', 
-                      "lightsteelblue",
-                      "antiquewhite",
+                      'black', 
+                      "mediumseagreen",
+                      "saddlebrown",
                       ]
         linestyle_list = ['-', '--', ':', '-.']
         ax.set_prop_cycle(cycler('linestyle', linestyle_list)*
@@ -556,11 +577,17 @@ class ExperimentManager:
                               markersize=4,
                               capsize=3,
                               linewidth=1,
+                              y_lim_ticks=1,
                               framealpha=1.0,
-                              certified_acc=True):
+                              legend_args=None,
+                              use_custom_legend=False,
+                              certified_acc=False,
+                              use_style: bool=True,
+                              ):
         h, w = matplotlib.figure.figaspect(ratio / width)
         fig, ax = plt.subplots(figsize=(w,h))
-        # self.set_color_cycler(ax)
+        if not use_style:
+            self.set_color_cycler(ax)
         if len(legend_labels) != len(models):
             legend_labels = models
         C_l_None_Flag = C_l
@@ -598,19 +625,58 @@ class ExperimentManager:
                     self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
                 
                 label_str = r'{0}'.format(legend_label) #+ " " + str(C)
-                color, linestyle = self.get_style(label)
-                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
-                            color=color, linestyle=linestyle,
+                if use_style:
+                    color, linestyle = self.get_style(label)
+                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                                color=color, linestyle=linestyle,
+                                capsize=capsize, linewidth=linewidth, 
+                                markersize=markersize)
+                else:
+                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
                             capsize=capsize, linewidth=linewidth, 
                             markersize=markersize)
+        if use_custom_legend:
+            handles, labels = plt.gca().get_legend_handles_labels()
+            newLabels, newHandles = [], []
+            for handle, label in zip(handles, labels):
+                if label not in newLabels:
+                    newLabels.append(label)
+                    newHandles.append(handle)
+            # if plot_coll_and_sample:
+            #     if len(newLabels) % 2 == 1:
+            #         newLabels.append("Sample")
+            #         newLabels.append("Collective")
+            #         newHandles.append(plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+            #         newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+            #     if len(newLabels) % 2 == 0:
+            #         idx = int(len(newLabels) / 2)
+            #         newLabels.insert(idx, "Sample")
+            #         newLabels.append("Collective")
+            #         newHandles.insert(idx, plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+            #         newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+
+            ax.legend(newHandles,newLabels,
+                    fontsize=legend_fontsize, 
+                    framealpha=legend_args["framealpha"],
+                    handlelength=legend_args["handlelength"],
+                    handletextpad=legend_args["handletextpad"],
+                    labelspacing = legend_args["labelspacing"], 
+                    loc=legend_args["loc"],
+                    ncol=legend_args["ncol"],
+                    columnspacing=legend_args["columnspacing"],
+                    bbox_to_anchor=legend_args["bbox_to_anchor"])
+        else:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha, handlelength=handlelength, loc=legendloc)
         if certified_acc:
             ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
         else:
             ax.set_ylabel("Certified Ratio", fontsize=label_fontsize)
-        ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
+        ax.set_xlabel(r"Perturbation budget $\epsilon$", fontsize=label_fontsize)
+        y_ticks_minor = np.arange(0, y_lim_ticks+0.01, 0.05)
+        ax.set_yticks(y_ticks_minor, minor=True)
         ax.yaxis.grid()
+        ax.yaxis.grid(which='minor', alpha=0.3)
         ax.xaxis.grid()
-        ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
         ax.tick_params(labelsize=ticks_fontsize)
         if savefig:
             if savedir is None:
@@ -625,6 +691,7 @@ class ExperimentManager:
                               legend_labels: List[str]=[],
                               weak_threshold = 0.1,
                               intermediate_threshold = 0.3,
+                              certified_acc = True,
                               decimal_round_off = 4
                               ):
         C_l_None_Flag = C_l
@@ -643,10 +710,16 @@ class ExperimentManager:
             for delta in delta_l:
                 if delta == 0.:
                     exp = self.experiments_dict[label][K][C][delta_l[1]]
-                    y, y_std = exp.get_result("accuracy_test")
+                    if certified_acc:
+                        y, y_std = exp.get_result("accuracy_test")
+                    else:
+                        y, y_std = 1, 0
                 else:
                     exp = self.experiments_dict[label][K][C][delta]
-                    y, y_std = exp.get_robust_accuracy()
+                    if certified_acc:
+                        y, y_std = exp.get_robust_accuracy()
+                    else:
+                        y, y_std = exp.get_certified_ratio()
                 y_l.append(y)
                 y_err_l.append(y_std)
             model_acc.append(y_l)
@@ -666,7 +739,237 @@ class ExperimentManager:
         df_data = np.concatenate((labels.T, model_rank, weak.T, intermediate.T, strong.T, total.T), axis=1)
         df = pd.DataFrame(data = df_data, columns = df_header)
         return df
-        
+    
+    def models_delta(self, K,models: List[str], C_l: List[float],
+                    delta_l: List[float],
+                    legend_labels: List[str]=[],
+                    bold = True,
+                    ):
+        C_l_None_Flag = C_l
+        if legend_labels == []:
+            legend_labels = models
+        model_acc = []
+        model_acc_std = []
+        for m_id in range(len(models)):
+            label = models[m_id]
+            if C_l_None_Flag == None:
+                C_l = [key for key in self.experiments_dict[label][K]]
+                assert len(C_l) == 1      
+                C = C_l[0]
+            else:
+                C = C_l[m_id]
+            y_err_l = []
+            y_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][K][C][delta_l[1]]
+                    y, y_std = 1, 0
+                else:
+                    exp = self.experiments_dict[label][K][C][delta]
+                    y, y_std = exp.get_certified_ratio()
+                y_l.append(y)
+                y_err_l.append(y_std)
+            model_acc.append(y_l)
+            model_acc_std.append(y_err_l)
+        model_acc = np.array(model_acc) * 100
+        model_acc_std = np.array(model_acc_std) * 100
+        model_rel_acc = model_acc - [model_acc[0]]
+        model_rel_acc[0,:] = model_acc[0,:]
+        model_str_l = []
+
+        i = 0
+        max_indices = np.argmax(model_rel_acc[1:], axis=0) + 1
+        for acc_line, std_line in zip(model_rel_acc, model_acc_std):
+            acc_l = []
+            j = 0
+            for acc, std, max_idx in zip(acc_line, std_line, max_indices):
+                if acc >= 0 and i > 0:
+                    if max_idx == i:
+                        acc_l = acc_l + [f"\\textbf{{+{acc:.1f}}}$\mathbf{{\pm}}$\\textbf{{{std:.1f}}}"]
+                    else:
+                        acc_l = acc_l + [f"+{acc:.1f} $\pm$ {std:.1f}"]
+                else:
+                    acc_l = acc_l + [f"{acc:.1f} $\pm$ {std:.1f}"]
+                j += 1
+            i += 1
+            model_str_l.append(acc_l)
+        labels = np.array([legend_labels])
+        if bold:
+            delta_l = [f"$\mathbf{{{delta:.2f}}}$" for delta in delta_l]
+            labels = np.array([[f"\\textbf{{{label}}}" for label in labels[0]]])
+        print(labels)
+        print(delta_l)
+        df_header = ["$\\epsilon$"] + delta_l
+        df_data = np.concatenate((labels.T, model_str_l), axis=1)
+        df = pd.DataFrame(data = df_data, columns = df_header)
+        return df
+
+    def save_results(self,K, models: List[str], C_l: List[float], 
+                              delta_l: List[float],
+                              legend_labels: List[str]=[],
+                              savefile = None,
+                              savedir=None):
+        C_l_None_Flag = C_l
+        model_acc = []
+        model_acc_std = []
+        model_ratio = []
+        model_ratio_std = []
+        for m_id in range(len(models)):
+            label = models[m_id]
+            if C_l_None_Flag == None:
+                C_l = [key for key in self.experiments_dict[label][K]]
+                assert len(C_l) == 1      
+                C = C_l[0]
+            else:
+                C = C_l[m_id]
+            y_err_l = []
+            y_l = []
+            y_ratio_l = []
+            y_ratio_err_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][K][C][delta_l[1]]
+                    y, y_std = exp.get_result("accuracy_test")
+                    y_r, y_r_std = 1, 0
+                else:
+                    exp = self.experiments_dict[label][K][C][delta]
+                    y, y_std = exp.get_robust_accuracy()
+                    y_r, y_r_std = exp.get_certified_ratio()
+                y_l.append(y)
+                y_err_l.append(y_std)
+                y_ratio_l.append(y_r)
+                y_ratio_err_l.append(y_r_std)
+            model_acc.append(y_l)
+            model_acc_std.append(y_err_l)
+            model_ratio.append(y_ratio_l)
+            model_ratio_std.append(y_ratio_err_l)
+        model_acc = np.array(model_acc)
+        model_acc_std = np.array(model_acc_std)
+        model_ratio = np.array(model_ratio)
+        model_ratio_std = np.array(model_ratio_std)
+        # print(model_acc)
+        df_header = ["model", "delta", "certified_acc_mean", "certified_acc_std", "certified_ratio_mean", "certified_ratio_std"]
+        labels = np.repeat(legend_labels,len(delta_l))
+        deltas = np.repeat(delta_l,len(models)) 
+        df_data = np.concatenate((labels.reshape(-1,1), deltas.reshape(-1,1), model_acc.reshape(-1,1), model_acc_std.reshape(-1,1), model_ratio.reshape(-1,1), model_ratio_std.reshape(-1,1)),axis=1)
+        df = pd.DataFrame(data = df_data, columns = df_header)
+        if savefile:
+            if savedir is None:
+                savedir = CERTIFICATE_FIGURE_DIR
+            savedir.mkdir(parents=True, exist_ok=True)
+            df.to_csv(savedir/savefile, index=False)
+        return df
+
+    def plot_from_df_acc_delta(self,acc: List[List], acc_std: List[List], 
+                              models: List[str],
+                              delta_l: List[float],
+                              legend_labels: List[str]=[],
+                              width=1, ratio=1.618, 
+                              xlogscale: bool=False,
+                              ylogscale: bool=False,
+                              savefig: str=None,
+                              savedir: Path=None,
+                              label_fontsize=16,
+                              legend_fontsize=12,
+                              ticks_fontsize=10,
+                              markersize=4,
+                              capsize=3,
+                              linewidth=1,
+                              y_lim_ticks=1,
+                              framealpha=1.0,
+                              legend_args=None,
+                              use_custom_legend=False,
+                              certified_acc=False,
+                              use_style: bool=True,
+                              plot_coll_and_sample: bool=True
+                              ):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        if not use_style:
+            self.set_color_cycler(ax)
+        if len(legend_labels) != len(models):
+            legend_labels = models
+        print(legend_labels)
+        # for (label, legend_label) in zip(models, legend_labels):
+        for id_m in range(len(legend_labels)):
+            label = models[id_m]
+            legend_label = legend_labels[id_m]
+            y_err_l = acc_std[id_m]
+            y_l = acc[id_m]
+            if ylogscale:
+                ax.set_yscale('log')
+            if xlogscale:
+                ax.set_xscale('log')
+                x = np.array(delta_l)
+                if x[0] == 0:
+                    x[0] = 0.005
+                self.set_xaxis_labels_logscale(ax, x, delta_l, ticks_fontsize)
+            else:
+                x = [i for i in range(len(delta_l))]
+                self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
+            
+            label_str = r'{0}'.format(legend_label) #+ " " + str(C)
+            if use_style:
+                color, linestyle = self.get_style(label)
+                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                            color=color, linestyle=linestyle,
+                            capsize=capsize, linewidth=linewidth, 
+                            markersize=markersize)
+            else:
+                ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                        capsize=capsize, linewidth=linewidth, 
+                        markersize=markersize)
+        if use_custom_legend:
+            handles, labels = plt.gca().get_legend_handles_labels()
+            newLabels, newHandles = [], []
+            for handle, label in zip(handles, labels):
+                if label not in newLabels:
+                    newLabels.append(label)
+                    newHandles.append(handle)
+            if plot_coll_and_sample:
+                if len(newLabels) % 2 == 1:
+                    newLabels.append("Sample")
+                    newLabels.append("Collective")
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+                if len(newLabels) % 2 == 0:
+                    idx = int(len(newLabels) / 2)
+                    newLabels.insert(idx, "Sample")
+                    newLabels.append("Collective")
+                    newHandles.insert(idx, plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+
+            ax.legend(newHandles,newLabels,
+                    fontsize=legend_fontsize, 
+                    framealpha=legend_args["framealpha"],
+                    handlelength=legend_args["handlelength"],
+                    handletextpad=legend_args["handletextpad"],
+                    labelspacing = legend_args["labelspacing"], 
+                    loc=legend_args["loc"],
+                    ncol=legend_args["ncol"],
+                    columnspacing=legend_args["columnspacing"],
+                    bbox_to_anchor=legend_args["bbox_to_anchor"])
+        else:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha, handlelength=handlelength, loc=legendloc)
+        if certified_acc:
+            ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
+        else:
+            ax.set_ylabel("Certified Ratio", fontsize=label_fontsize)
+        ax.set_xlabel(r"Perturbation budget $\epsilon$", fontsize=label_fontsize)
+        y_ticks_minor = np.arange(0, y_lim_ticks+0.01, 0.05)
+        ax.set_yticks(y_ticks_minor, minor=True)
+        ax.yaxis.grid()
+        ax.yaxis.grid(which='minor', alpha=0.3)
+        ax.xaxis.grid()
+        ax.tick_params(labelsize=ticks_fontsize)
+        if savefig:
+            if savedir is None:
+                savedir = CERTIFICATE_FIGURE_DIR
+            savedir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(savedir/savefig, bbox_inches='tight')
+        plt.show()
+        plt.close(fig)    
+
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
                               width=1, ratio=1.618):
