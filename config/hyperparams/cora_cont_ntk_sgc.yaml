@@ -1,6 +1,6 @@
 seml:
   name: cora_ml_cont_hyperparams
-  executable: exp_ntk_hyperparam.py
+  executable: exp_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
 

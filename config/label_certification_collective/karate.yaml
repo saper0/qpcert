@@ -1,6 +1,6 @@
 seml:
   name: label_karate
-  executable: exp_ntk_certify_collective_label.py
+  executable: exp_certify_collective_label.py
   project_root_dir: ../..
   output_dir: log/label_collect
 
@@ -36,7 +36,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: sabanaya
+    path_gurobi_license: path/to/your/gurobi/license
 
 grid:
   

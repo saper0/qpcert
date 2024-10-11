@@ -1,0 +1,189 @@
+seml:
+  name: label_cba
+  executable: exp_certify_label_binaryclass.py
+  project_root_dir: ../..
+  output_dir: log/label_bdev
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    qos: deadline
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 10G          # memory
+    cpus-per-task: 2  # num cores
+    time: 0-20:30     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17,gpu21
+
+fixed:
+  data_params:
+    learning_setting: transductive
+    specification:
+      classes: 2
+      n_trn_labeled: 10
+      n_trn_unlabeled: 0
+      n_val: 10
+      n_test: 180
+      sigma: 1
+      m: 2
+      avg_within_class_degree: 3.16
+      avg_between_class_degree: 0.74
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+    path_gurobi_license: path/to/your/gurobi/license
+
+grid:
+
+  certificate_params:
+    delta:
+      type: choice
+      options:
+      # - 0.01 # 0 for 80 # 0 for 40 # 0 for 20
+      # - 0.02 # 1  # 0 # 0 for 20
+      # - 0.03 # 2 # 1
+      - 0.05 # 4 # 2
+      - 0.1 # 8 # 4
+      - 0.15 # 12 # 6
+      - 0.2 # 16 # 8
+      - 0.25 # 20 # 10
+      - 0.3 # 24 # 12
+      # - 0.4 # 32 # 16
+      - 0.5 # 40 # 20
+      - 1 # 80 # 40
+  
+  data_params:
+    specification:
+      seed:
+        type: range
+        min: 0
+        max: 5
+        step: 1
+        zip_id: seed_opt
+  
+  seed:
+    type: range
+    min: 0
+    max: 5
+    step: 1
+    zip_id: seed_opt
+
+# gcn:
+#   fixed:
+#     model_params:
+#       label: GCN
+#       model: GCN
+#       normalization: sym_normalization
+#       depth: 1
+#       regularizer: 0.001
+#       pred_method: svm
+#       activation: relu
+#       solver: qplayer
+#       alpha_tol: 1e-4
+#       bias: False
+
+# sgc:
+#   fixed:
+#     model_params:
+#       label: SGC
+#       model: GCN
+#       normalization: sym_normalization
+#       depth: 1
+#       regularizer: 0.001
+#       pred_method: svm
+#       activation: linear
+#       solver: qplayer
+#       alpha_tol: 1e-4
+#       bias: False
+
+gcn_skipalpha:
+  fixed:
+    model_params:
+      label: GCN_skipalpha_linear
+      model: GCN
+      normalization: sym_normalization
+      skip_connection: skip_alpha_linear
+      skip_alpha: 0.1
+      depth: 1
+      regularizer: 0.001
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+# gcn_skippc:
+#   fixed:
+#     model_params:
+#       label: GCN_skippc_linear
+#       model: GCN
+#       normalization: sym_normalization
+#       skip_connection: skip_pc_linear
+#       depth: 1
+#       regularizer: 0.001
+#       pred_method: svm
+#       activation: relu
+#       solver: qplayer
+#       alpha_tol: 1e-4
+#       bias: False
+
+# mlp:
+#   fixed:
+#     model_params:
+#       label: MLP
+#       model: APPNP
+#       activation: relu
+#       normalization: sym_normalization
+#       regularizer: 0.001
+#       iteration: 10
+#       alpha: 1
+#       solver: qplayer
+#       alpha_tol: 1e-4
+#       bias: False
+
+# appnp:
+#   fixed:
+#     model_params:
+#       label: APPNP_0.3
+#       model: APPNP
+#       activation: relu
+#       normalization: sym_normalization
+#       regularizer: 0.25
+#       iteration: 10
+#       alpha: 0.3
+#       solver: qplayer
+#       alpha_tol: 1e-4
+#       bias: False
+
+# gin:
+#   fixed:
+#     model_params:
+#       label: GIN
+#       model: GIN
+#       normalization: no_normalization
+#       depth: 1
+#       regularizer: 0.001
+#       pred_method: svm
+#       activation: relu
+#       solver: qplayer
+#       alpha_tol: 1e-4
+#       bias: False
+
+# graphsage:
+#   fixed:
+#     model_params:
+#       label: GraphSAGE
+#       model: GCN
+#       normalization: graph_sage_normalization
+#       depth: 1
+#       regularizer: 0.001
+#       pred_method: svm
+#       activation: relu
+#       solver: qplayer
+#       alpha_tol: 1e-4
+#       bias: False

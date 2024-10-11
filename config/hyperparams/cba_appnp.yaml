@@ -1,6 +1,6 @@
 seml:
   name: cba_hyper_appnp
-  executable: exp_ntk_hyperparam.py
+  executable: exp_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
 
@@ -46,7 +46,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: sabanaya
+    path_gurobi_license: path/to/your/gurobi/license
 
 grid:
   data_params:
