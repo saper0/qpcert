@@ -7,8 +7,7 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    qos: phdcpu      
-    partition: cpu,cpu_large
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 12G          # memory
     cpus-per-task: 1  # num cores
@@ -19,7 +18,7 @@ fixed:
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 10
+      n_per_class: 5
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True
@@ -59,8 +58,12 @@ grid:
     regularizer:
       type: choice
       options:
+      - 0.0001
+      - 0.00025
+      - 0.0005
+      - 0.00075
       - 0.001
-      - 0.00175
+      - 0.0015
       - 0.002
       - 0.0025
       - 0.003

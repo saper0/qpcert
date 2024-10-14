@@ -7,10 +7,9 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    qos: phdcpu      
-    partition: cpu,cpu_large
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
-    mem: 15G          # memory
+    mem: 12G          # memory
     cpus-per-task: 1  # num cores
     time: 0-00:15     # max time, D-HH:MM
 
@@ -19,7 +18,7 @@ fixed:
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 10
+      n_per_class: 5
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True
@@ -58,29 +57,24 @@ grid:
     regularizer:
       type: choice
       options:
-      - 0.001
-      - 0.00175
-      - 0.002
-      - 0.0025
-      - 0.003
-      - 0.0035
-      - 0.004
-      - 0.0045
-      - 0.005
-      - 0.0055
-      - 0.006
-      - 0.0065
-      - 0.007
-      - 0.0075
-      - 0.008
-      - 0.0085
-      - 0.009
-      - 0.0095
-      - 0.01
-      - 0.1
-      - 1
-      - 5
-      - 10
+      #- 0.001
+      #- 0.002
+      #- 0.003
+      #- 0.004
+      #- 0.005
+      #- 0.006
+      #- 0.007
+      #- 0.008
+      #- 0.009
+      #- 0.01
+      - 0.025
+      - 0.05
+      - 0.075
+      #- 0.1
+      - 0.5
+      #- 1
+      #- 5
+      #- 10
   
 
 seeds:

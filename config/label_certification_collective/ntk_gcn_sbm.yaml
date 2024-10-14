@@ -11,8 +11,8 @@ slurm:
     gres: gpu:0       # num gpu
     mem: 30G          # memory 10G was not enough in some cases
     cpus-per-task: 2  # num cores
-    time: 4-20:30     # max time, D-HH:MM
-    exclude: gpu13,gpu14,gpu16,gpu17
+    time: 1-20:30     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:

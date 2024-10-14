@@ -1,0 +1,131 @@
+seml:
+  name: usc16_hyperparams
+  executable: exp_ntk_hyperparam.py
+  project_root_dir: ../..
+  output_dir: log/hyperparam
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 12G          # memory
+    cpus-per-task: 1  # num cores
+    time: 0-00:30     # max time, D-HH:MM
+
+fixed:
+  data_params:
+    learning_setting: transductive
+    cv_folds: 4
+    specification:
+      year: 2016
+      fraction_test: 0.1
+      data_dir: ./data
+      balance_test: True
+
+  model_params:
+    label: MLP
+    model: APPNP
+    activation: relu
+    normalization: sym_normalization
+    iteration: 10
+    solver: qplayer
+    alpha_tol: 1e-4
+    bias: False
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+
+grid:
+  
+  data_params:
+    dataset:
+      type: choice
+      options:
+      - us_county
+
+    specification:
+      n_per_class: 
+        type: choice
+        options:
+        - 40
+        - 50
+
+
+  model_params:
+    alpha:
+      type: choice
+      options:
+      - 0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.5
+
+    pred_method:
+      type: choice
+      options:
+      - svm
+
+    regularizer:
+      type: choice
+      options:
+      - 0.001
+      - 0.00175
+      - 0.002
+      - 0.0025
+      - 0.003
+      - 0.0035
+      - 0.004
+      - 0.0045
+      - 0.005
+      - 0.0055
+      - 0.006
+      - 0.0065
+      - 0.007
+      - 0.0075
+      - 0.008
+      - 0.0085
+      - 0.009
+      - 0.0095
+      - 0.01
+      - 0.02
+      - 0.03
+      - 0.04
+      - 0.05
+      - 0.075
+      - 0.1
+      - 0.125
+      - 0.15
+      - 0.175
+      - 0.2
+      - 0.225
+      - 0.25
+      - 0.275
+      - 0.3
+      - 0.325
+      - 0.35
+      - 0.4
+      - 0.45
+      - 0.5
+      - 0.75
+      - 1
+      - 5
+      - 10
+  
+
+seeds:
+  grid:
+    data_params:
+      specification:
+        seed:
+          type: range
+          min: 0
+          max: 10
+          step: 1
+

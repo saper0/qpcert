@@ -1,5 +1,5 @@
 seml:
-  name: citeseer_skipalpha_hyperparams
+  name: cora_cont_skipalpha
   executable: exp_ntk_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -7,10 +7,9 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    qos: phdcpu      
-    partition: cpu,cpu_large
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
-    mem: 15G          # memory
+    mem: 12G          # memory
     cpus-per-task: 1  # num cores
     time: 0-00:15     # max time, D-HH:MM
 
@@ -19,14 +18,15 @@ fixed:
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 20
+      n_per_class: 5
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True
 
   model_params:
-    label: GCN
+    label: GCN_skipalpha
     model: GCN
+    activation: relu
     normalization: row_normalization
     depth: 1
     solver: qplayer_one_vs_all
@@ -50,6 +50,7 @@ grid:
       - citeseer
 
   model_params:
+
     pred_method:
       type: choice
       options:
@@ -58,8 +59,12 @@ grid:
     regularizer:
       type: choice
       options:
+      - 0.0001
+      - 0.00025
+      - 0.0005
+      - 0.00075
       - 0.001
-      - 0.00175
+      - 0.0015
       - 0.002
       - 0.0025
       - 0.003
@@ -81,6 +86,20 @@ grid:
       - 1
       - 5
       - 10
+
+    skip_connection:
+      type: choice
+      options:
+      # - skip_alpha_relu
+      - skip_alpha_linear
+    
+    skip_alpha:
+      type: choice
+      options:
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.5
   
 
 seeds:

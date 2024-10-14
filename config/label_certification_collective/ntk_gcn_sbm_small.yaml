@@ -1,0 +1,110 @@
+seml:
+  name: label_gcn
+  executable: exp_ntk_certify_collective_label.py
+  project_root_dir: ../..
+  output_dir: log/label_collect
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 30G          # memory
+    cpus-per-task: 2  # num cores
+    time: 1-05:30     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17
+
+fixed:
+  data_params:
+    learning_setting: transductive
+    specification:
+      classes: 2
+      n_trn_labeled: 20
+      n_trn_unlabeled: 0
+      n_val: 20
+      n_test: 40
+      sigma: 1
+      avg_within_class_degree: 3.16
+      avg_between_class_degree: 0.74
+
+  model_params:
+    model: GCN
+    normalization: row_normalization
+    pred_method: svm
+    activation: relu
+    solver: qplayer
+    alpha_tol: 1e-4
+    bias: False
+  
+  certificate_params:
+    LogToConsole: 1
+    OutputFlag: 1
+    TimeLimit: 86400
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+    path_gurobi_license: lukas
+
+grid:
+  
+  model_params:
+    label:
+      type: choice
+      options:
+      - GCN
+      zip_id: depths
+
+    depth:
+      type: choice
+      options:
+      - 1
+      zip_id: depths
+
+    regularizer:
+      type: choice
+      options:
+       - 0.1
+
+  certificate_params:
+    IntegralityFocus:
+      type: choice
+      options:
+      - 1
+      - 0
+
+    use_tight_big_M:
+      type: choice
+      options:
+      - 1
+      - 0
+
+    delta:
+      type: choice
+      options:
+      - 0.05
+      - 0.15 # 12 # 6
+      - 0.25
+
+seeds:
+  grid:
+    data_params:
+      specification:
+        seed:
+          type: range
+          min: 0
+          max: 5
+          step: 1
+          zip_id: seed_opt
+    
+    seed:
+      type: range
+      min: 0
+      max: 5
+      step: 1
+      zip_id: seed_opt
+

@@ -1,0 +1,86 @@
+seml:
+  name: mlb_graphsage
+  executable: exp_ntk_hyperparam.py
+  project_root_dir: ../..
+  output_dir: log/hyperparam
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 10G          # memory
+    cpus-per-task: 1  # num cores
+    time: 0-00:15     # max time, D-HH:MM
+
+fixed:
+  data_params:
+    learning_setting: transductive
+    cv_folds: 4
+    specification:
+      n_per_class: 5
+      fraction_test: 0.1
+      data_dir: ./data
+      balance_test: True
+
+  model_params:
+    label: GraphSAGE
+    model: GCN
+    activation: relu
+    normalization: graph_sage_normalization
+    depth: 1
+    solver: qplayer
+    bias: False
+    alpha_tol: 1e-4
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+
+grid:
+  
+  data_params:
+    dataset:
+      type: choice
+      options:
+      - cora_ml_cont_binary
+
+  model_params:
+
+    pred_method:
+      type: choice
+      options:
+      - svm
+
+    regularizer:
+      type: choice
+      options:
+      - 0.001
+      - 0.005
+      - 0.01
+      - 0.05
+      - 0.1
+      - 0.25
+      - 0.5
+      - 0.75
+      - 1
+      - 2.5
+      - 5
+      - 7.5
+      - 10
+  
+
+seeds:
+  grid:
+    data_params:
+      specification:
+        seed:
+          type: range
+          min: 0
+          max: 10
+          step: 1
+

@@ -99,7 +99,7 @@ gcn_skipalpha:
       normalization: row_normalization
       depth: 1
       regularizer: 1
-      skip_connections: skip_alpha_linear
+      skip_connection: skip_alpha_linear
       skip_alpha: 0.1
       pred_method: svm
       activation: relu
@@ -115,7 +115,7 @@ gcn_skippc:
       normalization: row_normalization
       depth: 1
       regularizer: 0.5
-      skip_connections: skip_pc_linear
+      skip_connection: skip_pc_linear
       pred_method: svm
       activation: relu
       solver: qplayer

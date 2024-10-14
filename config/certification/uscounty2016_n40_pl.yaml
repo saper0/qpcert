@@ -1,0 +1,151 @@
+seml:
+  name: uscounty2016_n40_pl
+  executable: exp_certify_binaryclass_onenode.py
+  project_root_dir: ../..
+  output_dir: log/certification
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 24G          # memory
+    cpus-per-task: 2  # num cores
+    time: 1-05:30     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17
+
+fixed:
+  data_params:
+    dataset: us_county
+    learning_setting: transductive
+    specification:
+      year: 2016
+      n_per_class: 40
+      fraction_test: 0.01
+      data_dir: ./data
+      make_undirected: True
+      binary_attr: False
+      balance_test: True
+
+  certificate_params:
+    method: XXT
+    delta_absolute: True
+    attack_nodes: train_val
+    NumericFocus: 0
+    MIPFocus_first: 0
+    MIPFocus_other: 0
+    LogToConsole: 1
+    OutputFlag: 1
+    TimeLimit: 86400
+    n_targets_per_class: 25
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+    path_gurobi_license: lukas
+
+grid:
+  
+  certificate_params:
+    perturbation_model: 
+      type: choice 
+      options:
+      - l2
+
+    n_adversarial:
+      type: choice
+      options:
+      - 160
+
+    delta:
+      type: choice
+      options:
+      - 0.01
+      - 0.02
+      - 0.05
+      #- 0.1
+      #- 0.2
+      #- 0.5
+      #- 1
+
+    target_idx:
+      type: range
+      min: 0
+      max: 50
+      step: 1
+    
+  data_params:
+    specification:
+      seed:
+        type: range
+        min: 0
+        max: 3
+        step: 1
+        zip_id: seed_opt
+  
+  seed:
+    type: range
+    min: 0
+    max: 3
+    step: 1
+    zip_id: seed_opt
+
+mlp:
+  fixed:
+    model_params:
+      label: MLP
+      model: APPNP
+      activation: relu
+      normalization: sym_normalization
+      regularizer: 0.0035
+      iteration: 10
+      alpha: 1
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gcn:
+  fixed:
+    model_params:
+      label: GCN
+      model: GCN
+      normalization: row_normalization
+      depth: 1
+      regularizer: 0.05
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+sgc:
+  fixed:
+    model_params:
+      label: SGC
+      model: GCN
+      normalization: row_normalization
+      depth: 1
+      regularizer: 0.15
+      pred_method: svm
+      activation: linear
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+appnp:
+  fixed:
+    model_params:
+      label: APPNP
+      model: APPNP
+      activation: relu
+      normalization: sym_normalization
+      regularizer: 0.1
+      iteration: 10
+      alpha: 0.5
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False

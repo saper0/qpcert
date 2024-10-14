@@ -1,0 +1,87 @@
+seml:
+  name: coll_test_csb_threats
+  executable: exp_ntk_certify_collective_label.py
+  project_root_dir: ../..
+  output_dir: log/label_collect
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 10G          # memory
+    cpus-per-task: 2  # num cores
+    time: 0-02:30     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17
+
+fixed:
+  data_params:
+    dataset: citeseer_binary
+    learning_setting: transductive
+    specification:
+      n_per_class: 5
+      fraction_test: 0.01
+      data_dir: ./data
+      make_undirected: True
+      binary_attr: False
+      balance_test: True
+
+  model_params:
+    label: GCN
+    model: GCN
+    normalization: row_normalization
+    depth: 1
+    regularizer: 0.75
+    pred_method: svm
+    activation: relu
+    solver: qplayer
+    alpha_tol: 1e-4
+    bias: False
+
+  certificate_params:
+    LogToConsole: 1
+    OutputFlag: 1
+    IntegralityFocus: 1
+    use_tight_big_M: 1
+    DualReductions: 0
+    Presolve: 2
+    TimeLimit: 7200
+    n_test: 50
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+    path_gurobi_license: lukas
+
+grid:
+
+  certificate_params:
+    delta:
+      type: choice
+      options:
+      - 0.05 # 12 # 6
+
+  data_params:
+    specification:
+      seed:
+        type: range
+        min: 0
+        max: 5
+        step: 1
+        zip_id: seed_opt
+  
+  seed:
+    type: range
+    min: 0
+    max: 5
+    step: 1
+    zip_id: seed_opt
+
+two:
+  fixed:
+    certificate_params:
+      Threads: 1

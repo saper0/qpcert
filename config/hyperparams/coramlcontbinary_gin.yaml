@@ -25,9 +25,8 @@ fixed:
 
   model_params:
     label: GIN
-    model: GCN
+    model: GIN
     activation: relu
-    normalization: none
     depth: 1
     solver: qplayer
     bias: False
