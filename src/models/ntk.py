@@ -1,6 +1,3 @@
-# Label Propagation implementation with Code & Comments mainly taken from 
-# PyTorch Geometric implementation of the Correct and Smooth Framework:
-# https://pytorch-geometric.readthedocs.io/en/latest/_modules/torch_geometric/nn/models/correct_and_smooth.html #noqa
 import logging
 from typing import Any, Dict, Optional, Union, Tuple
 
