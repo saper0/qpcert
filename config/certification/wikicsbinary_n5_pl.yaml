@@ -109,9 +109,9 @@ mlp:
       model: APPNP
       activation: relu
       normalization: sym_normalization
-      regularizer: 0.175
+      regularizer: 0.75
       iteration: 10
-      alpha: 0.75
+      alpha: 1
       solver: qplayer
       alpha_tol: 1e-4
       bias: False
@@ -176,6 +176,19 @@ gcn_skippc:
       bias: False
 
 gin:
+  fixed:
+    model_params:
+      label: GraphSAGE
+      model: GCN
+      activation: relu
+      regularizer: 0.175
+      normalization: graph_sage_normalization
+      depth: 1
+      solver: qplayer
+      bias: False
+      alpha_tol: 1e-4
+
+sage:
   fixed:
     model_params:
       label: GraphSAGE
