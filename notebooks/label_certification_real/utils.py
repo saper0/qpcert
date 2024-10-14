@@ -779,6 +779,7 @@ class ExperimentManager:
                     delta_l: List[float],
                     legend_labels: List[str]=[],
                     bold = True,
+                    certified_ratio = True,
                     ):
         if legend_labels == []:
             legend_labels = models
@@ -791,10 +792,17 @@ class ExperimentManager:
             for delta in delta_l:
                 if delta == 0.:
                     exp = self.experiments_dict[label][delta_l[1]]
-                    y, y_std = 1, 0
+                    if certified_ratio:
+                        y, y_std = 1, 0
+                    else:
+                        y, y_std = exp.get_result("accuracy_test")
                 else:
                     exp = self.experiments_dict[label][delta]
-                    y, y_std = get_certified_ratio(exp)
+                    if certified_ratio:
+                        y, y_std = get_certified_ratio(exp)
+                    else:
+                        y, y_std = get_robust_accuracy(exp)
+                    
                 y_l.append(y)
                 y_err_l.append(y_std)
             model_acc.append(y_l)
@@ -807,17 +815,20 @@ class ExperimentManager:
 
         i = 0
         max_indices = np.argmax(model_rel_acc[1:], axis=0) + 1
+        min_indices = np.argmin(model_rel_acc[1:], axis=0) + 1
         for acc_line, std_line in zip(model_rel_acc, model_acc_std):
             acc_l = []
             j = 0
-            for acc, std, max_idx in zip(acc_line, std_line, max_indices):
+            for acc, std, max_idx, min_idx in zip(acc_line, std_line, max_indices, min_indices):
                 if acc >= 0 and i > 0:
                     if max_idx == i:
-                        acc_l = acc_l + [f"\\textbf{{+{acc:.1f}}}$\mathbf{{\pm}}$\\textbf{{{std:.1f}}}"]
+                        acc_l = acc_l + [f"\\textbf{{+{acc:.1f}}} \\cellcolor{{gray!30}}\scriptsize{{$\mathbf{{\pm}}$\\textbf{{{std:.1f}}}}}"]
+                    elif min_idx == i:
+                        acc_l = acc_l + [f"\\textcolor{{red}} {acc:.1f}\scriptsize{{$\pm$ {std:.1f}}}"]
                     else:
-                        acc_l = acc_l + [f"+{acc:.1f} $\pm$ {std:.1f}"]
+                        acc_l = acc_l + [f"+{acc:.1f} \scriptsize{{$\pm$ {std:.1f}}}"]
                 else:
-                    acc_l = acc_l + [f"{acc:.1f} $\pm$ {std:.1f}"]
+                    acc_l = acc_l + [f"{acc:.1f} \scriptsize{{$\pm$ {std:.1f}}}"]
                 j += 1
             i += 1
             model_str_l.append(acc_l)
@@ -825,12 +836,95 @@ class ExperimentManager:
         if bold:
             delta_l = [f"$\mathbf{{{delta:.2f}}}$" for delta in delta_l]
             labels = np.array([[f"\\textbf{{{label}}}" for label in labels[0]]])
-        print(labels)
-        print(delta_l)
         df_header = ["$\\epsilon$"] + delta_l
         df_data = np.concatenate((labels.T, model_str_l), axis=1)
         df = pd.DataFrame(data = df_data, columns = df_header)
         return df
+    
+    def models_robustness(self, models: List[str],
+                    delta_l: List[float],
+                    legend_labels: List[str]=[],
+                    bold = True,
+                    certified_ratio = False,
+                    to_latex = True,
+                    ):
+        if legend_labels == []:
+            legend_labels = models
+        model_acc = []
+        model_acc_std = []
+        for m_id in range(len(models)):
+            label = models[m_id]
+            y_err_l = []
+            y_l = []
+            for delta in delta_l:
+                if delta == 0.:
+                    exp = self.experiments_dict[label][delta_l[1]]
+                    if certified_ratio:
+                        y, y_std = 1, 0
+                    else:
+                        y, y_std = exp.get_result("accuracy_test")
+                else:
+                    exp = self.experiments_dict[label][delta]
+                    if certified_ratio:
+                        y, y_std = get_certified_ratio(exp)
+                    else:
+                        y, y_std = get_robust_accuracy(exp)
+                y_l.append(y)
+                y_err_l.append(y_std)
+            model_acc.append(y_l)
+            model_acc_std.append(y_err_l)
+        model_acc = np.array(model_acc) * 100
+        model_acc_std = np.array(model_acc_std) * 100
+
+        model_str_l = []
+        i = 0
+        max_indices = np.argmax(model_acc, axis=0)
+        for acc_line, std_line in zip(model_acc, model_acc_std):
+            acc_l = []
+            j = 0
+            for acc, std, max_idx in zip(acc_line, std_line, max_indices):
+                if to_latex:
+                    if max_idx == i:
+                        acc_l = acc_l + [f"\\textbf{{{acc:.1f}}}$\mathbf{{\pm}}$\\textbf{{{std:.1f}}}"]
+                    else:
+                        acc_l = acc_l + [f"{acc:.1f} $\pm$ {std:.1f}"]
+                else:
+                    acc_l = acc_l + [f"{acc:.1f}±{std:.1f}"]
+                j += 1
+            i += 1
+            model_str_l.append(acc_l)
+        labels = np.array([legend_labels])
+        if bold and to_latex:
+            delta_l = [f"$\mathbf{{{delta:.2f}}}$" for delta in delta_l]
+            labels = np.array([[f"\\textbf{{{label}}}" for label in labels[0]]])
+        df_header = ["$\\epsilon$"] + delta_l
+        df_data = np.concatenate((labels.T, model_str_l), axis=1)
+        df = pd.DataFrame(data = df_data, columns = df_header)
+        return df
+
+    def plot_robustness_delta(self, models: List[str],
+                    delta_l: List[float],
+                    legend_labels: List[str]=[],
+                    bold = True,
+                    certified_ratio = False,
+                    to_latex = True,
+                    ):
+        if legend_labels == []:
+            legend_labels = models
+        for m_id in range(len(models)):
+            label = models[m_id]
+            exp = self.experiments_dict[label][0.1]
+            y_01, y_std = get_certified_ratio(exp) 
+            exp = self.experiments_dict[label][0.3]
+            y_03, y_std = get_certified_ratio(exp) 
+            exp = self.experiments_dict[label][0.5]
+            y_05, y_std = get_certified_ratio(exp) 
+            y_01 = y_01*100
+            y_03 = y_03*100
+            y_05 = y_05*100
+            print(f"Model {label} has delta_m: {y_01-y_03:.2f} delta_s: {y_03-y_05:.2f}")
+                    
+
 
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
