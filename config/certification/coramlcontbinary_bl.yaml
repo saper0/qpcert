@@ -1,6 +1,6 @@
 seml:
   name: bin_bl_cert
-  executable: exp_certify_backdoor_coramlb.py
+  executable: exp_certify_backdoor.py
   project_root_dir: ../..
   output_dir: log/certification
 
@@ -191,3 +191,4 @@ gcn_skippc:
       solver: qplayer
       alpha_tol: 1e-4
       bias: False
+

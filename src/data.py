@@ -158,6 +158,46 @@ def get_cora_ml_binary(specification: Dict[str, Any]):
     return X, A, y
 
 
+def get_wikics(specification: Dict[str, Any]):
+    """Loads WikiCS dataset from 
+    https://pytorch-geometric.readthedocs.io/en/latest/_modules/torch_geometric/datasets/wikics.html#WikiCS
+    """
+    wikics = WikiCS(root = specification["data_dir"])
+    X = wikics.x.numpy()
+    y = wikics.y.numpy()
+    edge_index = wikics.edge_index
+    edge_weight = torch.ones(edge_index.shape[1])
+    A = SparseTensor(row=edge_index[0], col=edge_index[1], value=edge_weight, 
+                     sparse_sizes=(edge_index.max()+1, edge_index.max()+1))
+    A = A.to_dense().numpy()
+    return X, A, y
+
+
+def get_wikics_binary(specification: Dict[str, Any]):
+    X, A, y = get_wikics(specification)
+    c = Counter(y).most_common(2)
+    y_first = c[0][0]
+    y_second = c[1][0]
+    n = len(y)
+    cond = np.logical_or(y == y_first, y == y_second)
+    A = A[cond, :]
+    A = A[:, cond]
+    X = X[cond, :]
+    y = np.copy(y[cond])
+    mask_first = y == y_first
+    mask_second = y == y_second
+    y[mask_first] = 1
+    y[mask_second] = 0
+    # exclude isolated nodes
+    cond = np.sum(A, axis=1)>0
+    A = A[cond, :]
+    A = A[:, cond]
+    X = X[cond, :]
+    y = np.copy(y[cond])
+    assert (np.sum(A, axis=1)==0).sum() == 0
+    return X, A, y
+
+
 def get_graph(
         data_params: Dict[str, Any], sort: bool=True, return_csbm: bool=False
 ) -> Tuple[Float[ndarray, "n n"], Integer[ndarray, "n n"], Integer[ndarray, "n"]]:
@@ -190,6 +230,8 @@ def get_graph(
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "Auto")
         else:
             X, A, y = get_cora_ml_cont(dataset, data_params["specification"], load_binary_feature = False, load_embedding = "BERT")
+    elif data_params["dataset"] == "wikics_binary":
+        X, A, y = get_wikics_binary(data_params["specification"])
     if data_params["dataset"] in ["cora_ml"]:
         G = nx.from_numpy_array(A)
         idx_lcc = list(max(nx.connected_components(G), key=len))

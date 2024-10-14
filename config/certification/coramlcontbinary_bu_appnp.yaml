@@ -1,6 +1,6 @@
 seml:
   name: bin_bu_appnp_cert
-  executable: exp_certify_backdoor_coramlb.py
+  executable: exp_certify_backdoor.py
   project_root_dir: ../..
   output_dir: log/certification
 

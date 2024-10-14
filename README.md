@@ -1,6 +1,6 @@
-# Provable robustness of (graph) neural networks against data poisoning and backdoor attacks
+# Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoors
 
-Codebase to generated the results for the NeurIPS 2024 submission "Provable robustness of (graph) neural networks against data poisoning and backdoor attacks".
+Codebase to generated the results for the ICML 2025 submission "Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoors".
 
 ## Installation
 
@@ -44,12 +44,12 @@ Jupyter Notebook: `test_certify_multiclass.ipynb`
 * Experiment source file: `exp_certify_multiclass.py`  
 * Experiment configurations: `config/certification/`
 
-### Certify Backdooring (Cora-MLb)
+### Certify Backdooring (Cora-MLb, WikiCSb)
 
-Jupyter Notebook: `test_certify_backdoor_coramlb.ipynb`
+Jupyter Notebook: `exp_certify_backdoor.ipynb`
 
 `seml` details:
-* Experiment source file: `exp_certify_backdoor_coramlb.py`  
+* Experiment source file: `exp_certify_backdoor.py`  
 * Experiment configurations: `config/certification/`
 
 ### Certify Backdooring (CSBM)
