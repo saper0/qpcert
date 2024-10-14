@@ -1,6 +1,7 @@
 import logging
 from typing import Tuple, Union, Sequence
 import os
+import time
 
 from jaxtyping import Float, Integer
 import numpy as np
@@ -233,13 +234,13 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         v_start = np.zeros(alpha.shape[0], dtype=np.float64)
         u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
         v_start[alpha_nz_mask] = -eq_constraint[alpha_nz_mask]
-        u_start[u_start<globals.zero_tol] = 0
-        v_start[v_start<globals.zero_tol] = 0
+        #u_start[u_start<globals.zero_tol] = 0
+        #v_start[v_start<globals.zero_tol] = 0
         s_start = np.zeros(alpha.shape[0], dtype=np.int64)
-        u_nz_mask = u_start > 0
+        u_nz_mask = u_start > globals.zero_tol 
         s_start[u_nz_mask] = 1
         t_start = np.zeros(alpha.shape[0], dtype=np.int64)
-        v_nz_mask = v_start > 0
+        v_nz_mask = v_start > globals.zero_tol 
         t_start[v_nz_mask] = 1
         u_start_d[k] = u_start
         v_start_d[k] = v_start
@@ -247,13 +248,13 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         t_start_d[k] = t_start
         alpha_l.append(alpha)
         assert (alpha<0).sum() == 0
-        assert (u_start<0).sum() == 0
-        assert (v_start<0).sum() == 0
-        assert ((y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1 - u_start + v_start) > globals.zero_tol).sum() == 0
-        assert (u_start-M*s_start > globals.zero_tol).sum() == 0
-        assert (alpha-C*(1-s_start) > globals.zero_tol).sum() == 0
-        assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
-        assert (-alpha+C*t_start > globals.zero_tol).sum() == 0
+        assert (u_start<-globals.zero_tol).sum() == 0
+        assert (v_start<-globals.zero_tol).sum() == 0
+        assert ((y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1 - u_start + v_start) > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (u_start-M*s_start > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (alpha-C*(1-s_start) > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (v_start-Mprime*t_start > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (-alpha+C*t_start > MILP_FEASIBILITY_TOL).sum() == 0
 
     
     is_robust_l = []
@@ -380,6 +381,10 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                     m.Params.Cuts = certificate_params["Cuts"]
                 if "Heuristics" in certificate_params:
                     m.Params.Heuristics = certificate_params["Heuristics"]
+                if "Presolve" in certificate_params:
+                    m.Params.Presolve = certificate_params["Presolve"]
+                if "Threads" in certificate_params:
+                    m.Params.Threads = certificate_params["Threads"]
                 # m.Params.InfProofCuts = 0
 
                 def callback(model, where):
@@ -615,6 +620,8 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 m.Params.Cuts = certificate_params["Cuts"]
             if "Heuristics" in certificate_params:
                 m.Params.Heuristics = certificate_params["Heuristics"]
+            if "Threads" in certificate_params:
+                m.Params.Threads = certificate_params["Threads"]
 
             if obj_min:
                 m.Params.BestBdStop = MILP_OPTIMALITY_TOL + 1e-16
@@ -1688,9 +1695,6 @@ def certify_robust_label_one_vs_all(idx_labeled, idx_test, ntk, y,
             m.Params.BestBdStop = 0 # if the bound falls below the stop_obj, node definitely can't change prediction
             m.update()
 
-            m.write("./cache/model.lp")
-            print(m.getConstrByName("R481"))
-
             if "IntegralityFocus" in certificate_params:
                 m.Params.IntegralityFocus = certificate_params["IntegralityFocus"]
             else:
@@ -1986,6 +1990,22 @@ def certify_collective_robust_label(idx_labeled, idx_test, ntk, y,
                 if "MIP start" in msg:
                     print(msg)
 
+        def cb(model, where):
+            """Callback function for Gurobi optimization"""
+            if where == GRB.Callback.MIPNODE:
+                # Get model objective
+                obj = model.cbGet(GRB.Callback.MIPNODE_OBJBST)
+                # Has objective changed?
+                if abs(obj - model._cur_obj) > 1e-8:
+                    # If so, update incumbent and time
+                    model._cur_obj = obj
+                    model._time = time.time()
+            # Terminate if objective has not improved in 360s
+            if time.time() - model._time > 360:
+                model.terminate()
+
+        m._cur_obj = float('inf')
+        m._time = time.time()
         if globals.debug:
             m.write('milp_optimization.lp') # helps in checking if the implemented model is correct
             m.optimize(callback)
