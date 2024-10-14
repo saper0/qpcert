@@ -227,6 +227,8 @@ def run(data_params: Dict[str, Any],
     A = torch.tensor(A, dtype=dtype, device=device)
     y = torch.tensor(y, device=device)
     n_classes = int(y.max() + 1)
+    logging.info(f"Nr. of edges: {torch.triu(A).sum().item()}")
+    logging.info(f"Nr. of nodes: {A.shape[0]}")
 
     idx_labeled = np.concatenate((idx_trn, idx_val)) 
     # idx of labeled nodes in nodes known during training (for semi-supervised)
