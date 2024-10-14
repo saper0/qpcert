@@ -7,12 +7,10 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
-    time: 4-00:30     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17
+    time: 3-05:30     # max time, D-HH:MM
 
 fixed:
   data_params:
@@ -33,7 +31,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: lukas
+    path_gurobi_license: /path/to/gurobi.lic
 
 grid:
   certificate_params:

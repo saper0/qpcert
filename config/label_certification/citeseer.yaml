@@ -5,9 +5,7 @@ seml:
   output_dir: log/label
 
 slurm:
-  experiments_per_job: 1
   sbatch_options:
-    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 2  # num cores
@@ -43,7 +41,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: lukas
+    path_gurobi_license: /path/to/gurobi.lic
 
 grid:
   certificate_params:

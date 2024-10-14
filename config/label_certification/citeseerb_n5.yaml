@@ -1,5 +1,5 @@
 seml:
-  name: mlb_label
+  name: cb_label
   executable: exp_ntk_certify_label.py
   project_root_dir: ../..
   output_dir: log/label
@@ -7,14 +7,16 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
-    time: 3-05:30     # max time, D-HH:MM
+    time: 4-00:30     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:
-    dataset: cora_ml_binary
+    dataset: citeseer_binary
     learning_setting: transductive
     specification:
       n_per_class: 5
@@ -31,7 +33,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: /path/to/gurobi.lic
+    path_gurobi_license: lukas
 
 grid:
   certificate_params:
@@ -71,7 +73,7 @@ gcn:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.075
+      regularizer: 0.75
       pred_method: svm
       activation: relu
       solver: qplayer
@@ -85,7 +87,7 @@ sgc:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.075
+      regularizer: 2.5
       pred_method: svm
       activation: linear
       solver: qplayer
@@ -115,7 +117,7 @@ appnp:
       normalization: sym_normalization
       regularizer: 0.5
       iteration: 10
-      alpha: 0
+      alpha: 0.2
       solver: qplayer
       alpha_tol: 1e-4
       bias: False
@@ -126,7 +128,7 @@ gin:
       label: GIN
       model: GIN
       depth: 1
-      regularizer: 0.025
+      regularizer: 0.005
       pred_method: svm
       activation: relu
       solver: qplayer
@@ -139,7 +141,7 @@ graphsage:
       label: GraphSAGE
       model: GCN
       activation: relu
-      regularizer: 0.0075
+      regularizer: 0.025
       normalization: graph_sage_normalization
       depth: 1
       solver: qplayer
@@ -153,9 +155,9 @@ gcn_skipalpha:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.1
+      regularizer: 0.25
       skip_connection: skip_alpha_linear
-      skip_alpha: 0.1
+      skip_alpha: 0.3
       pred_method: svm
       activation: relu
       solver: qplayer
@@ -184,7 +186,7 @@ gcn_sym:
       model: GCN
       normalization: sym_normalization
       depth: 1
-      regularizer: 0.075
+      regularizer: 0.1
       pred_method: svm
       activation: relu
       solver: qplayer
@@ -199,9 +201,11 @@ sgc_sym:
       model: GCN
       normalization: sym_normalization
       depth: 1
-      regularizer: 0.05
+      regularizer: 1
       pred_method: svm
       activation: linear
       solver: qplayer
       alpha_tol: 1e-4
       bias: False
+
+

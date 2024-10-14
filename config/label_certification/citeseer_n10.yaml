@@ -1,24 +1,25 @@
 seml:
-  name: ml_n5
-  executable: exp_ntk_certify_label_multiclass_onenode_inexact.py
+  name: c_ex
+  executable: exp_ntk_certify_label_multiclass_onenode.py
   project_root_dir: ../..
   output_dir: log/label
 
 slurm:
   experiments_per_job: 1
   sbatch_options:
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
-    mem: 12G          # memory
+    mem: 10G          # memory
     cpus-per-task: 2  # num cores
     time: 3-05:30     # max time, D-HH:MM
     exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:
-    dataset: cora_ml
+    dataset: citeseer
     learning_setting: transductive
     specification:
-      n_per_class: 5
+      n_per_class: 10
       fraction_test: 0.01
       data_dir: ./data
       make_undirected: True
@@ -31,8 +32,9 @@ fixed:
     use_tight_big_M: 1
     IntegralityFocus: 1
     Presolve: 2
+    epsilon: 0.001
     Threads: 2
-    TimeLimit: 43200
+    TimeLimit: 259200
       
   verbosity_params:
     debug_lvl: info
@@ -41,13 +43,14 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: /path/to/gurobi.lic
+    path_gurobi_license: lukas
 
 grid:
   certificate_params:
     delta:
       type: choice
       options:
+      - 0.01
       - 0.02
       - 0.03
       - 0.05
@@ -75,20 +78,6 @@ grid:
     step: 1
     zip_id: seed_opt
 
-sgc:
-  fixed:
-    model_params:
-      label: SGC
-      model: GCN
-      normalization: row_normalization
-      depth: 1
-      regularizer: 0.004
-      pred_method: svm
-      activation: linear
-      solver: qplayer_one_vs_all
-      alpha_tol: 1e-4
-      bias: False
-
 gcn:
   fixed:
     model_params:
@@ -96,12 +85,27 @@ gcn:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.004
+      regularizer: 0.0001
+      pred_method: svm
+      activation: relu
+      solver: qplayer_one_vs_all
+      alpha_tol: 1e-4
+      bias: False
+
+sgc:
+  fixed:
+    model_params:
+      label: SGC
+      model: GCN
+      normalization: row_normalization
+      depth: 1
+      regularizer: 0.0001
       pred_method: svm
       activation: linear
       solver: qplayer_one_vs_all
       alpha_tol: 1e-4
       bias: False
+
 
 gcn_skipalpha:
   fixed:
@@ -110,14 +114,15 @@ gcn_skipalpha:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.004
+      regularizer: 0.0001
       skip_connection: skip_alpha_linear
-      skip_alpha: 0.2
+      skip_alpha: 0.5
       pred_method: svm
       activation: relu
-      solver: qplayer
+      solver: qplayer_one_vs_all
       alpha_tol: 1e-4
       bias: False
+
 
 gcn_skippc:
   fixed:
@@ -126,10 +131,10 @@ gcn_skippc:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.003
+      regularizer: 0.0001
       skip_connection: skip_pc_linear
       pred_method: svm
       activation: relu
-      solver: qplayer
+      solver: qplayer_one_vs_all
       alpha_tol: 1e-4
       bias: False
