@@ -1,26 +1,25 @@
 seml:
-  name: mlcont_pl
-  executable: exp_certify_multiclass_onenode.py
+  name: bin_bl_l1
+  executable: exp_certify_backdoor_realbinary.py
   project_root_dir: ../..
   output_dir: log/certification
 
 slurm:
   experiments_per_job: 1
-  sbatch_options:
-    qos: phdcpu      
-    partition: cpu,cpu_large
+  sbatch_options: 
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
-    mem: 16G          # memory
-    cpus-per-task: 2  # num cores
-    time: 1-06:30     # max time, D-HH:MM
+    mem: 5G          # memory
+    cpus-per-task: 1  # num cores
+    time: 0-02:00     # max time, D-HH:MM
     exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:
-    dataset: cora_ml_cont_auto
+    dataset: cora_ml_cont_binary
     learning_setting: transductive
     specification:
-      n_per_class: 10
+      n_per_class: 5
       fraction_test: 0.01
       data_dir: ./data
       make_undirected: True
@@ -30,13 +29,13 @@ fixed:
   certificate_params:
     method: XXT
     delta_absolute: True
-    attack_nodes: train_val
+    attack_nodes: train_val_backdoor
+    n_backdoor_evals: 100
     NumericFocus: 0
-    MIPFocus_first: 0
-    MIPFocus_other: 3
+    MIPFocus: 0
     LogToConsole: 0
     OutputFlag: 0
-    TimeLimit: 64800
+    TimeLimit: 100000
 
   verbosity_params:
     debug_lvl: info
@@ -53,12 +52,16 @@ grid:
     perturbation_model: 
       type: choice 
       options:
-      - l2
+      - l1
 
     n_adversarial:
       type: choice
       options:
-      - 140
+      - 1
+      - 2
+      - 4
+      - 10
+      - 20
 
     delta:
       type: choice
@@ -66,30 +69,24 @@ grid:
       - 0.01
       - 0.02
       - 0.05
-      #- 0.1
-      #- 0.2
-      #- 0.5
-      #- 1
-
-    target_idx:
-      type: range
-      min: 0
-      max: 35
-      step: 1
+      - 0.1
+      - 0.2
+      - 0.5
+      - 1
     
   data_params:
     specification:
       seed:
         type: range
         min: 0
-        max: 3
+        max: 5
         step: 1
         zip_id: seed_opt
   
   seed:
     type: range
     min: 0
-    max: 3
+    max: 5
     step: 1
     zip_id: seed_opt
 
@@ -100,24 +97,24 @@ gcn:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.05
+      regularizer: 0.75
       pred_method: svm
       activation: relu
-      solver: qplayer_one_vs_all
+      solver: qplayer
       alpha_tol: 1e-4
       bias: False
 
-mlp:
+gcn_sym:
   fixed:
     model_params:
-      label: MLP
-      model: APPNP
-      activation: relu
+      label: GCN_sym
+      model: GCN
       normalization: sym_normalization
-      regularizer: 0.004
-      iteration: 10
-      alpha: 1
-      solver: qplayer_one_vs_all
+      depth: 1
+      regularizer: 1
+      pred_method: svm
+      activation: relu
+      solver: qplayer
       alpha_tol: 1e-4
       bias: False
 
@@ -128,25 +125,38 @@ sgc:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.0575
+      regularizer: 0.75
       pred_method: svm
       activation: linear
-      solver: qplayer_one_vs_all
+      solver: qplayer
       alpha_tol: 1e-4
       bias: False
 
-gcn_skippc:
+sgc_sym:
   fixed:
     model_params:
-      label: GCN_skippc
+      label: SGC_sym
       model: GCN
-      normalization: row_normalization
+      normalization: sym_normalization
       depth: 1
-      regularizer: 0.03
-      skip_connection: skip_pc_linear
+      regularizer: 0.75
       pred_method: svm
+      activation: linear
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+mlp:
+  fixed:
+    model_params:
+      label: MLP
+      model: APPNP
       activation: relu
-      solver: qplayer_one_vs_all
+      normalization: sym_normalization
+      regularizer: 0.5
+      iteration: 10
+      alpha: 1
+      solver: qplayer
       alpha_tol: 1e-4
       bias: False
 
@@ -157,12 +167,40 @@ gcn_skipalpha:
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.04
+      regularizer: 1
       skip_connection: skip_alpha_linear
-      skip_alpha: 0.2
+      skip_alpha: 0.1
       pred_method: svm
       activation: relu
-      solver: qplayer_one_vs_all
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gcn_skippc:
+  fixed:
+    model_params:
+      label: GCN_skippc
+      model: GCN
+      normalization: row_normalization
+      depth: 1
+      regularizer: 0.5
+      skip_connection: skip_pc_linear
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gin:
+  fixed:
+    model_params:
+      label: GIN
+      model: GIN
+      depth: 1
+      regularizer: 0.05
+      pred_method: svm
+      activation: relu
+      solver: qplayer
       alpha_tol: 1e-4
       bias: False
 
@@ -172,39 +210,23 @@ sage:
       label: GraphSAGE
       model: GCN
       activation: relu
-      regularizer: 0.002
+      regularizer: 0.1
       normalization: graph_sage_normalization
       depth: 1
-      pred_method: svm
-      activation: relu
-      solver: qplayer_one_vs_all
-      alpha_tol: 1e-4
+      solver: qplayer
       bias: False
+      alpha_tol: 1e-4
 
-
-gin:
+appnp:
   fixed:
     model_params:
-      label: GIN
-      model: GIN
-      depth: 1
-      regularizer: 0.0125
-      pred_method: svm
-      activation: relu
-      solver: qplayer_one_vs_all
-      alpha_tol: 1e-4
-      bias: False
-
-gcn:
-  fixed:
-    model_params:
-      label: APPNP
+      label: APPNP_alpha0.1
       model: APPNP
       activation: relu
       normalization: sym_normalization
-      regularizer: 0.15
+      alpha: 0.1
+      regularizer: 1
       iteration: 10
-      alpha: 0.2
-      solver: qplayer_one_vs_all
+      solver: qplayer
       alpha_tol: 1e-4
       bias: False

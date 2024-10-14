@@ -161,3 +161,29 @@ mlp:
       solver: qplayer
       alpha_tol: 1e-4
       bias: False
+      
+gin:
+  fixed:
+    model_params:
+      label: GIN
+      model: GIN
+      depth: 1
+      regularizer: 0.05
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+sage:
+  fixed:
+    model_params:
+      label: GraphSAGE
+      model: GCN
+      activation: relu
+      regularizer: 0.1
+      normalization: graph_sage_normalization
+      depth: 1
+      solver: qplayer
+      bias: False
+      alpha_tol: 1e-4

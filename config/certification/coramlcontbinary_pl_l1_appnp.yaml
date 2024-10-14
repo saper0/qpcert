@@ -1,18 +1,17 @@
 seml:
-  name: bin_pu_cert
-  executable: exp_certify.py
+  name: l1_bin_pu_cert
+  executable: exp_ntk_certify.py
   project_root_dir: ../..
   output_dir: log/certification
 
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu,cpu_large
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
     time: 0-05:30     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:
@@ -43,7 +42,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: /path/to/your/gurobi/license
+    path_gurobi_license: lukas
 
 grid:
   
@@ -51,8 +50,7 @@ grid:
     perturbation_model: 
       type: choice 
       options:
-      - l2
-      - linf
+      - l1
 
     n_adversarial:
       type: choice
@@ -73,35 +71,48 @@ grid:
       - 0.2
       - 0.5
       - 1
-    
-  data_params:
-    specification:
-      seed:
-        type: range
-        min: 0
-        max: 5
-        step: 1
-        zip_id: seed_opt
-  
-  seed:
-    type: range
-    min: 0
-    max: 5
-    step: 1
-    zip_id: seed_opt
-
 
 mlp:
   fixed:
     model_params:
-      label: MLP
       model: APPNP
       activation: relu
       normalization: sym_normalization
-      regularizer: 0.5
       iteration: 10
-      alpha: 1
       solver: qplayer
       alpha_tol: 1e-4
       bias: False
 
+  grid:
+    model_params:
+      label:
+        type: choice
+        options: 
+        - APPNP_alpha0.1
+
+      alpha: 
+        type: choice
+        options:
+        - 0.1
+
+      regularizer: 
+        type: choice
+        options:
+        - 1
+        zip_id: appnp
+
+    data_params:
+      specification:
+        seed:
+          type: range
+          min: 0
+          max: 5
+          step: 1
+          zip_id: seed_opt
+    
+    seed:
+      type: range
+      min: 0
+      max: 5
+      step: 1
+      zip_id: seed_opt

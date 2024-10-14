@@ -136,6 +136,7 @@ def plot_ntk_model_diff(ntk_dict: Dict[str, Any], y: Float[torch.Tensor, "n 1"],
     ax.set_title("Attack: " + plot_title, fontweight="normal", fontsize=15)        
     ax.legend()
 
+
 def plot_ntk_model_acc(ntk_dict: Dict[str, Any], y: Float[torch.Tensor, "n 1"],
                         eps_l: List[float], plot_title: str="Attack"):
     """ Plot Acc for attack strengths eps_l for NTKs collected

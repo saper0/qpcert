@@ -1,6 +1,3 @@
-# Label Propagation implementation with Code & Comments mainly taken from 
-# PyTorch Geometric implementation of the Correct and Smooth Framework:
-# https://pytorch-geometric.readthedocs.io/en/latest/_modules/torch_geometric/nn/models/correct_and_smooth.html #noqa
 import logging
 from typing import Any, Dict, Optional, Union, Tuple
 
@@ -16,7 +13,8 @@ from torch import Tensor
 from torch_sparse import SparseTensor
 
 from src.models.common import row_normalize, tbn_normalize, degree_scaling, \
-                              sym_normalize, APPNP_propogation, make_dense
+                              sym_normalize, APPNP_propogation, make_dense, \
+                              add_self_loop
 from src import utils, globals
 
 
@@ -99,7 +97,8 @@ class NTK(torch.nn.Module):
         assert self.model_dict["model"] == "GCN" \
             or self.model_dict["model"] == "SoftMedoid" \
             or self.model_dict["model"] == "PPNP" \
-            or self.model_dict["model"] == "APPNP"
+            or self.model_dict["model"] == "APPNP" \
+            or self.model_dict["model"] == "GIN"
         self.dtype = dtype
         if device is not None:
             self.device = device
@@ -326,6 +325,12 @@ class NTK(torch.nn.Module):
             elif self.model_dict["normalization"] == "degree_scaling":
                 return degree_scaling(A, self.model_dict["gamma"], 
                                       self.model_dict["delta"])
+            elif self.model_dict["normalization"] == "graph_sage_normalization":
+                S = row_normalize(A, self_loop=False)
+                return add_self_loop(S)
+            elif self.model_dict["normalization"] == "none":
+                add_self_loop(A)
+                return A
             else:
                 raise NotImplementedError("Normalization not supported")
         elif self.model_dict["model"] == "SoftMedoid":
@@ -344,10 +349,17 @@ class NTK(torch.nn.Module):
             return APPNP_propogation(A, alpha=self.model_dict["alpha"], 
                                      iteration=self.model_dict["iteration"], 
                                      exact=exact)
+        elif self.model_dict["model"] == "GIN":
+            if self.model_dict["normalization"] == "graph_size_normalization":
+                return add_self_loop(A)/A.shape[0]
+            else:
+                return add_self_loop(A)
         else:
             raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP architecture implemented")
 
     def calc_diffusion(self, X: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
+        if "weigh_adjacency" in self.model_dict:
+            A = self.model_dict["weigh_adjacency"] * A
         if "normalize" in self.model_dict:
             if self.model_dict["normalize"]:
                 return self._calc_diffusion(X, A)
@@ -504,6 +516,15 @@ class NTK(torch.nn.Module):
         kernel += S.matmul(Sig * E_der).matmul(S.T)
         kernel += S.matmul(E+B).matmul(S.T)
         return kernel
+    
+    def _calc_ntk_gin(self, X: Float[torch.Tensor, "n d"], 
+                        S: Float[torch.Tensor, "n n"]) -> torch.Tensor:
+        kernel = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        XXT = NTK._calc_XXT(X)
+        Sig = S.matmul(XXT.matmul(S.T))
+        E, E_der, _ = self.calc_relu_expectations(Sig)
+        kernel += (Sig * E_der) + E
+        return kernel
 
     def calc_ntk(self, X: Float[torch.Tensor, "n d"], 
                  A: Float[torch.Tensor, "n n"]):
@@ -516,13 +537,21 @@ class NTK(torch.nn.Module):
             kernel = self._calc_ntk_gcn(X, S)
             self.empty_gpu_memory()
             return kernel
-        
         elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
             # NTK for PPNP with one hidden layer fcn for features
             # (A)PPNP = S ( ReLU(XW_1 + b_1) W_2 + b_2)
             kernel = self._calc_ntk_appnp(X, S)
             self.empty_gpu_memory()
             return kernel
+        elif self.model_dict["model"] == "GIN":
+            # NTK for GIN with one hidden layer MLP
+            # GIN = ReLU((A+I)XW_1)W_2
+            kernel = self._calc_ntk_gin(X, S)
+            self.empty_gpu_memory()
+            return kernel
+        else:
+            raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP/GIN architecture implemented")
+ 
     
     @staticmethod
     def _calc_XXT(X: Float[torch.Tensor, "n d"]):
@@ -736,6 +765,36 @@ class NTK(torch.nn.Module):
                 Delta_u[:, idx] += delta_times_X_1norm
             Delta_l.fill_diagonal_(0.)
             Delta_l = torch.tril(Delta_l) + torch.tril(Delta_l, diagonal=-1).T
+            Delta_u = torch.tril(Delta_u) + torch.tril(Delta_u, diagonal=-1).T
+            assert (Delta_l != Delta_l.T).sum() == 0
+            assert (Delta_u != Delta_u.T).sum() == 0
+            assert (XXT != XXT.T).sum() == 0
+            # Symmetrice (due to numerical issues)
+            XXT_lb = XXT+Delta_l
+            XXT_ub = XXT+Delta_u
+            return XXT_lb, XXT_ub
+        elif perturbation_model == "l1":
+            XXT = NTK._calc_XXT(X)
+            X_inf_norm = torch.linalg.vector_norm(X,ord=torch.inf,dim=1)
+            Delta_l = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
+            Delta_u = torch.zeros(size=XXT.shape, dtype=self.dtype, device=self.device)
+            # D^TD Interaction Term
+            DD_l = Delta_l[idx_adv, :]
+            DD_l[:, idx_adv] = -delta*delta
+            Delta_l[idx_adv, :] = DD_l
+            assert (Delta_l != Delta_l.T).sum() == 0
+            DD_u = Delta_u[idx_adv, :]
+            DD_u[:, idx_adv] = delta*delta
+            Delta_u[idx_adv, :] = DD_u
+            assert (Delta_u != Delta_u.T).sum() == 0
+            # D^TX and X^TD Terms
+            delta_times_X_inf_norm = delta*X_inf_norm
+            Delta_l[idx_adv, :] -= delta_times_X_inf_norm.view(1,-1)
+            Delta_l[:, idx_adv] -= delta_times_X_inf_norm.view(-1,1)
+            Delta_l.fill_diagonal_(0.)
+            Delta_l = torch.tril(Delta_l) + torch.tril(Delta_l, diagonal=-1).T
+            Delta_u[idx_adv, :] += delta_times_X_inf_norm.view(1,-1)
+            Delta_u[:, idx_adv] += delta_times_X_inf_norm.view(-1,1)
             Delta_u = torch.tril(Delta_u) + torch.tril(Delta_u, diagonal=-1).T
             assert (Delta_l != Delta_l.T).sum() == 0
             assert (Delta_u != Delta_u.T).sum() == 0
@@ -1274,6 +1333,66 @@ class NTK(torch.nn.Module):
             print(f"ntk_ub[:,idx_adv]: {ntk_ub[:,idx_adv].mean()}")
         return self.ntk_lb, self.ntk_ub
 
+    def calc_gin_lb_ub(self, X: Float[torch.Tensor, "n d"], 
+                       A: Float[torch.Tensor, "n n"],
+                       idx_adv: Integer[np.ndarray, "r"],
+                       delta: float,
+                       perturbation_model: str,
+                       method: str="SXXTS"):
+        A = make_dense(A)
+        S = self.calc_diffusion(X, A)
+        XXT = NTK._calc_XXT(X)
+        if method == "XXT":
+            XXT_lb, XXT_ub = self.calc_XXT_lb_ub(X, idx_adv, delta, perturbation_model)
+            assert (XXT_lb != XXT_lb.T).sum() == 0
+            assert (XXT_ub != XXT_ub.T).sum() == 0
+            assert (XXT_lb > XXT_ub).sum() == 0
+            assert (XXT_lb > XXT).sum() == 0
+            assert (XXT_ub < XXT).sum() == 0
+        self.empty_gpu_memory()
+
+        ntk_lb = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        ntk_ub = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        ntk = torch.zeros((S.shape), dtype=self.dtype).to(self.device)
+        Sig = S.matmul(XXT.matmul(S.T))
+        Sig_lb = S.matmul(XXT_lb.matmul(S.T))
+        Diag_Sig_lb = torch.diagonal(Sig_lb) 
+        Diag_Sig_lb_neg_idx = (Diag_Sig_lb<0).nonzero(as_tuple=True)[0]
+        Sig_lb[Diag_Sig_lb_neg_idx,Diag_Sig_lb_neg_idx] = 0
+        Sig_ub = S.matmul(XXT_ub.matmul(S.T))
+        assert (Sig_lb > Sig_ub).sum() == 0
+        assert (Sig_lb > Sig).sum() == 0
+        assert (Sig_ub < Sig).sum() == 0
+        
+        E, E_der, u = self.calc_relu_expectations(Sig)
+        ntk += (Sig * E_der) + E
+
+        E_lb, E_ub, E_der_lb, E_der_ub, sig_dot_E_der_lb, sig_dot_E_der_ub = \
+                    self._calc_relu_expectations_lb_ub(Sig_lb, Sig_ub, E, E_der, u, idx_adv, perturbation_model)
+        ntk_lb += sig_dot_E_der_lb + E_lb
+        ntk_ub += sig_dot_E_der_ub + E_ub
+
+        self.calculated_lb_ub = True
+        self.ntk_lb = ntk_lb
+        self.ntk_ub = ntk_ub
+        assert (ntk_lb > ntk_ub).sum() == 0
+        assert (ntk_lb > ntk).sum() == 0
+        assert (ntk_ub < ntk).sum() == 0
+        if globals.debug:
+            print(f"ntk.mean(): {ntk.mean()}")
+            print(f"ntk.min(): {ntk.min()}")
+            print(f"ntk.max(): {ntk.max()}")
+            print(f"ntk[:,idx_adv]: {ntk[:,idx_adv].mean()}")
+            print(f"ntk_lb.mean(): {ntk_lb.mean()}")
+            print(f"ntk_lb.min(): {ntk_lb.min()}")
+            print(f"ntk_lb.max(): {ntk_lb.max()}")
+            print(f"ntk_lb[:,idx_adv]: {ntk_lb[:,idx_adv].mean()}")
+            print(f"ntk_ub.mean(): {ntk_ub.mean()}")
+            print(f"ntk_ub.min(): {ntk_ub.min()}")
+            print(f"ntk_ub.max(): {ntk_ub.max()}")
+            print(f"ntk_ub[:,idx_adv]: {ntk_ub[:,idx_adv].mean()}")
+        return self.ntk_lb, self.ntk_ub
+
     def calc_ntk_lb_ub(self, X: Float[torch.Tensor, "n d"], 
                        A: Float[torch.Tensor, "n n"],
                        idx_adv: Integer[np.ndarray, "r"],
@@ -1287,8 +1406,10 @@ class NTK(torch.nn.Module):
             return self.calc_gcn_lb_ub(X, A, idx_adv, delta, perturbation_model, method)
         elif self.model_dict["model"] == "PPNP" or self.model_dict["model"] == "APPNP":
             return self.calc_appnp_lb_ub(X, A, idx_adv, delta, perturbation_model, method)
+        elif self.model_dict["model"] == "GIN":
+            return self.calc_gin_lb_ub(X, A, idx_adv, delta, perturbation_model, method)
         else:
-            assert False, "Models other than GCN and (A)PPNP not implemented so far."
+            assert False, "Models other than GCN, (A)PPNP, GIN are not implemented so far."
 
     def get_ntk(self):
         """Return (precomputed) ntk matrix."""

@@ -53,6 +53,10 @@ def make_dense(A: Union[Float[torch.Tensor, "n n"],
         A = torch.sparse_coo_tensor(*A, 2 * [n]).to_dense() 
     return A
 
+def add_self_loop(A):
+    A.data[torch.arange(A.shape[0]), torch.arange(A.shape[0])] = 1
+    return A
+
 
 def row_normalize(A):
     # Row normalize

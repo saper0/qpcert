@@ -1,5 +1,7 @@
 import logging
 from typing import Tuple, Union, Sequence
+import os
+import time
 
 from jaxtyping import Float, Integer
 import numpy as np
@@ -13,6 +15,7 @@ from gurobipy import GRB
 MILP_INT_FEAS_TOL = 1e-4
 MILP_OPTIMALITY_TOL = 1e-4
 MILP_FEASIBILITY_TOL = 1e-4 
+MILP_NODELIMIT = 5*1e6
 
 
 def empty_gpu_memory(device: Union[str, torch.device]):
@@ -70,8 +73,6 @@ def accuracy(logits: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]]
     """Returns the accuracy for a tensor of logits, a list of lables and and a split indices.
 
     Works for binary and multi-class classification.
-
-    Taken and extended from https://github.com/saper0/revisiting_robustness/.
 
     Returns
     -------
@@ -136,7 +137,7 @@ def grad_with_checkpoint(outputs: Union[torch.Tensor, Sequence[torch.Tensor]],
     return grad_outputs
 
 
-def _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub) -> Tuple[np.ndarray, np.ndarray]:
+def _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub) -> None:
     # Set big M for nodes i with y_i = 1 (or -1 if ~y_mask given)
     y_pos_rows_mask = np.zeros(ntk_labeled_lb.shape, dtype=bool)
     y_pos_rows_mask[y_mask] = True
@@ -173,7 +174,7 @@ def _set_big_M(M_u, M_v, y_mask, C, ntk_labeled_lb, ntk_labeled_ub) -> Tuple[np.
     M_v[y_mask] = -ntk_labeled_lb_neg_ypos[y_mask].sum(axis=1)*C \
                 + ntk_labeled_ub_pos_yneg[y_mask].sum(axis=1)*C \
                 + 1
-
+    
 
 def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y, 
                             y_pred, svm_alpha, certificate_params,
@@ -224,13 +225,13 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         v_start = np.zeros(alpha.shape[0], dtype=np.float64)
         u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
         v_start[alpha_nz_mask] = -eq_constraint[alpha_nz_mask]
-        u_start[u_start<globals.zero_tol] = 0
-        v_start[v_start<globals.zero_tol] = 0
+        #u_start[u_start<globals.zero_tol] = 0
+        #v_start[v_start<globals.zero_tol] = 0
         s_start = np.zeros(alpha.shape[0], dtype=np.int64)
-        u_nz_mask = u_start > 0
+        u_nz_mask = u_start > globals.zero_tol 
         s_start[u_nz_mask] = 1
         t_start = np.zeros(alpha.shape[0], dtype=np.int64)
-        v_nz_mask = v_start > 0
+        v_nz_mask = v_start > globals.zero_tol 
         t_start[v_nz_mask] = 1
         u_start_d[k] = u_start
         v_start_d[k] = v_start
@@ -238,13 +239,13 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
         t_start_d[k] = t_start
         alpha_l.append(alpha)
         assert (alpha<0).sum() == 0
-        assert (u_start<0).sum() == 0
-        assert (v_start<0).sum() == 0
-        assert ((y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1 - u_start + v_start) < globals.zero_tol).sum()
-        assert (u_start-M*s_start > globals.zero_tol).sum() == 0
-        assert (alpha-C*(1-s_start) > globals.zero_tol).sum() == 0
-        assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
-        assert (-alpha+C*t_start > globals.zero_tol).sum() == 0
+        assert (u_start<-globals.zero_tol).sum() == 0
+        assert (v_start<-globals.zero_tol).sum() == 0
+        assert ((y_labeled_*((ntk_labeled * alpha)@y_labeled_) - 1 - u_start + v_start) > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (u_start-M*s_start > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (alpha-C*(1-s_start) > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (v_start-Mprime*t_start > MILP_FEASIBILITY_TOL).sum() == 0
+        assert (-alpha+C*t_start > MILP_FEASIBILITY_TOL).sum() == 0
 
     
     is_robust_l = []
@@ -371,6 +372,10 @@ def certify_one_vs_all_milp(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                     m.Params.Cuts = certificate_params["Cuts"]
                 if "Heuristics" in certificate_params:
                     m.Params.Heuristics = certificate_params["Heuristics"]
+                if "Presolve" in certificate_params:
+                    m.Params.Presolve = certificate_params["Presolve"]
+                if "Threads" in certificate_params:
+                    m.Params.Threads = certificate_params["Threads"]
                 # m.Params.InfProofCuts = 0
 
                 def callback(model, where):
@@ -496,27 +501,27 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
     svm_alpha[alpha_mask] = 0
     alpha_nz_mask = svm_alpha>0 
     eq_constraint = y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1
-    eq_constraint[np.abs(eq_constraint) < MILP_INT_FEAS_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
+    eq_constraint[np.abs(eq_constraint) < MILP_FEASIBILITY_TOL] = 0 # Added bec. nec. for real data, remove if results in problems
     u_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
     v_start = np.zeros(svm_alpha.shape[0], dtype=np.float64)
     u_start[~alpha_nz_mask] = eq_constraint[~alpha_nz_mask]
     v_start[alpha_nz_mask] = -eq_constraint[alpha_nz_mask]
-    u_start[u_start<globals.zero_tol] = 0
-    v_start[v_start<globals.zero_tol] = 0
+    #u_start[u_start<globals.zero_tol] = 0
+    #v_start[v_start<globals.zero_tol] = 0
     s_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
-    u_nz_mask = u_start > 0
+    u_nz_mask = u_start > globals.zero_tol
     s_start[u_nz_mask] = 1
     t_start = np.zeros(svm_alpha.shape[0], dtype=np.int64)
     v_nz_mask = v_start > 0
     t_start[v_nz_mask] = 1
     assert (svm_alpha<0).sum() == 0
-    assert (u_start<0).sum() == 0
-    assert (v_start<0).sum() == 0
-    assert ((y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1 - u_start + v_start).sum() < globals.zero_tol)
-    assert (u_start-M*s_start > globals.zero_tol).sum() == 0
-    assert (svm_alpha-C*(1-s_start) > globals.zero_tol).sum() == 0
-    assert (v_start-Mprime*t_start > globals.zero_tol).sum() == 0
-    assert (-svm_alpha+C*t_start > globals.zero_tol).sum() == 0
+    assert (u_start<-globals.zero_tol).sum() == 0
+    assert (v_start<-globals.zero_tol).sum() == 0
+    assert ((y_labeled*((ntk_labeled * svm_alpha)@y_labeled) - 1 - u_start + v_start).sum() < MILP_FEASIBILITY_TOL)
+    assert (u_start-M*s_start > MILP_FEASIBILITY_TOL).sum() == 0
+    assert (svm_alpha-C*(1-s_start) > MILP_FEASIBILITY_TOL).sum() == 0
+    assert (v_start-Mprime*t_start > MILP_FEASIBILITY_TOL).sum() == 0
+    assert (-svm_alpha+C*t_start > MILP_FEASIBILITY_TOL).sum() == 0
 
     obj_l = []
     obj_bd_l = []
@@ -606,6 +611,8 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
                 m.Params.Cuts = certificate_params["Cuts"]
             if "Heuristics" in certificate_params:
                 m.Params.Heuristics = certificate_params["Heuristics"]
+            if "Threads" in certificate_params:
+                m.Params.Threads = certificate_params["Threads"]
 
             if obj_min:
                 m.Params.BestBdStop = MILP_OPTIMALITY_TOL + 1e-16
@@ -707,3 +714,4 @@ def certify_robust_bilevel_svm(idx_labeled, idx_test, ntk, ntk_lb, ntk_ub, y,
             logging.error("Encountered an attribute error")
             return
     return is_robust_l, obj_l, obj_bd_l, opt_status_l
+

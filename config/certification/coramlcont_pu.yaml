@@ -1,18 +1,18 @@
 seml:
-  name: mlcont_pu
-  executable: exp_certify_multiclass.py
+  name: coramlcont_bu
+  executable: exp_certify_multiclass_onenode.py
   project_root_dir: ../..
-  output_dir: log/certification
+  output_dir: log/certification_multi
 
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu,cpu_large
+    qos: deadline    
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
-    mem: 16G          # memory
-    cpus-per-task: 2  # num cores
-    time: 1-06:30     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17
+    mem: 25G          # memory
+    cpus-per-task: 4  # num cores
+    time: 1-05:30     # max time, D-HH:MM
 
 fixed:
   data_params:
@@ -27,15 +27,18 @@ fixed:
       balance_test: True
 
   certificate_params:
+    n_targets_per_class: 5
     method: XXT
-    delta_absolute: True
+    perturbation_model: l2
     attack_nodes: test
     NumericFocus: 0
     MIPFocus_first: 0
-    MIPFocus_other: 3
-    LogToConsole: 0
-    OutputFlag: 0
-    TimeLimit: 64800
+    MIPFocus_other: 0
+    LogToConsole: 1
+    OutputFlag: 1
+    Presolve: 2
+    Threads: 4
+    TimeLimit: 64600
 
   verbosity_params:
     debug_lvl: info
@@ -44,20 +47,20 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: /path/to/your/gurobi/license
+    path_gurobi_license: lukas
 
 grid:
-  
   certificate_params:
-    perturbation_model: 
-      type: choice 
-      options:
-      - l2
-
     n_adversarial:
       type: choice
       options:
-      - 142
+      #- 28
+      - 57
+      #- 142
+      #- 285
+      #- 571
+      #- 1427
+      #- 2855
 
     delta:
       type: choice
@@ -65,13 +68,16 @@ grid:
       - 0.01
       - 0.02
       - 0.05
-
+      #- 0.1
+      #- 0.2
+      #- 0.5
+    
     target_idx:
       type: range
       min: 0
-      max: 35
+      max: 70
       step: 1
-    
+
   data_params:
     specification:
       seed:
@@ -88,16 +94,17 @@ grid:
     step: 1
     zip_id: seed_opt
 
-gcn:
+
+sgc:
   fixed:
     model_params:
-      label: GCN
+      label: SGC
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.05
+      regularizer: 0.0575
       pred_method: svm
-      activation: relu
+      activation: linear
       solver: qplayer_one_vs_all
       alpha_tol: 1e-4
       bias: False
@@ -116,16 +123,29 @@ mlp:
       alpha_tol: 1e-4
       bias: False
 
-sgc:
+gcn:
   fixed:
     model_params:
-      label: SGC
+      label: GCN
       model: GCN
       normalization: row_normalization
       depth: 1
-      regularizer: 0.0575
+      regularizer: 0.05
       pred_method: svm
-      activation: linear
+      activation: relu
       solver: qplayer_one_vs_all
       alpha_tol: 1e-4
       bias: False
+
+sage:
+  fixed:
+    model_params:
+      label: GraphSAGE
+      model: GCN
+      activation: relu
+      regularizer: 0.002
+      normalization: graph_sage_normalization
+      depth: 1
+      solver: qplayer_one_vs_all
+      bias: False
+      alpha_tol: 1e-4
