@@ -1,6 +1,6 @@
 seml:
   name: bin_bu_l1
-  executable: exp_certify_backdoor_realbinary.py
+  executable: exp_certify_backdoor.py
   project_root_dir: ../..
   output_dir: log/certification
 
@@ -44,7 +44,7 @@ fixed:
     device: cpu
     dtype: float64
     allow_tf32: False
-    path_gurobi_license: lukas
+    path_gurobi_license: /path/to/gurobi.lic
 
 grid:
   
