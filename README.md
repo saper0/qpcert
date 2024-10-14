@@ -4,7 +4,7 @@ This repository provide the code to reproduce the results for the ICLR 2025 subm
 
 ## Installation
 
-The codebase is built using the NTKs from the implementation of [Provable robustness of (graph) neural networks against data poisoning and backdoor attacks](https://arxiv.org/abs/2407.10867). We thank the authors for privately sharing the repository with us. The code is developed using Python 3.11 and requires the following packages and has been tested with the listed versions:
+The codebase is built using the NTKs from the implementation of [Provable robustness of (graph) neural networks against data poisoning and backdoor attacks](https://arxiv.org/abs/2407.10867). We thank the authors for sharing the repository with us. The code is developed using Python 3.11 and requires the following packages and has been tested with the listed versions:
 
 * pytorch 2.0.1
 * pyg (pytorch geometric) 2.3.1
