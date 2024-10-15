@@ -75,8 +75,11 @@ Jupyter Notebook: `test_hyperparam.ipynb`
 
 ## Code information
 
-We used code fragments from
+Our code is an adaptation and extension of the codebase from
 
 * [Provable robustness of (graph) neural networks against data poisoning and backdoor attacks](https://arxiv.org/abs/2407.10867) 
+
+Furthermore, it contains code fragments from
+
 * [Revisiting Robustness in Graph Machine Learning](https://github.com/saper0/revisiting_robustness/)
 * [PyTorch Geometric](https://github.com/pyg-team/pytorch_geometric)
