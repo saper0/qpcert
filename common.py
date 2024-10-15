@@ -11,7 +11,6 @@ from cycler import cycler
 
 from src.graph_models.csbm import CSBM
 from src.models.ntk import NTK
-from src.attacks import create_structure_attack
 
 
 def configure_hardware(device, seed: int):
