@@ -17,7 +17,7 @@ def configure_hardware(device, seed: int):
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    # Hardware
+    # Hardware 
     #torch.backends.cuda.matmul.allow_tf32 = other_params["allow_tf32"]
     #torch.backends.cudnn.allow_tf32 = other_params["allow_tf32"]
     if not torch.cuda.is_available():

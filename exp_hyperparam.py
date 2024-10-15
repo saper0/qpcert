@@ -41,7 +41,7 @@ def config():
 
     data_params = dict(
         dataset = "csbm",
-        learning_setting = "inductive", # or "transdructive"
+        learning_setting = "inductive", # or "transdructive" 
         cv_folds = 4,
         specification = dict(
             classes = 2,

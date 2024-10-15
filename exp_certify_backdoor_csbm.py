@@ -41,7 +41,7 @@ def config():
 
     data_params = dict(
         dataset = "csbm",
-        learning_setting = "inductive", # or "transdructive"
+        learning_setting = "inductive", # or "transdructive" 
         specification = dict(
             classes = 2,
             n_trn_labeled = 600,

@@ -41,7 +41,7 @@ def config():
 
     data_params = dict(
         dataset = "cora_ml_cont",
-        learning_setting = "transductive", # or "transdructive"
+        learning_setting = "transductive", # or "transdructive" 
         specification = dict(
             n_per_class = 20,
             fraction_test = 0.1,
