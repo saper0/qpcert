@@ -1,6 +1,6 @@
 # Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoors
 
-Codebase to generated the results for the ICML 2025 submission "Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoors".
+Codebase used to generate the results for the ICLR 2025 submission "Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoors".
 
 ## Installation
 
