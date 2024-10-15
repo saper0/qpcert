@@ -75,11 +75,11 @@ Jupyter Notebook: `test_hyperparam.ipynb`
 
 ## Code information
 
-Our code is an adaptation and extension of the codebase from
+Our code is based upon the NTK implementation from
 
-* [Provable robustness of (graph) neural networks against data poisoning and backdoor attacks](https://arxiv.org/abs/2407.10867) 
+* [Provable robustness of (graph) neural networks against data poisoning and backdoor attacks](https://arxiv.org/abs/2407.10867),
 
-Furthermore, it contains code fragments from
+which is adapted & extended for this project. Furthermore, it contains code fragments from
 
 * [Revisiting Robustness in Graph Machine Learning](https://github.com/saper0/revisiting_robustness/)
 * [PyTorch Geometric](https://github.com/pyg-team/pytorch_geometric)
