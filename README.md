@@ -1,6 +1,6 @@
-# Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoors
+# Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks
 
-Codebase to generated the results for the ICML 2025 submission "Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoors".
+Codebase used to generated the results for the work [Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks](https://arxiv.org/abs/2407.10867). A preliminary version appeared at the **AdvML-Frontiers @ NeurIPS 2024** workshop and the full paper can be found on [arXiv](https://arxiv.org/abs/2407.10867).
 
 ## Installation
 
@@ -75,6 +75,38 @@ Jupyter Notebook: `test_hyperpar.ipynb`
 `seml` details:
 * Experiment source file: `exp_hyperparam.py`  
 * Experiment configurations: `config/hyperparams/`
+
+## Cite
+
+You can cite our full paper as follows:
+
+```
+@article{gosch2024provable,
+  title={Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks},
+  author={Gosch, Lukas and Sabanayagam, Mahalakshmi and Ghoshdastidar, Debarghya and G{\"u}nnemann, Stephan},
+  journal={arXiv preprint arXiv:2407.10867},
+  year={2024}
+}
+```
+
+To cite the **AdvML-Frontiers @ NeurIPS24** workshop paper, please use
+
+```
+@article{gosch2024provable,
+  title={Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks},
+  author={Gosch, Lukas and Sabanayagam, Mahalakshmi and Ghoshdastidar, Debarghya and G{\"u}nnemann, Stephan},
+  journal={The 3rd Workshop on New Frontiers in Adversarial Machine Learning, NeurIPS},
+  year={2024}
+}
+```
+
+## Contact
+
+For questions and feedback, feel free to contact
+
+Lukas Gosch, lukas (dot) gosch (at) tum (dot) de  
+Mahalakshmi Sabanayagam, m (dot) sabanayagam (at) tum (dot) de
+
 
 ## Other Notes
 
