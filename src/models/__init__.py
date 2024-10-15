@@ -7,7 +7,7 @@ MODEL_TYPE = Union[NTK, None]
 
         
 def create_model(hyperparams: Dict[str, Any]) -> MODEL_TYPE:
-    """Creates the model instance given the hyperparameters.
+    """Creates the model instance given the hyperparameters. 
 
     Args:
         hyperparams (Dict[str, Any]): Containing the hyperparameters.

@@ -25,7 +25,7 @@ def create_attack(delta: float,
         return APGD(delta, pert_model, X, A, y, idx_labeled, idx_adv, model_params, 
                     **attack_params)
     else:
-        return NotImplementedError("Requested Attack not implemented.")
+        return NotImplementedError("Requested Attack not implemented.") 
 
 
 __all__ = [create_attack, Attack]

@@ -20,7 +20,7 @@ from src import utils, globals
 
 class NTK(torch.nn.Module):
     r"""NTK for Message Passing NNs as derived in  "Analysis of Convolutions, 
-        Non-linearity and Depth in Graph Neural Networks using Neural Tangent 
+        Non-linearity and Depth in Graph Neural Networks using Neural Tangent  
         Kernel".
     """
     def __init__(self, model_dict: Dict[str, Any], 

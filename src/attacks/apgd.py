@@ -12,7 +12,7 @@ from src.attacks.utils import Projection
 from src.models.ntk import NTK
 
 class APGD(Attack):
-    """Adaptation of APGD [1] for graphs.
+    """Adaptation of APGD [1] for graphs. 
     
     [1] https://arxiv.org/pdf/2003.01690.pdf
     """

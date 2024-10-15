@@ -5,7 +5,7 @@ from src.graph_models.csbm import CSBM
 GRAPH_MODEL_TYPE = [CSBM]
 
 def create_graph_model(hyperparams: Dict[str, Any]) -> GRAPH_MODEL_TYPE:
-    """Initialize and return a graph model for synthetic graph generation.
+    """Initialize and return a graph model for synthetic graph generation. 
 
     Args:
         hyperparams (Dict[str, Any]): Parameters for initializing graph model.

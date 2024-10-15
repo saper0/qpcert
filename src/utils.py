@@ -96,7 +96,7 @@ def accuracy(logits: Union[Float[torch.Tensor, "n"], Float[torch.Tensor, "n c"]]
 
 def to_symmetric(edge_index: torch.Tensor, edge_weight: torch.Tensor,
                  n: int, op='mean') -> Tuple[torch.Tensor, torch.Tensor]:
-    """Duplicates indices in edge_index but with flipped row/col indices.
+    """Duplicates indices in edge_index but with flipped row/col indices. 
     Furthermore, edge_weights are also duplicated without change.
 
     Returns:
