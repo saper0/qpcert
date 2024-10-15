@@ -47,6 +47,7 @@ grid:
     perturbation_model: 
       type: choice 
       options:
+      - l1
       - l2
       - linf
 
@@ -168,6 +169,34 @@ appnp:
       regularizer: 0.01
       iteration: 10
       alpha: 0.2
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gin:
+  fixed:
+    model_params:
+      label: GIN
+      model: GIN
+      normalization: no_normalization
+      depth: 1
+      regularizer: 0.01
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+graphsage:
+  fixed:
+    model_params:
+      label: GraphSAGE
+      model: GCN
+      normalization: graph_sage_normalization
+      depth: 1
+      regularizer: 0.01
+      pred_method: svm
+      activation: relu
       solver: qplayer
       alpha_tol: 1e-4
       bias: False

@@ -30,7 +30,6 @@ fixed:
     attack: apgd
     max_iter: 300
     method: XXT
-    perturbation_model: linf
     normalize_grad: False
     attack_nodes: test
     delta_absolute: False
@@ -52,6 +51,12 @@ grid:
       type: choice
       options:
       - 10
+    perturbation_model: 
+      type: choice
+      options:
+      - linf
+      - l2
+      - l1
 
     n_adversarial:
       type: choice
@@ -206,3 +211,30 @@ gcn_skip_alpha:
         skip_connection: skip_alpha_linear
         skip_alpha: 0.2
 
+gin:
+  fixed:
+    model_params:
+      label: GIN
+      model: GIN
+      normalization: no_normalization
+      depth: 1
+      regularizer: 0.01
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+graphsage:
+  fixed:
+    model_params:
+      label: GraphSAGE
+      model: GCN
+      normalization: graph_sage_normalization
+      depth: 1
+      regularizer: 0.01
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
