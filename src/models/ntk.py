@@ -101,7 +101,8 @@ class NTK(torch.nn.Module):
             or self.model_dict["model"] == "SoftMedoid" \
             or self.model_dict["model"] == "PPNP" \
             or self.model_dict["model"] == "APPNP" \
-            or self.model_dict["model"] == "GIN"
+            or self.model_dict["model"] == "GIN" \
+            or self.model_dict["model"] == "linearKernel" 
         self.dtype = dtype
         if device is not None:
             self.device = device
@@ -533,6 +534,10 @@ class NTK(torch.nn.Module):
                  A: Float[torch.Tensor, "n n"]):
         """Calculate and return ntk matrix."""
         A = make_dense(A)
+        if self.model_dict["model"] == "linearKernel":
+            # NTK is simply XX^T
+            kernel = NTK._calc_XXT(X)
+            return kernel
         S = self.calc_diffusion(X, A)
         self.empty_gpu_memory()
         
