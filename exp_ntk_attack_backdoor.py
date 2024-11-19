@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Any, Dict, Union, Tuple
 import os
@@ -76,6 +77,7 @@ def config():
         delta_absolute = True, # if false interpreted as % of 2*mu
         attack_nodes = "test", # "train", "all"
         normalize_grad = False, # if gradient computation in attack should be normalized, can help escape bad initial local minima
+        evasion_attack = False, # if True, additional to poisoning attack attacks evaluated node with an evasion attack
     )
 
     verbosity_params = dict(
@@ -274,12 +276,12 @@ def run(data_params: Dict[str, Any],
 
     y_pred_clean = get_clean_acc(X, A, n_classes, y, idx_labeled, idx_test,
                                  model_params, data_params, dtype)
-    
+    # idx_targets is idx_test!
     idx_targets, idx_adv, delta = prepare_attack(attack_params, idx_test, 
                                                  idx_trn, idx_labeled,
                                                  rng, mu, device)
-    attack = create_attack(delta, attack_params, model_params,
-                            X, A, y, idx_trn, idx_labeled, idx_adv)
+    attack_pois = create_attack(delta, attack_params, model_params,
+                                X, A, y, idx_trn, idx_labeled, idx_adv)
     
     n_corr = 0
     n_corr_clean = 0
@@ -294,9 +296,17 @@ def run(data_params: Dict[str, Any],
     for i, idx_target in enumerate(idx_targets):
         if i > other_params["max_logging_iters"]:
             do_logging = False
-        # Perform Attack
+        # Perform Poisoning Attack
         idx_target = torch.tensor([idx_target], dtype=torch.long, device=X.device)
-        _, y_pert_l, y_pert = attack.attack(idx_target, do_logging)
+        X_pert, y_pert_l, y_pert = attack_pois.attack(idx_target, do_logging)
+        if torch.sgn(torch.tensor(y_pert)) == torch.sgn(y_pred_clean[i]):
+            # Perform Evasion Attack
+            attack_params_new = copy.deepcopy(attack_params)
+            attack_params_new["evasion_attack"] = True
+            attack_evasion = create_attack(delta, attack_params_new, model_params,
+                                        X_pert, A, y, idx_trn, idx_labeled, 
+                                        idx_target)
+            _, y_pert_l, y_pert = attack_evasion.attack(idx_target, do_logging)
         # Statistics
         y_pert_t = torch.tensor(y_pert, dtype=dtype, device=device)
         acc = utils.accuracy(y_pert_t, y[idx_target])

@@ -6,6 +6,7 @@ import torch
 from jaxtyping import Float, Integer
 
 from src.attacks.apgd import APGD
+from src.attacks.cgba import CGBA
 from src.attacks.pgd import PGD
 from src.attacks.base_attack import Attack
 from src.attacks.base_structure_attack import GlobalStructureAttack
@@ -19,6 +20,7 @@ def create_attack(delta: float,
                   X: Float[torch.Tensor, "n n"], 
                   A: Float[torch.Tensor, "n n"], 
                   y: Integer[torch.Tensor, "n"],
+                  idx_trn: Integer[torch.Tensor, "m"],
                   idx_labeled: Integer[torch.Tensor, "l"],
                   idx_adv: Integer[torch.Tensor, "u"]) -> Attack:
     if attack_params["attack"] == "apgd":
@@ -26,8 +28,15 @@ def create_attack(delta: float,
         pert_model = attack_params["perturbation_model"]
         del attack_params["delta"]
         del attack_params["perturbation_model"]
-        return APGD(delta, pert_model, X, A, y, idx_labeled, idx_adv, model_params, 
-                    **attack_params)
+        return APGD(delta, pert_model, X, A, y, idx_trn, idx_labeled, idx_adv, 
+                    model_params, **attack_params)
+    elif attack_params["attack"] == "cgba":
+        attack_params = copy.deepcopy(attack_params)
+        pert_model = attack_params["perturbation_model"]
+        del attack_params["delta"]
+        del attack_params["perturbation_model"]
+        return CGBA(delta, pert_model, X, A, y, idx_trn, idx_labeled, idx_adv, 
+                    model_params, **attack_params)
     elif attack_params["attack"] == "pgd":
         attack_params = copy.deepcopy(attack_params)
         pert_model = attack_params["perturbation_model"]

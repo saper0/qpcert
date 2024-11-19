@@ -420,6 +420,9 @@ class ExperimentManager:
         }"""
         color_dict = {
             "GCN": "black",
+            "GCN_csbm": "black",
+            "GCN_coramlb": "mediumseagreen",
+            "GCN_citeseerb": "fuchsia",
             "GCN_L2": "black",
             "GCN_L4": "black",
             "GCN_sym": "black",
@@ -429,6 +432,9 @@ class ExperimentManager:
             "APPNP_alpha0.3": "lime",
             "APPNP_alpha0.5": "lime",
             "SGC": "fuchsia",
+            "SGC_csbm": "black",
+            "SGC_coramlb": "mediumseagreen",
+            "SGC_citeseerb": "fuchsia",
             "SGC_sym": "fuchsia",
             "GCN_skippc": "darkslateblue",
             "GCN_skippc_L2": "darkslateblue",
@@ -438,10 +444,14 @@ class ExperimentManager:
             "GCN_skipalpha": "deepskyblue",
             "GraphSAGE": "mediumseagreen",
             "GIN": "saddlebrown",
+            "LinearKernel": "black",
             "MLP": "slategrey",
         }
         linestyle_dict = {
             "LP": '--',
+            "GCN_csbm": ":",
+            "GCN_coramlb": ":",
+            "GCN_citeseerb": ":",
             "SGC_sym": ":",
             "GCN_sym": ":",
             "APPNP_alpha0.1": (0, (3, 5, 1, 5)),
@@ -451,6 +461,7 @@ class ExperimentManager:
             "APPNP_alpha0.1_row": "dashed",
             "APPNP_alpha0.3_row": "dashed",
             "MLP": 'dashed',
+            "LinearKernel": 'dashed',
         }
         use_color=""
         linestyle="-"
@@ -669,8 +680,6 @@ class ExperimentManager:
             CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
             plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
         plt.show()
-
-
 
     def plot_certified_ratio_delta(self, models: List[str], 
                               delta_l: List[float],
@@ -924,8 +933,6 @@ class ExperimentManager:
             y_05 = y_05*100
             print(f"Model {label} has delta_m: {y_01-y_03:.2f} delta_s: {y_03-y_05:.2f}")
                     
-
-
     def plot_robust_acc_delta_nadv(self, K: float, models: List[str], C_l: List[float], 
                               attack_nodes: str, n_adv_l: List[int], delta_l: List[float],
                               width=1, ratio=1.618):

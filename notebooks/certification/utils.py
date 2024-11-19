@@ -315,6 +315,8 @@ class ExperimentManager:
                             self.experiments_dict[exp_spec["relabel"]] = {}
                     elif exp.label not in self.experiments_dict:
                         self.experiments_dict[exp.label] = {}
+                    if "attack_nodes_relabel" in exp_spec:
+                        exp.attack_nodes = exp_spec["attack_nodes_relabel"]
                     label = exp_spec["relabel"] if "relabel" in exp_spec else exp.label
                     if exp.K not in self.experiments_dict[label]:
                         self.experiments_dict[label][exp.K] = {}
@@ -348,7 +350,9 @@ class ExperimentManager:
 
     def get_style(self, label: str):
         color_dict = {
-            "APPNP_alpha1+2": 'slategrey', #MLP
+            #"APPNP_alpha1+2": 'slategrey', #MLP
+            "APPNP_alpha1": 'slategrey', #MLP
+            "APPNP_alpha2": 'slategrey', #MLP
             "MLP": 'slategrey', #MLP
             "GCN": 'tab:green', 
             "GCN_sym": 'tab:green', 
@@ -373,6 +377,7 @@ class ExperimentManager:
             "GIN": "darkslateblue",
             "GraphSage": "darkred",
             "GraphSAGE": "darkred",
+            "APPNP_alpha1_adv+2": 'slategrey', #MLP
             "GCN_adv+2": 'tab:green', 
             "APPNP_adv+2": "tab:brown",
             "SGC_adv+2": "blue",

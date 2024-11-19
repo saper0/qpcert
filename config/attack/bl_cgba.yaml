@@ -1,0 +1,215 @@
+seml:
+  name: bl
+  executable: exp_ntk_attack_backdoor.py
+  project_root_dir: ../..
+  output_dir: log/attack
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    qos: deadline      
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 10G          # memory
+    cpus-per-task: 1  # num cores
+    time: 0-05:30     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17
+
+fixed:
+  data_params:
+    learning_setting: transductive
+    specification:
+      classes: 2
+      n_trn_labeled: 40
+      n_trn_unlabeled: 0
+      n_val: 40
+      n_test: 120
+      sigma: 1
+      avg_within_class_degree: 3.16
+      avg_between_class_degree: 0.74
+
+  attack_params:
+    attack: cgba
+    trigger_size: 0.5
+    method: XXT
+    perturbation_model: linf
+    normalize_grad: True
+    attack_nodes: train_val
+    delta_absolute: False
+    gradient_method: approximate
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+    store_first_iter: 1
+    store_attack_curve: False
+
+grid:
+  
+  model_params:
+    regularizer:
+      type: choice
+      options:
+      - 0.01
+
+  attack_params:
+    eta:
+      type: choice
+      options:
+      - 2
+
+    n_adversarial:
+      type: choice
+      options:
+      - 16
+      - 80
+
+    delta:
+      type: choice
+      options:
+      - 0.01
+      - 0.02
+      - 0.05
+      - 0.1
+      - 0.2
+      - 0.5
+      - 1
+      - 5
+      - 10
+    
+    lmbda:
+      type: choice
+      options:
+      - 0.5
+
+  data_params:
+    specification:
+      seed:
+        type: range
+        min: 0
+        max: 5
+        step: 1
+        zip_id: seed_opt
+  
+  seed:
+    type: range
+    min: 0
+    max: 5
+    step: 1
+    zip_id: seed_opt
+
+apppnp:
+  fixed:
+    model_params:
+      label: APPNP
+      model: APPNP
+      normalization: sym_normalization
+      alpha: 0.2
+      iteration: 10
+      depth: 1
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gcn:
+  fixed:
+    model_params:
+      label: GCN
+      model: GCN
+      normalization: row_normalization
+      depth: 1
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+sgc:
+  fixed:
+    model_params:
+      label: SGC
+      model: GCN
+      normalization: row_normalization
+      depth: 1
+      pred_method: svm
+      activation: linear
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+mlp:
+  fixed:
+    model_params:
+      label: MLP
+      model: APPNP
+      normalization: sym_normalization
+      alpha: 1
+      iteration: 10
+      depth: 1
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+skipalpha:
+  fixed:
+    model_params:
+      label: GCN_skipalpha_linear
+      model: GCN
+      normalization: row_normalization
+      depth: 1
+      pred_method: svm
+      skip_connection: skip_alpha_linear
+      skip_alpha: 0.2
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+skippc:
+  fixed:
+    model_params:
+      label: GCN_skippc_linear
+      model: GCN
+      normalization: row_normalization
+      depth: 1
+      pred_method: svm
+      skip_connection: skip_pc_linear
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+sage:
+  fixed:
+    model_params:
+      label: GraphSAGE
+      model: GCN
+      normalization: graph_sage_normalization
+      depth: 1
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gin:
+  fixed:
+    model_params:
+      label: GIN
+      model: GIN
+      normalization: no_normalization
+      depth: 1
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
