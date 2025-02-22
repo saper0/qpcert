@@ -560,7 +560,6 @@ class NTK(torch.nn.Module):
         else:
             raise NotImplementedError("Only GCN/SoftMedoid/(A)PPNP/GIN architecture implemented")
  
-    
     @staticmethod
     def _calc_XXT(X: Float[torch.Tensor, "n d"]):
         """Uniform method to calculate XXT. Ensures symmetry.
