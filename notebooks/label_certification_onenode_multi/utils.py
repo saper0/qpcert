@@ -467,6 +467,7 @@ class ExperimentManager:
                               label_fontsize=16,
                               legend_fontsize=12,
                               ticks_fontsize=10,
+                              y_lim_ticks=1,
                               markersize=4,
                               capsize=3,
                               linewidth=1,
@@ -511,8 +512,11 @@ class ExperimentManager:
                             capsize=capsize, linewidth=linewidth, 
                             markersize=markersize)
         ax.set_ylabel("Certified Accuracy", fontsize=label_fontsize)
-        ax.set_xlabel(r"Perturbation budget $\delta$", fontsize=label_fontsize)
+        ax.set_xlabel(r"Perturbation budget $\epsilon$", fontsize=label_fontsize)
+        y_ticks_minor = np.arange(0, y_lim_ticks+0.01, 0.05)
+        ax.set_yticks(y_ticks_minor, minor=True)
         ax.yaxis.grid()
+        ax.yaxis.grid(which='minor', alpha=0.3)
         ax.xaxis.grid()
         ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
         ax.tick_params(labelsize=ticks_fontsize)
@@ -523,6 +527,117 @@ class ExperimentManager:
             plt.savefig(savedir/savefig, bbox_inches='tight')
         plt.show()
         plt.close(fig)
+
+    def plot_robust_acc_delta_v3(self, models: List[str], 
+                              delta_l: List[float],
+                              C_l=None,
+                              legend_labels: List[str]=[],
+                              certified_ratio: bool=False,
+                              width=1, ratio=1.618, 
+                              xlogscale: bool=False,
+                              savefig: str=None,
+                              use_style: bool=True,
+                              legend_y: str="",
+                              legend_x: str="",
+                              label_fontsize=16,
+                              legend_fontsize=12,
+                              ticks_fontsize=10,
+                              y_lim_ticks=1,
+                              markersize=4,
+                              capsize=3,
+                              linewidth=1,
+                              framealpha=1.0,
+                              use_custom_legend=False,
+                              legend_args=None,
+                              plot_coll_and_sample=False):
+        h, w = matplotlib.figure.figaspect(ratio / width)
+        fig, ax = plt.subplots(figsize=(w,h))
+        C_l_None_Flag = C_l
+        if not use_style:
+            self.set_color_cycler(ax)
+        if len(legend_labels) != len(models):
+            legend_labels = models
+        for (label, legend_label) in zip(models, legend_labels):
+            if C_l_None_Flag == None:
+                C_l = [key for key in self.experiments_dict[label]]
+            for C in C_l:
+                y_err_l = []
+                y_l = []
+                for delta in delta_l:
+                    if delta == 0.:
+                        exp = self.experiments_dict[label][C][delta_l[1]]
+                        y, y_std = exp.get_test_accuracy()
+                    else:
+                        exp = self.experiments_dict[label][C][delta]
+                        y, y_std = exp.get_robust_accuracy()
+                    y_l.append(y)
+                    y_err_l.append(y_std)
+                if xlogscale:
+                    ax.set_xscale('log')
+                    x = np.array(delta_l)
+                    if x[0] == 0:
+                        x[0] = 0.005
+                    self.set_xaxis_labels_logscale(ax, x, delta_l)
+                else:
+                    x = [i for i in range(len(delta_l))]
+                    self.set_xaxis_labels(ax, x, delta_l, ticks_fontsize)
+                
+                label_str = r'{0}'.format(legend_label) #+ " " + str(C)
+                if use_style:
+                    color, linestyle = self.get_style(label)
+                    ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                                color=color, linestyle=linestyle,
+                                capsize=capsize, linewidth=linewidth, 
+                                markersize=markersize)
+                else:
+                        ax.errorbar(x, y_l, yerr=y_err_l, marker="o", label=label_str, 
+                                capsize=capsize, linewidth=linewidth, 
+                                markersize=markersize)
+
+        if use_custom_legend:
+            handles, labels = plt.gca().get_legend_handles_labels()
+            newLabels, newHandles = [], []
+            for handle, label in zip(handles, labels):
+                if label not in newLabels:
+                    newLabels.append(label)
+                    newHandles.append(handle)
+            if plot_coll_and_sample:
+                if len(newLabels) % 2 == 1:
+                    newLabels.append("Sample")
+                    newLabels.append("Collective")
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+                if len(newLabels) % 2 == 0:
+                    idx = int(len(newLabels) / 2)
+                    newLabels.insert(idx, "Sample")
+                    newLabels.append("Collective")
+                    newHandles.insert(idx, plt.Line2D([0], [0], color='black', linestyle=(0, (1,1))))
+                    newHandles.append(plt.Line2D([0], [0], color='black', linestyle='-'))
+
+            ax.legend(newHandles,newLabels,
+                    fontsize=legend_fontsize, 
+                    framealpha=legend_args["framealpha"],
+                    handlelength=legend_args["handlelength"],
+                    handletextpad=legend_args["handletextpad"],
+                    labelspacing = legend_args["labelspacing"], 
+                    loc=legend_args["loc"],
+                    ncol=legend_args["ncol"],
+                    columnspacing=legend_args["columnspacing"],
+                    bbox_to_anchor=legend_args["bbox_to_anchor"])
+        else:
+            ax.legend(fontsize=legend_fontsize, framealpha=framealpha)
+        ax.set_ylabel(legend_y, fontsize=label_fontsize)
+        y_ticks_minor = np.arange(0, y_lim_ticks+0.01, 0.05)
+        ax.set_yticks(y_ticks_minor, minor=True)
+        ax.set_xlabel(legend_x, fontsize=label_fontsize)
+        ax.tick_params(labelsize=ticks_fontsize)
+        ax.yaxis.grid()
+        ax.yaxis.grid(which='minor', alpha=0.3)
+        ax.xaxis.grid()
+        if savefig:
+            CERTIFICATE_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+            plt.savefig(CERTIFICATE_FIGURE_DIR/savefig, bbox_inches='tight')
+        plt.show()
 
     def plot_robust_auc(self, models: List[str], C_l: List[float], 
                               delta_l: List[float],

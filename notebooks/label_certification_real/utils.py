@@ -444,7 +444,7 @@ class ExperimentManager:
             "GCN_skipalpha": "deepskyblue",
             "GraphSAGE": "mediumseagreen",
             "GIN": "saddlebrown",
-            "LinearKernel": "black",
+            "LinearKernel": "tab:olive",
             "MLP": "slategrey",
         }
         linestyle_dict = {
@@ -497,7 +497,7 @@ class ExperimentManager:
         ax.xaxis.set_ticks(x_ticks, minor=False)
         xticks = [f"{label}" for label in x_labels]
         ax.xaxis.set_ticklabels(xticks, fontsize=fontsize, fontweight="bold")
-        ax.set_xlim(left=-0.3)
+        #ax.set_xlim(left=-0.3)
     
     def set_xaxis_labels_logscale(self, ax, x_ticks, x_labels):
         ax.xaxis.get_major_formatter()._usetex = False
