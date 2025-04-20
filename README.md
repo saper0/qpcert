@@ -1,4 +1,3 @@
-# Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks
 
 This codebase is used to generate the results for 
 
