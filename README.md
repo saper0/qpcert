@@ -1,6 +1,10 @@
 # Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks
 
-Codebase used to generated the results for the work [Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks](https://arxiv.org/abs/2407.10867). A preliminary version appeared at the **AdvML-Frontiers @ NeurIPS 2024** workshop and the full paper can be found on [arXiv](https://arxiv.org/abs/2407.10867).
+This codebase is used to generate the results for 
+
+1. [Exact Certification of (Graph) Neural Networks Against Label Poisoning](https://arxiv.org/abs/2412.00537) published at ICLR 2025. 
+
+2. [Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks](https://arxiv.org/abs/2407.10867). A preliminary version appeared at the **AdvML-Frontiers @ NeurIPS 2024** workshop and the full paper can be found on [arXiv](https://arxiv.org/abs/2407.10867).
 
 ## Installation
 
@@ -28,7 +32,48 @@ Experiments were run using the [seml](https://github.com/TUM-DAML/seml/tree/mast
 
 We define the following experiments:
 
-### Certify Poisoning (Binary)
+### Label Certification Experiments
+
+#### Certify Label Poisoning (Binary)
+
+To speed up the certification, we do parallel processing by certifying each node separately. Check Jupyter Notebook: `test_certify_label_binaryclass_onenode.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_certify_label_binaryclass_onenode.py`  
+* Experiment configurations: `config/label_certification_binary_onenode/`
+
+Check Jupyter Notebook: `test_certify_label_binaryclass.ipynb` for implementation without parallel processing.
+
+`seml` details:
+* Experiment source file: `exp_certify_label_binaryclass.py`  
+* Experiment configurations: `config/label_certification_binary/`
+
+
+#### Certify Label Poisoning (Multi-Class)
+
+Jupyter Notebook: `test_certify_label_multiclass_onenode.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_certify_multiclass_onenode.py`  
+* Experiment configurations: `config/label_certification_multiclass_onenode/`
+
+To improve the scalability, we provide an inexact implementation of the certificate as discussed in Appendix A. See Jupyter Notebook: `test_certify_label_multiclass_onenode_inexact.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_certify_multiclass_onenode_inexact.py`  
+* Experiment configurations: `config/label_certification_multiclass_onenode_inexact/`
+
+#### Certify Label Poisoning (Collective)
+
+Jupyter Notebook: `test_collective.ipynb`
+
+`seml` details:
+* Experiment source file: `exp_certify_collective_label.py`  
+* Experiment configurations: `config/label_certification_collective/`
+
+### Data Poisoning and Backdoor Attacks Experiments
+
+#### Certify Poisoning (Binary)
 
 Jupyter Notebook: `test_certify.ipynb`
 
@@ -36,7 +81,7 @@ Jupyter Notebook: `test_certify.ipynb`
 * Experiment source file: `exp_certify.py`  
 * Experiment configurations: `config/certification/`
 
-### Certify Poisoning (Multi-Class)
+#### Certify Poisoning (Multi-Class)
 
 Jupyter Notebook: `test_certify_multiclass.ipynb`
 
@@ -44,7 +89,7 @@ Jupyter Notebook: `test_certify_multiclass.ipynb`
 * Experiment source file: `exp_certify_multiclass.py`  
 * Experiment configurations: `config/certification/`
 
-### Certify Backdooring (Cora-MLb, WikiCSb)
+#### Certify Backdooring (Cora-MLb, WikiCSb)
 
 Jupyter Notebook: `exp_certify_backdoor.ipynb`
 
@@ -52,7 +97,7 @@ Jupyter Notebook: `exp_certify_backdoor.ipynb`
 * Experiment source file: `exp_certify_backdoor.py`  
 * Experiment configurations: `config/certification/`
 
-### Certify Backdooring (CSBM)
+#### Certify Backdooring (CSBM)
 
 Jupyter Notebook: `test_certify_backdoor_csbm.ipynb`
 
@@ -60,7 +105,7 @@ Jupyter Notebook: `test_certify_backdoor_csbm.ipynb`
 * Experiment source file: `exp_certify_backdoor_csbm.py`  
 * Experiment configurations: `config/certification/`
 
-### Adversarial Attack (Tightness Evaluation)
+#### Adversarial Attack (Tightness Evaluation)
 
 Jupyter Notebook: `test_attack.ipynb`
 
@@ -78,9 +123,18 @@ Jupyter Notebook: `test_hyperpar.ipynb`
 
 ## Cite
 
-You can cite our full paper as follows:
+You can cite our papers as follows:
 
 ```
+@inproceedings{
+sabanayagam2025exact,
+title={Exact Certification of (Graph) Neural Networks Against Label Poisoning},
+author={Mahalakshmi Sabanayagam and Lukas Gosch and Stephan G{\"u}nnemann and Debarghya Ghoshdastidar},
+booktitle={The Thirteenth International Conference on Learning Representations},
+year={2025},
+url={https://openreview.net/forum?id=d9aWa875kj}
+}
+
 @article{gosch2024provable,
   title={Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks},
   author={Gosch, Lukas and Sabanayagam, Mahalakshmi and Ghoshdastidar, Debarghya and G{\"u}nnemann, Stephan},
