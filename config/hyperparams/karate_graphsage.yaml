@@ -1,5 +1,5 @@
 seml:
-  name: binary_gcn
+  name: cora_sgc_hyperparams
   executable: exp_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -7,29 +7,30 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu,cpu_large
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
-    mem: 10G          # memory
+    mem: 12G          # memory
     cpus-per-task: 1  # num cores
     time: 0-00:15     # max time, D-HH:MM
 
 fixed:
   data_params:
+    dataset: karate_club
     learning_setting: transductive
     cv_folds: 4
     specification:
-      n_per_class: 5
+      n_per_class: 2
       fraction_test: 0.1
       data_dir: ./data
       balance_test: True
 
   model_params:
-    label: GCN
+    label: GraphSAGE
     model: GCN
-    activation: relu
-    normalization: sym_normalization
+    normalization: graph_sage_normalization
     depth: 1
     solver: qplayer
+    activation: relu
     bias: False
     alpha_tol: 1e-4
 
@@ -42,15 +43,8 @@ fixed:
     allow_tf32: False
 
 grid:
-  
-  data_params:
-    dataset:
-      type: choice
-      options:
-      - cora_ml_cont_binary
 
   model_params:
-
     pred_method:
       type: choice
       options:
@@ -60,18 +54,28 @@ grid:
       type: choice
       options:
       - 0.001
+      # - 0.0015
+      - 0.002
+      # - 0.0025
+      - 0.003
+      # - 0.0035
+      - 0.004
+      # - 0.0045
       - 0.005
+      # - 0.0055
+      - 0.006
+      # - 0.0065
+      - 0.007
+      # - 0.0075
+      - 0.008
+      # - 0.0085
+      - 0.009
+      # - 0.0095
       - 0.01
-      - 0.05
-      - 0.1
-      - 0.25
-      - 0.5
-      - 0.75
-      - 1
-      - 2.5
-      - 5
-      - 7.5
-      - 10
+      # - 0.1
+      # - 1
+      # - 5
+      # - 10
   
 
 seeds:

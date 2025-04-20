@@ -1,0 +1,147 @@
+seml:
+  name: cba_hyper_graphsage
+  executable: exp_hyperparam.py
+  project_root_dir: ../..
+  output_dir: log/hyperparam
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 10G          # memory
+    cpus-per-task: 1  # num cores
+    time: 0-05:00     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17,gpu21
+
+fixed:
+  data_params:
+    dataset: cba
+    learning_setting: transductive
+    specification:
+      classes: 2
+      # n_trn_labeled: 20
+      n_trn_unlabeled: 0
+      # n_val: 20
+      # n_test: 160
+      sigma: 1
+      m: 2
+      avg_within_class_degree: 3.16
+      avg_between_class_degree: 0.74
+
+  model_params:
+    label: GraphSAGE
+    model: GCN
+    pred_method: svm
+    activation: relu
+    solver: qplayer
+    alpha_tol: 1e-4
+    bias: False
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+    path_gurobi_license: path/to/your/gurobi/license
+
+grid:
+  data_params:
+    specification:
+      # avg_within_class_degree:
+      #   type: choice
+      #   options:
+      #   - 6.32 
+      #   - 1.58
+      #   - 0.79
+      #   zip_id: sparsity
+
+      # avg_between_class_degree:
+      #   type: choice
+      #   options:
+      #   - 1.48
+      #   - 0.37
+      #   - 0.185
+      #   zip_id: sparsity
+
+      n_trn_labeled:
+        type: choice
+        options:
+        # - 40
+        # - 20
+        - 10
+        zip_id: num_samples
+
+      n_val:
+        type: choice
+        options:
+        # - 40
+        # - 20
+        - 10
+        zip_id: num_samples
+      
+      n_test:
+        type: choice
+        options:
+        # - 120
+        # - 160
+        - 180
+        zip_id: num_samples
+
+  model_params:
+    # label:
+    #     type: choice
+    #     options:
+    #     - GCN_sparsity_1
+    #     - GCN_sparsity_2
+    #     - GCN_sparsity_3
+    #     zip_id: sparsity
+
+    normalization:
+      type: choice
+      options:
+      - graph_sage_normalization
+
+    depth:
+      type: choice
+      options:
+      - 1
+      - 2
+      - 4
+
+    regularizer:
+      type: choice
+      options:
+      - 0.001
+      - 0.005
+      - 0.01
+      - 0.025
+      - 0.05
+      - 0.1
+      - 0.25
+      - 0.5
+      - 1
+      - 5
+      - 10
+
+
+seeds:
+  grid:
+    data_params:
+      specification:
+        seed:
+          type: range
+          min: 0
+          max: 10
+          step: 1
+          zip_id: seed_opt
+    
+    seed:
+      type: range
+      min: 0
+      max: 10
+      step: 1
+      zip_id: seed_opt
+

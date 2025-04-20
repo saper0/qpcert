@@ -1,13 +1,13 @@
 seml:
   name: binary_gcn
-  executable: exp_hyperparam.py
+  executable: exp_ntk_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
 
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu,cpu_large
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
@@ -24,11 +24,10 @@ fixed:
       balance_test: True
 
   model_params:
-    label: SGC
+    label: GCN_skippc
     model: GCN
-    activation: linear
+    activation: relu
     normalization: row_normalization
-    depth: 1
     solver: qplayer
     bias: False
     alpha_tol: 1e-4
@@ -47,9 +46,16 @@ grid:
     dataset:
       type: choice
       options:
-      - cora_ml_cont_binary
+      - cora_ml_binary
 
   model_params:
+    depth:
+      type: choice
+      options:
+      - 2
+      - 4
+      - 8
+      - 16
 
     pred_method:
       type: choice
@@ -60,9 +66,13 @@ grid:
       type: choice
       options:
       - 0.001
+      - 0.0025
       - 0.005
+      - 0.0075
       - 0.01
+      - 0.025
       - 0.05
+      - 0.075
       - 0.1
       - 0.25
       - 0.5
@@ -72,6 +82,11 @@ grid:
       - 5
       - 7.5
       - 10
+
+    skip_connection:
+      type: choice
+      options:
+      - skip_pc_linear
   
 
 seeds:

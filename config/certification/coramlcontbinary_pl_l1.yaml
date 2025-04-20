@@ -1,6 +1,6 @@
 seml:
   name: l1_bin_pu_cert
-  executable: exp_ntk_certify.py
+  executable: exp_certify.py
   project_root_dir: ../..
   output_dir: log/certification
 

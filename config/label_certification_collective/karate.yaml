@@ -1,0 +1,186 @@
+seml:
+  name: label_karate
+  executable: exp_certify_collective_label.py
+  project_root_dir: ../..
+  output_dir: log/label_collect
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    partition: cpu_all,cpu_large
+    gres: gpu:0       # num gpu
+    mem: 10G          # memory 10G was not enough in some cases
+    cpus-per-task: 2  # num cores
+    time: 2-20:30     # max time, D-HH:MM
+    exclude: gpu14,gpu16,gpu17
+
+fixed:
+  data_params:
+    dataset: karate_club
+    learning_setting: transductive
+    specification:
+      n_per_class: 2
+      fraction_test: 0.1
+      data_dir: ./data
+      balance_test: True
+  
+  certificate_params:
+    TimeLimit: 36000
+    LogToConsole: 1
+    OutputFlag: 1
+
+  verbosity_params:
+    debug_lvl: info
+
+  other_params:
+    device: cpu
+    dtype: float64
+    allow_tf32: False
+    path_gurobi_license: path/to/your/gurobi/license
+
+grid:
+  
+  model_params:
+    regularizer:
+      type: choice
+      options:
+      - 0.001
+      - 0.01
+      # - 0.1
+      #- 1
+
+  certificate_params:
+    delta:
+      type: choice
+      options:
+      # - 0.1 # 0 for 8 
+      - 0.2 # 1  
+      - 0.3 # 2 
+      - 0.4 # 3 
+      - 0.5 # 4
+      - 0.7 # 5
+      - 0.8 # 6
+      - 0.9 # 7
+      - 1.0 # 8
+  
+  data_params:
+    specification:
+      seed:
+        type: range
+        min: 0
+        max: 5
+        step: 1
+        zip_id: seed_opt
+  
+  seed:
+    type: range
+    min: 0
+    max: 5
+    step: 1
+    zip_id: seed_opt
+  
+gcn:
+  fixed:
+    model_params:
+      model: GCN
+      label: GCN
+      depth: 1
+      normalization: row_normalization
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gcn_sym:
+  fixed:
+    model_params:
+      model: GCN
+      label: GCN_sym
+      depth: 1
+      normalization: sym_normalization
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+sgc:
+  fixed:
+    model_params:
+      model: GCN
+      label: SGC
+      depth: 1
+      normalization: row_normalization
+      pred_method: svm
+      activation: linear
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+sgc_sym:
+  fixed:
+    model_params:
+      model: GCN
+      label: SGC_sym
+      depth: 1
+      normalization: sym_normalization
+      pred_method: svm
+      activation: linear
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+mlp:
+  fixed:
+    model_params:
+      label: MLP
+      model: APPNP
+      activation: relu
+      normalization: sym_normalization
+      iteration: 10
+      alpha: 1
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+appnp:
+  fixed:
+    model_params:
+      label: APPNP
+      model: APPNP
+      activation: relu
+      normalization: sym_normalization
+      iteration: 10
+      alpha: 0.2
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+gin:
+  fixed:
+    model_params:
+      label: GIN
+      model: GIN
+      normalization: no_normalization
+      depth: 1
+      # regularizer: 0.001
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False
+
+graphsage:
+  fixed:
+    model_params:
+      label: GraphSAGE
+      model: GCN
+      normalization: graph_sage_normalization
+      depth: 1
+      # regularizer: 0.001
+      pred_method: svm
+      activation: relu
+      solver: qplayer
+      alpha_tol: 1e-4
+      bias: False

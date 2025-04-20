@@ -1,5 +1,5 @@
 seml:
-  name: binary_gcn
+  name: binary_appnp
   executable: exp_hyperparam.py
   project_root_dir: ../..
   output_dir: log/hyperparam
@@ -7,11 +7,12 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu,cpu_large
+    qos: phdcpu      
+    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 10G          # memory
     cpus-per-task: 1  # num cores
-    time: 0-00:15     # max time, D-HH:MM
+    time: 0-00:30     # max time, D-HH:MM
 
 fixed:
   data_params:
@@ -24,14 +25,14 @@ fixed:
       balance_test: True
 
   model_params:
-    label: GCN
-    model: GCN
+    label: MLP
+    model: APPNP
     activation: relu
-    normalization: row_normalization
-    depth: 1
+    normalization: sym_normalization
+    iteration: 10
     solver: qplayer
-    bias: False
     alpha_tol: 1e-4
+    bias: False
 
   verbosity_params:
     debug_lvl: info
@@ -50,6 +51,10 @@ grid:
       - cora_ml_cont_binary
 
   model_params:
+    alpha:
+      type: choice
+      options:
+      - 1
 
     pred_method:
       type: choice

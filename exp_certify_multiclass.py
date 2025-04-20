@@ -12,7 +12,6 @@ import seml
 import torch
 
 from src import utils, globals
-from src.attacks import create_structure_attack
 from src.data import get_graph, split
 from src.models.ntk import NTK
 from common import count_edges_for_idx
@@ -41,7 +40,7 @@ def config():
 
     data_params = dict(
         dataset = "cora_ml_cont",
-        learning_setting = "transductive", # or "transdructive" 
+        learning_setting = "transductive", # or "transdructive"
         specification = dict(
             n_per_class = 20,
             fraction_test = 0.1,
