@@ -7,12 +7,10 @@ seml:
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 12G          # memory
     cpus-per-task: 1  # num cores
     time: 1-05:30     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:

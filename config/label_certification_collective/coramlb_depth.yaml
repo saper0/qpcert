@@ -1,18 +1,16 @@
 seml:
   name: mlb_coll
-  executable: exp_ntk_certify_collective_label.py
+  executable: exp_certify_label_collective.py
   project_root_dir: ../..
   output_dir: log/label_collect
 
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 12G          # memory
     cpus-per-task: 2  # num cores
     time: 3-05:30     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:

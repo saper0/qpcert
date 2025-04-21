@@ -1,18 +1,17 @@
 seml:
   name: label_sbm
-  executable: exp_certify_collective_label.py
+  executable: exp_certify_label_collective.py
   project_root_dir: ../..
   output_dir: log/label_collect
 
 slurm:
   experiments_per_job: 1
   sbatch_options:
-    partition: cpu_all,cpu_large
     gres: gpu:0       # num gpu
     mem: 30G          # memory
     cpus-per-task: 2  # num cores
     time: 1-20:30     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17,gpu21
+
 
 fixed:
   data_params:

@@ -11,7 +11,6 @@ slurm:
     mem: 12G          # memory
     cpus-per-task: 2  # num cores
     time: 3-05:30     # max time, D-HH:MM
-    exclude: gpu14,gpu16,gpu17
 
 fixed:
   data_params:

@@ -8,7 +8,6 @@ slurm:
   experiments_per_job: 1
   sbatch_options:
     qos: phdcpu      
-    partition: cpu,cpu_large
     gres: gpu:0       # num gpu
     mem: 12G          # memory
     cpus-per-task: 1  # num cores
