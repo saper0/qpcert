@@ -40,7 +40,7 @@ For fast certification, we allow for parallel processing by certifying each node
 * Experiment source file: `exp_labelcert_binaryclass_onenode.py`  
 * Experiment configurations: `config/label_certification_binary_onenode/`
 
-To certify all test nodes sequentially without parallization (potentially slower), see the jupyter notebook `labelcert_label_binaryclass.ipynb` and the following `seml` files:
+To certify all test nodes sequentially without parallization (potentially slower), see the jupyter notebook `labelcert_binaryclass.ipynb` and the following `seml` files:
 
 * Experiment source file: `exp_labelcert_binaryclass.py`  
 * Experiment configurations: `config/label_certification_binary/`
@@ -53,7 +53,7 @@ Jupyter Notebook: `labelcert_multiclass_onenode.ipynb`
 * Experiment source file: `exp_qpcert_multiclass_onenode.py`  
 * Experiment configurations: `config/label_certification_multiclass_onenode/`
 
-For better scalability, we provide an inexact implementation of the certificate as discussed in Appendix A. We refer to the jupyter notebook `labelcert_label_multiclass_onenode_inexact.ipynb` and the `seml` files
+For better scalability, we provide an inexact implementation of the certificate as discussed in Appendix A. We refer to the jupyter notebook `labelcert_multiclass_onenode_inexact.ipynb` and the `seml` files
 
 * Experiment source file: `exp_qpcert_multiclass_onenode_inexact.py`  
 * Experiment configurations: `config/label_certification_multiclass_onenode_inexact/`
