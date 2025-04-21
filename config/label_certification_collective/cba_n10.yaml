@@ -1,6 +1,6 @@
 seml:
   name: label_cba
-  executable: exp_certify_label_collective.py
+  executable: exp_labelcert_collective.py
   project_root_dir: ../..
   output_dir: log/label_collect
 

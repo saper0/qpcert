@@ -1,6 +1,6 @@
 seml:
   name: wb_pl_cert
-  executable: exp_certify.py
+  executable: exp_qpcert.py
   project_root_dir: ../..
   output_dir: log/certification
 

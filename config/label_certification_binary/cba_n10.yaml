@@ -1,8 +1,8 @@
 seml:
   name: label_cba
-  executable: exp_certify_label_binaryclass.py
+  executable: exp_labelcert_binaryclass.py
   project_root_dir: ../..
-  output_dir: log/label_bdev
+  output_dir: log/label
 
 slurm:
   experiments_per_job: 1

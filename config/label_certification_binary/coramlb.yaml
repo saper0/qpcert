@@ -1,6 +1,6 @@
 seml:
   name: mlb_label
-  executable: exp_certify_label.py
+  executable: exp_labelcert.py
   project_root_dir: ../..
   output_dir: log/label
 

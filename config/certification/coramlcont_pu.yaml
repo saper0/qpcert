@@ -1,6 +1,6 @@
 seml:
   name: coramlcont_bu
-  executable: exp_certify_multiclass_onenode.py
+  executable: exp_qpcert_multiclass_onenode.py
   project_root_dir: ../..
   output_dir: log/certification_multi
 

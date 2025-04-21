@@ -37,12 +37,12 @@ We define the following experiments:
 For fast certification, we allow for parallel processing by certifying each node separately. See Jupyter Notebook: `labelcert_binaryclass_onenode.ipynb`
 
 `seml` details:
-* Experiment source file: `exp_certify_label_binaryclass_onenode.py`  
+* Experiment source file: `exp_labelcert_binaryclass_onenode.py`  
 * Experiment configurations: `config/label_certification_binary_onenode/`
 
 To certify all test nodes sequentially without parallization (potentially slower), see the jupyter notebook `labelcert_label_binaryclass.ipynb` and the following `seml` files:
 
-* Experiment source file: `exp_certify_label_binaryclass.py`  
+* Experiment source file: `exp_labelcert_binaryclass.py`  
 * Experiment configurations: `config/label_certification_binary/`
 
 #### Certify Label Poisoning (Multi-Class)
@@ -50,12 +50,12 @@ To certify all test nodes sequentially without parallization (potentially slower
 Jupyter Notebook: `labelcert_multiclass_onenode.ipynb`
 
 `seml` details:
-* Experiment source file: `exp_certify_multiclass_onenode.py`  
+* Experiment source file: `exp_qpcert_multiclass_onenode.py`  
 * Experiment configurations: `config/label_certification_multiclass_onenode/`
 
 For better scalability, we provide an inexact implementation of the certificate as discussed in Appendix A. We refer to the jupyter notebook `labelcert_label_multiclass_onenode_inexact.ipynb` and the `seml` files
 
-* Experiment source file: `exp_certify_multiclass_onenode_inexact.py`  
+* Experiment source file: `exp_qpcert_multiclass_onenode_inexact.py`  
 * Experiment configurations: `config/label_certification_multiclass_onenode_inexact/`
 
 #### Certify Label Poisoning (Collective)
@@ -63,7 +63,7 @@ For better scalability, we provide an inexact implementation of the certificate 
 Jupyter Notebook: `test_collective.ipynb`
 
 `seml` details:
-* Experiment source file: `exp_certify_collective_label.py`  
+* Experiment source file: `exp_qpcert_collective_label.py`  
 * Experiment configurations: `config/label_certification_collective/`
 
 ### Data Poisoning and Backdoor Attacks Experiments (QPCert)
@@ -73,7 +73,7 @@ Jupyter Notebook: `test_collective.ipynb`
 Jupyter Notebook: `test_certify.ipynb`
 
 `seml` details:
-* Experiment source file: `exp_certify.py`  
+* Experiment source file: `exp_qpcert.py`  
 * Experiment configurations: `config/certification/`
 
 #### Certify Poisoning (Multi-Class)
@@ -81,15 +81,15 @@ Jupyter Notebook: `test_certify.ipynb`
 Jupyter Notebook: `test_certify_multiclass.ipynb`
 
 `seml` details:
-* Experiment source file: `exp_certify_multiclass.py`  
+* Experiment source file: `exp_qpcert_multiclass.py`  
 * Experiment configurations: `config/certification/`
 
 #### Certify Backdooring (Cora-MLb, WikiCSb)
 
-Jupyter Notebook: `exp_certify_backdoor.ipynb`
+Jupyter Notebook: `exp_qpcert_backdoor.ipynb`
 
 `seml` details:
-* Experiment source file: `exp_certify_backdoor.py`  
+* Experiment source file: `exp_qpcert_backdoor.py`  
 * Experiment configurations: `config/certification/`
 
 #### Certify Backdooring (CSBM)
@@ -97,7 +97,7 @@ Jupyter Notebook: `exp_certify_backdoor.ipynb`
 Jupyter Notebook: `test_certify_backdoor_csbm.ipynb`
 
 `seml` details:
-* Experiment source file: `exp_certify_backdoor_csbm.py`  
+* Experiment source file: `exp_qpcert_backdoor_csbm.py`  
 * Experiment configurations: `config/certification/`
 
 #### Adversarial Attack (Tightness Evaluation)

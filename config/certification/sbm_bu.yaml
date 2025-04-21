@@ -1,6 +1,6 @@
 seml:
   name: sbm_bu_cert
-  executable: exp_certify_backdoor_csbm.py
+  executable: exp_qpcert_backdoor_csbm.py
   project_root_dir: ../..
   output_dir: log/certificate
 

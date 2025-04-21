@@ -1,6 +1,6 @@
 seml:
   name: c_ex
-  executable: exp_ntk_certify_label_multiclass_onenode.py
+  executable: exp_labelcert_multiclass_onenode.py
   project_root_dir: ../..
   output_dir: log/label
 
