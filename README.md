@@ -2,7 +2,7 @@ This codebase is used to generate the results for
 
 1. [Exact Certification of (Graph) Neural Networks Against Label Poisoning](https://arxiv.org/abs/2412.00537) published at ICLR 2025 (Spotlight). 
 
-2. [Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks](https://arxiv.org/abs/2407.10867). A preliminary version appeared at the **AdvML-Frontiers @ NeurIPS 2024** workshop and the full paper can be found on [arXiv](https://arxiv.org/abs/2407.10867).
+2. [Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks](https://arxiv.org/abs/2407.10867) published at TMLR 2025, and winning the **best paper award** at the AdvML-Frontiers @ NeurIPS 2024 workshop.
 
 ## Installation
 
@@ -125,16 +125,16 @@ You can cite our papers as follows:
   sabanayagam2025exact,
   title={Exact Certification of (Graph) Neural Networks Against Label Poisoning},
   author={Mahalakshmi Sabanayagam and Lukas Gosch and Stephan G{\"u}nnemann and Debarghya Ghoshdastidar},
-  booktitle={The Thirteenth International Conference on Learning Representations},
+  booktitle={International Conference on Learning Representations (ICLR)},
   year={2025},
   url={https://openreview.net/forum?id=d9aWa875kj}
 }
 
-@article{gosch2024provable,
+@article{gosch2025provable,
   title={Provable Robustness of (Graph) Neural Networks Against Data Poisoning and Backdoor Attacks},
   author={Gosch, Lukas and Sabanayagam, Mahalakshmi and Ghoshdastidar, Debarghya and G{\"u}nnemann, Stephan},
-  journal={arXiv preprint arXiv:2407.10867},
-  year={2024}
+  journal={Transactions of Machine Learning Research (TMLR)},
+  year={2025}
 }
 ```
 
